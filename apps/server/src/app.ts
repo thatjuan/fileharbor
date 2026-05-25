@@ -9,6 +9,7 @@ import type { ReceiveLinksModule } from './links/receive-links.js';
 import type { SendLinksModule } from './links/send-links.js';
 import { createFilesRoute } from './routes/files.js';
 import { healthRoute } from './routes/health.js';
+import { createPublicDownloadTicketsRoute } from './routes/public-download-tickets.js';
 import { createPublicReceiveLinksRoute } from './routes/public-receive-links.js';
 import { createPublicSendLinksRoute } from './routes/public-send-links.js';
 import { createPublicUploadTicketsRoute } from './routes/public-upload-tickets.js';
@@ -107,6 +108,7 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
     createPublicSendLinksRoute(sendLinksModule, filesModule, downloadTicketsModule),
   );
   publicApi.route('/upload-tickets', createPublicUploadTicketsRoute(uploadTicketsModule));
+  publicApi.route('/download-tickets', createPublicDownloadTicketsRoute(downloadTicketsModule));
   api.route('/public', publicApi);
 
   app.route('/api', api);

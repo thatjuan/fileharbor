@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
+import { hashPassword } from '@better-auth/utils/password';
 
 import type { Db } from '../db/client.js';
 import { files, sendLinks } from '../db/schema.js';
@@ -60,6 +61,12 @@ export interface SendLinksModule {
 
 export interface CreateSendLinkInput {
   label: string;
+  /** Optional plaintext password. Hashed before storage; never persisted raw. */
+  password?: string | null;
+  /** Optional positive integer cap on completed recipient downloads. */
+  maxDownloads?: number | null;
+  /** Optional expiry as unix epoch seconds, UTC. */
+  expiresAt?: number | null;
 }
 
 export function createSendLinksModule(db: Db): SendLinksModule {
@@ -71,14 +78,41 @@ export function createSendLinksModule(db: Db): SendLinksModule {
   return {
     async create(input) {
       // Mirror `receive-links.create`'s validation: trim, non-empty, capped.
-      // Send links pick up `null` for password/quota/expiry in this slice —
-      // #11 will widen this input.
       const trimmedLabel = input.label.trim();
       if (trimmedLabel.length === 0) {
         throw new Error('label_required');
       }
       if (trimmedLabel.length > 256) {
         throw new Error('label_too_long');
+      }
+
+      // `maxDownloads`: a positive integer or null. Mirrors `max_uploads`
+      // validation on the receive side — 0/negative/non-integer is a typo,
+      // not "unlimited".
+      let maxDownloads: number | null = null;
+      if (input.maxDownloads !== undefined && input.maxDownloads !== null) {
+        if (!Number.isInteger(input.maxDownloads) || input.maxDownloads < 1) {
+          throw new Error('invalid_max_downloads');
+        }
+        maxDownloads = input.maxDownloads;
+      }
+
+      // `expiresAt`: unix epoch seconds, UTC. Same shape as the receive side —
+      // any integer is accepted, including already-past values for testing the
+      // `expired` branch deterministically.
+      let expiresAt: number | null = null;
+      if (input.expiresAt !== undefined && input.expiresAt !== null) {
+        if (!Number.isInteger(input.expiresAt)) {
+          throw new Error('invalid_expires_at');
+        }
+        expiresAt = input.expiresAt;
+      }
+
+      // Password (optional). Hashed with Better Auth's scrypt helper — same
+      // primitive the receive side uses, same primitive the admin login uses.
+      let passwordHash: string | null = null;
+      if (input.password !== undefined && input.password !== null && input.password.length > 0) {
+        passwordHash = await hashPassword(input.password);
       }
 
       const code = await mintUniqueCode(codeExists);
@@ -90,10 +124,10 @@ export function createSendLinksModule(db: Db): SendLinksModule {
           id,
           code,
           label: trimmedLabel,
-          passwordHash: null,
-          maxDownloads: null,
+          passwordHash,
+          maxDownloads,
           downloadCount: 0,
-          expiresAt: null,
+          expiresAt,
           status: 'active',
           createdAt,
         })
@@ -103,10 +137,10 @@ export function createSendLinksModule(db: Db): SendLinksModule {
         id,
         code,
         label: trimmedLabel,
-        passwordHash: null,
-        maxDownloads: null,
+        passwordHash,
+        maxDownloads,
         downloadCount: 0,
-        expiresAt: null,
+        expiresAt,
         status: 'active',
         createdAt,
       };

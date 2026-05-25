@@ -93,6 +93,10 @@ export function SendLinkDetailPage(): JSX.Element {
               </div>
             </div>
             <div>
+              <div className="muted small">Password</div>
+              <div>{data.link.passwordProtected ? 'Protected' : 'None'}</div>
+            </div>
+            <div>
               <div className="muted small">Downloads</div>
               <div>
                 {data.link.downloadCount}
@@ -100,6 +104,10 @@ export function SendLinkDetailPage(): JSX.Element {
                   ? ` used / ${data.link.maxDownloads} max`
                   : ' (unlimited)'}
               </div>
+            </div>
+            <div>
+              <div className="muted small">Expires</div>
+              <div>{formatExpiry(data.link.expiresAt)}</div>
             </div>
           </section>
 
@@ -140,4 +148,19 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+/**
+ * Mirror of the receive-side `formatExpiry`: includes timezone abbreviation
+ * and an "expired" suffix when the timestamp is in the past.
+ */
+function formatExpiry(epochSeconds: number | null): string {
+  if (epochSeconds === null) return 'Never';
+  const date = new Date(epochSeconds * 1000);
+  const tz =
+    Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
+      .formatToParts(date)
+      .find((p) => p.type === 'timeZoneName')?.value ?? '';
+  const expired = date.getTime() <= Date.now();
+  return `${date.toLocaleString()}${tz ? ` (${tz})` : ''}${expired ? ' — expired' : ''}`;
 }
