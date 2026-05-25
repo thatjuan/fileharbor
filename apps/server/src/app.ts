@@ -6,6 +6,7 @@ import type { AuthModule } from './auth/index.js';
 import type { AppConfig } from './config.js';
 import { healthRoute } from './routes/health.js';
 import { createSetupRoute } from './routes/setup.js';
+import type { StorageProvider } from './storage/index.js';
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -41,7 +42,15 @@ function contentTypeFor(filePath: string): string {
  * In development we don't serve static assets at all — the Vite dev server
  * does, and proxies `/api/*` to this Hono instance.
  */
-export function createApp(config: AppConfig, authModule: AuthModule): Hono {
+export function createApp(
+  config: AppConfig,
+  authModule: AuthModule,
+  // Storage is constructed and verified in `main()` and threaded through here
+  // so route modules can receive it via the same DI pattern used for auth.
+  // No route consumes it yet (#5+); the parameter is in place to avoid
+  // churning every call site when those routes land.
+  _storage: StorageProvider,
+): Hono {
   const app = new Hono();
 
   // Better Auth exposes its own fetch handler at /api/auth/*. It is not a

@@ -40,7 +40,12 @@ export default [
     },
   },
   {
-    files: ['apps/server/**/*.{ts,js}', 'apps/web/vite.config.ts', 'eslint.config.js'],
+    files: [
+      'apps/server/**/*.{ts,js}',
+      'apps/web/vite.config.ts',
+      'eslint.config.js',
+      'scripts/**/*.{js,mjs,cjs}',
+    ],
     languageOptions: {
       globals: {
         ...globals.node,

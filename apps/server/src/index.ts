@@ -6,6 +6,7 @@ import { createApp } from './app.js';
 import { createAuthModule, maybeSeedAdmin } from './auth/index.js';
 import { loadConfig } from './config.js';
 import { openDatabase } from './db/client.js';
+import { createStorageProvider, verifyStorage } from './storage/index.js';
 
 /**
  * Entry point. Resolves config from env, opens the SQLite DB (running pending
@@ -16,14 +17,19 @@ import { openDatabase } from './db/client.js';
  * step. The same `node dist/index.js` invocation that runs in production runs
  * them on every boot. Idempotency is handled by the Drizzle migrator.
  *
+
  * Boot order:
  *   1. Resolve config (throws on missing required secrets in production).
  *   2. Open DB + apply migrations.
- *   3. Construct the auth module (Better Auth instance).
- *   4. Optionally seed the admin user from env (`ADMIN_USERNAME`/`ADMIN_PASSWORD`).
+ *   3. Construct the storage provider and verify the configured bucket with
+ *      a HeadBucket probe. Failure aborts boot before any traffic is served —
+ *      a misconfigured bucket should surface as a non-zero container exit,
+ *      not as failing requests later.
+ *   4. Construct the auth module (Better Auth instance).
+ *   5. Optionally seed the admin user from env (`ADMIN_USERNAME`/`ADMIN_PASSWORD`).
  *      Done before `serve()` so a fresh container with the seed envs comes up
  *      already past first-run setup.
- *   5. Bind the port.
+ *   6. Bind the port.
  */
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -39,11 +45,19 @@ async function main(): Promise<void> {
 
   const db = openDatabase(config.databasePath, migrationsFolder);
 
+  const storage = createStorageProvider(config.storage);
+  console.log(
+    `[fileharbor] verifying storage (endpoint=${config.storage.endpoint}, bucket=${config.storage.bucket}, ` +
+      `pathStyle=${config.storage.forcePathStyle}, presignTtl=${config.storage.presignTtlSeconds}s)`,
+  );
+  await verifyStorage(storage, config.storage);
+  console.log('[fileharbor] storage ok');
+
   const authModule = createAuthModule(db, config);
 
   await maybeSeedAdmin(authModule, config);
 
-  const app = createApp(config, authModule);
+  const app = createApp(config, authModule, storage);
 
   serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`[fileharbor] listening on http://0.0.0.0:${info.port}`);
