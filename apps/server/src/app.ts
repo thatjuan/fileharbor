@@ -1,0 +1,92 @@
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { extname, join, normalize, resolve } from 'node:path';
+import { Hono } from 'hono';
+
+import type { AppConfig } from './config.js';
+import { healthRoute } from './routes/health.js';
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.txt': 'text/plain; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+};
+
+function contentTypeFor(filePath: string): string {
+  return MIME_TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+}
+
+/**
+ * Build the Hono application. The API lives under `/api/*`; everything else is
+ * served from the built frontend.
+ *
+ * In production the frontend lives at `config.webDistDir` and we serve its
+ * assets statically with an SPA fallback so any non-API GET returns
+ * `index.html` (client-side routing works without 404s).
+ *
+ * In development we don't serve static assets at all — the Vite dev server
+ * does, and proxies `/api/*` to this Hono instance.
+ */
+export function createApp(config: AppConfig): Hono {
+  const app = new Hono();
+
+  const api = new Hono();
+  api.route('/health', healthRoute);
+  app.route('/api', api);
+
+  if (config.nodeEnv === 'production') {
+    const webRoot = resolve(config.webDistDir);
+    const indexHtmlPath = join(webRoot, 'index.html');
+
+    if (!existsSync(indexHtmlPath)) {
+      throw new Error(`Frontend build not found at ${indexHtmlPath}. Did the web workspace build?`);
+    }
+
+    const indexHtml = readFileSync(indexHtmlPath, 'utf8');
+
+    // Catch-all GET handler for the frontend. Tries to resolve the request
+    // path as a static file under `webRoot`; falls back to `index.html` so
+    // client-side routes (`/links/receive/new`, etc.) survive a hard refresh.
+    //
+    // A small bespoke middleware avoids `@hono/node-server`'s `serveStatic`,
+    // which is rooted relative to cwd and would couple our runtime behaviour
+    // to where the process was started.
+    app.get('*', (c) => {
+      // Never intercept API routes — Hono will already have matched them, but
+      // belt-and-braces in case of future overlap.
+      if (c.req.path.startsWith('/api/')) return c.notFound();
+
+      // Strip leading slash, then `normalize` to collapse `..` segments before
+      // resolving against the root. The post-resolve `startsWith` check is the
+      // real guard against path traversal.
+      const rel = normalize(c.req.path.replace(/^\/+/, ''));
+      const candidate = resolve(webRoot, rel);
+
+      if (
+        rel.length > 0 &&
+        candidate.startsWith(webRoot + '/') &&
+        existsSync(candidate) &&
+        statSync(candidate).isFile()
+      ) {
+        const body = readFileSync(candidate);
+        return c.body(body, 200, { 'Content-Type': contentTypeFor(candidate) });
+      }
+
+      return c.html(indexHtml);
+    });
+  }
+
+  return app;
+}
