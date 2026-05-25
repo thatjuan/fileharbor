@@ -6,7 +6,10 @@ import { createApp } from './app.js';
 import { createAuthModule, maybeSeedAdmin } from './auth/index.js';
 import { loadConfig } from './config.js';
 import { openDatabase } from './db/client.js';
+import { createFilesModule } from './files/files.js';
+import { createReceiveLinksModule } from './links/receive-links.js';
 import { createStorageProvider, verifyStorage } from './storage/index.js';
+import { createUploadTicketsModule } from './tickets/upload-tickets.js';
 
 /**
  * Entry point. Resolves config from env, opens the SQLite DB (running pending
@@ -57,7 +60,25 @@ async function main(): Promise<void> {
 
   await maybeSeedAdmin(authModule, config);
 
-  const app = createApp(config, authModule, storage);
+  // Assemble domain modules. Construction is cheap (no I/O) — we wire them
+  // here, in `main()`, so `createApp` only sees module facades rather than
+  // raw `db`/`storage`. That keeps route code testable: a fake module
+  // implementation can be substituted without monkey-patching SQL.
+  const receiveLinksModule = createReceiveLinksModule(db);
+  const filesModule = createFilesModule(db);
+  const uploadTicketsModule = createUploadTicketsModule(
+    db,
+    storage,
+    receiveLinksModule,
+    filesModule,
+  );
+
+  const app = createApp(config, {
+    authModule,
+    receiveLinksModule,
+    uploadTicketsModule,
+    filesModule,
+  });
 
   serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`[fileharbor] listening on http://0.0.0.0:${info.port}`);

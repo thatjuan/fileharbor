@@ -3,6 +3,9 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 
 import { DashboardPage } from './pages/DashboardPage.js';
 import { LoginPage } from './pages/LoginPage.js';
+import { NewReceiveLinkPage } from './pages/NewReceiveLinkPage.js';
+import { PublicReceivePage } from './pages/PublicReceivePage.js';
+import { ReceiveLinkDetailPage } from './pages/ReceiveLinkDetailPage.js';
 import { SetupPage } from './pages/SetupPage.js';
 import { useSession } from './lib/auth-client.js';
 import { fetchSetupStatus } from './lib/setup.js';
@@ -12,18 +15,24 @@ interface SetupCheck {
 }
 
 /**
- * Top-level routing. Three logical states:
+ * Top-level routing.
  *
- *  - Setup not done → only `/setup` is reachable. Every other path bounces
- *    there. Submitting the form sends the operator to `/login`.
- *  - Setup done, signed out → `/login` is reachable; `/` and `/setup` bounce
- *    to `/login`.
- *  - Setup done, signed in → `/` shows the dashboard; `/login` and `/setup`
- *    bounce back to `/`.
+ *   - Public routes (`/r/:code`) live OUTSIDE the `RequireAuth` tree. They
+ *     render even when setup hasn't been completed — the public face is the
+ *     value the operator delivers to external uploaders, and "still setting
+ *     up the admin" is not their problem. (If the link doesn't exist yet,
+ *     the API answers 404, and the page surfaces it cleanly.)
  *
- * `GET /api/setup` is the single source of truth for the first axis. It
- * always returns 200, so we can fetch it on mount without falling into a
- * loading/error spiral.
+ *   - Admin routes are gated by `RequireAuth`, which redirects to `/login`
+ *     when the session is missing.
+ *
+ *   - The setup-not-done axis only constrains admin routes: when no user
+ *     exists, `/setup` is the only admin-tree path; everything else bounces
+ *     there. Public routes are unaffected.
+ *
+ * `GET /api/setup` is the single source of truth for the setup axis. It
+ * always returns 200, so the boot probe can drive routing without falling
+ * into a loading/error spiral.
  */
 export function App(): JSX.Element {
   const [setup, setSetup] = useState<SetupCheck>({ status: 'loading' });
@@ -36,10 +45,6 @@ export function App(): JSX.Element {
         setSetup({ status: s.needsSetup ? 'needs-setup' : 'ready' });
       })
       .catch(() => {
-        // If the probe fails for any reason (network, server down) assume
-        // the system is ready — that path at least surfaces the real error
-        // to the user via the login form, instead of getting stuck on a
-        // blank loading screen.
         if (!cancelled) setSetup({ status: 'ready' });
       });
     return () => {
@@ -58,6 +63,9 @@ export function App(): JSX.Element {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Public routes — always available regardless of admin setup state. */}
+        <Route path="/r/:code" element={<PublicReceivePage />} />
+
         {setup.status === 'needs-setup' ? (
           <>
             <Route path="/setup" element={<SetupPage />} />
@@ -78,6 +86,22 @@ export function App(): JSX.Element {
               element={
                 <RequireAuth>
                   <DashboardPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/links/receive/new"
+              element={
+                <RequireAuth>
+                  <NewReceiveLinkPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/links/receive/:id"
+              element={
+                <RequireAuth>
+                  <ReceiveLinkDetailPage />
                 </RequireAuth>
               }
             />
