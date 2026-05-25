@@ -11,8 +11,13 @@ export interface ReceiveLink {
   id: string;
   code: string;
   label: string;
-  passwordHash: string | null;
+  /**
+   * True iff the link has a password set. The hash itself is never returned by
+   * the API; the admin UI only needs the boolean to render a lock icon.
+   */
+  passwordProtected: boolean;
   maxUploads: number | null;
+  /** Unix epoch seconds, UTC. Rendered in viewer-local time by the dashboard. */
   expiresAt: number | null;
   status: 'active' | 'disabled';
   createdAt: number;
@@ -51,11 +56,21 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
 
 // ---------- Admin ---------------------------------------------------------
 
-export async function createReceiveLink(label: string): Promise<ReceiveLink> {
+export interface CreateReceiveLinkInput {
+  label: string;
+  /** Plaintext. Hashed server-side. Empty / undefined = no password. */
+  password?: string | null;
+  /** Positive integer. Undefined / null = unlimited. */
+  maxUploads?: number | null;
+  /** Unix epoch seconds, UTC. Undefined / null = never. */
+  expiresAt?: number | null;
+}
+
+export async function createReceiveLink(input: CreateReceiveLinkInput): Promise<ReceiveLink> {
   const res = await fetch('/api/receive-links', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ label }),
+    body: JSON.stringify(input),
     credentials: 'include',
   });
   const data = await jsonOrThrow<{ link: ReceiveLink }>(res);
@@ -70,11 +85,11 @@ export async function listReceiveLinks(): Promise<ReceiveLink[]> {
 
 export async function getReceiveLink(
   id: string,
-): Promise<{ link: ReceiveLink; files: FileRecord[] }> {
+): Promise<{ link: ReceiveLink; files: FileRecord[]; uploadsSoFar: number }> {
   const res = await fetch(`/api/receive-links/${encodeURIComponent(id)}`, {
     credentials: 'include',
   });
-  return jsonOrThrow<{ link: ReceiveLink; files: FileRecord[] }>(res);
+  return jsonOrThrow<{ link: ReceiveLink; files: FileRecord[]; uploadsSoFar: number }>(res);
 }
 
 // ---------- Public --------------------------------------------------------
@@ -90,16 +105,67 @@ export interface UploadTicketResponse {
   expiresAt: string;
 }
 
+/**
+ * Policy rejection codes returned by the public upload-ticket + finalize
+ * endpoints. The same string set the server's `ReceiveLinkPolicyResult.kind`
+ * uses, minus `ok` (which would be the success path).
+ */
+export type PolicyRejection =
+  | 'disabled'
+  | 'expired'
+  | 'quota_exhausted'
+  | 'password_required'
+  | 'password_wrong';
+
+const POLICY_REJECTIONS: readonly PolicyRejection[] = [
+  'disabled',
+  'expired',
+  'quota_exhausted',
+  'password_required',
+  'password_wrong',
+];
+
+export type CreateUploadTicketOutcome =
+  | { kind: 'ok'; value: UploadTicketResponse }
+  | { kind: 'policy_rejected'; reason: PolicyRejection }
+  | { kind: 'not_found' }
+  | { kind: 'error'; message: string };
+
+/**
+ * Helper: parse a Hono 4xx error body of shape `{ error: "<code>" }` and
+ * route the well-known policy-rejection codes into the caller's discriminated
+ * outcome. Anything else falls into the generic `error` arm.
+ */
+async function readErrorBody(res: Response): Promise<{ error: string; message?: string }> {
+  try {
+    return (await res.json()) as { error: string; message?: string };
+  } catch {
+    return { error: `${res.status}`, message: res.statusText };
+  }
+}
+
+function asPolicyRejection(code: string): PolicyRejection | null {
+  return (POLICY_REJECTIONS as readonly string[]).includes(code) ? (code as PolicyRejection) : null;
+}
+
 export async function createUploadTicket(
   code: string,
-  payload: { filename: string; contentType: string; size: number },
-): Promise<UploadTicketResponse> {
+  payload: { filename: string; contentType: string; size: number; password?: string | null },
+): Promise<CreateUploadTicketOutcome> {
   const res = await fetch(`/api/public/receive-links/${encodeURIComponent(code)}/upload-tickets`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  return jsonOrThrow<UploadTicketResponse>(res);
+  if (res.ok) {
+    const value = (await res.json()) as UploadTicketResponse;
+    return { kind: 'ok', value };
+  }
+  const body = await readErrorBody(res);
+  if (res.status === 404) return { kind: 'not_found' };
+  const rejection = asPolicyRejection(body.error);
+  if (rejection) return { kind: 'policy_rejected', reason: rejection };
+  return { kind: 'error', message: body.message ?? body.error ?? `${res.status}` };
 }
 
 export interface FinalizeResponse {
@@ -107,11 +173,35 @@ export interface FinalizeResponse {
   reason?: string;
 }
 
-export async function finalizeUploadTicket(ticketId: string): Promise<FinalizeResponse> {
+export type FinalizeOutcome =
+  | { kind: 'ok'; value: FinalizeResponse }
+  | { kind: 'policy_rejected'; reason: PolicyRejection }
+  | { kind: 'not_found' }
+  | { kind: 'error'; message: string };
+
+export async function finalizeUploadTicket(
+  ticketId: string,
+  password?: string | null,
+): Promise<FinalizeOutcome> {
+  // Always send a JSON body — the public route accepts an empty body, but
+  // sending `{ password }` (even when undefined → omitted) is the consistent
+  // shape and means the same code path covers both flows.
+  const body: Record<string, unknown> = {};
+  if (password !== undefined && password !== null && password.length > 0) {
+    body.password = password;
+  }
   const res = await fetch(`/api/public/upload-tickets/${encodeURIComponent(ticketId)}/finalize`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: '{}',
+    body: JSON.stringify(body),
   });
-  return jsonOrThrow<FinalizeResponse>(res);
+  if (res.ok) {
+    const value = (await res.json()) as FinalizeResponse;
+    return { kind: 'ok', value };
+  }
+  const errBody = await readErrorBody(res);
+  if (res.status === 404) return { kind: 'not_found' };
+  const rejection = asPolicyRejection(errBody.error);
+  if (rejection) return { kind: 'policy_rejected', reason: rejection };
+  return { kind: 'error', message: errBody.message ?? errBody.error ?? `${res.status}` };
 }

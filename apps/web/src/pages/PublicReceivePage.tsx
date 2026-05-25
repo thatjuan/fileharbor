@@ -5,6 +5,7 @@ import {
   createUploadTicket,
   finalizeUploadTicket,
   getPublicReceiveLink,
+  type PolicyRejection,
   type PublicReceiveLink,
 } from '../lib/api.js';
 import { uploadFileWithProgress } from '../lib/upload.js';
@@ -14,11 +15,18 @@ import { uploadFileWithProgress } from '../lib/upload.js';
  *
  *   1. On mount: fetch `/api/public/receive-links/:code` for the label.
  *      A 404 means "bad code or disabled" — same shape so we can't be probed.
- *   2. User picks a file.
- *   3. Mint a ticket via the public API. Receive a presigned PUT URL.
- *   4. PUT the file directly to S3 with XHR progress tracking.
- *   5. POST to the finalize endpoint. Server HEADs the bucket.
- *   6. Show "complete" or "failed" based on the finalize result.
+ *   2. If the metadata reports `passwordRequired`, prompt for it BEFORE the
+ *      file picker. The password is sent on the ticket-mint call (and again on
+ *      finalize) — the server is the only place that decides "correct".
+ *   3. User picks a file.
+ *   4. Mint a ticket via the public API (with password if set). On
+ *      `password_required` / `password_wrong` we surface the inline error and
+ *      let the user retype; on `quota_exhausted` / `expired` / `disabled` we
+ *      lock the form (no path to recover from the public side).
+ *   5. PUT the file directly to S3 with XHR progress tracking.
+ *   6. POST to the finalize endpoint with the same password. Server HEADs the
+ *      bucket and re-validates the link.
+ *   7. Show "complete" or the specific failure reason.
  */
 export function PublicReceivePage(): JSX.Element {
   const params = useParams<{ code: string }>();
@@ -27,8 +35,9 @@ export function PublicReceivePage(): JSX.Element {
   const [meta, setMeta] = useState<PublicReceiveLink | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
 
+  const [password, setPassword] = useState('');
   const [phase, setPhase] = useState<
-    'idle' | 'minting' | 'uploading' | 'finalizing' | 'completed' | 'failed'
+    'idle' | 'minting' | 'uploading' | 'finalizing' | 'completed' | 'failed' | 'locked'
   >('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +64,10 @@ export function PublicReceivePage(): JSX.Element {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Local copy of the input ref so we can clear it after the upload settles
+    // without the closure capturing a stale node.
+    const inputEl = fileInputRef.current;
+
     setError(null);
     setProgress(0);
     setCompletedName(null);
@@ -70,12 +83,18 @@ export function PublicReceivePage(): JSX.Element {
         // what got signed.
         contentType: file.type || 'application/octet-stream',
         size: file.size,
+        password: meta?.passwordRequired ? password : null,
       });
+
+      if (ticket.kind !== 'ok') {
+        handleRejection(ticket);
+        return;
+      }
 
       // Step 2: PUT to S3 with progress.
       setPhase('uploading');
       const putResult = await uploadFileWithProgress({
-        url: ticket.presignedPutUrl,
+        url: ticket.value.presignedPutUrl,
         file,
         contentType: file.type || 'application/octet-stream',
         onProgress: (loaded, total) => {
@@ -89,20 +108,26 @@ export function PublicReceivePage(): JSX.Element {
       }
       setProgress(100);
 
-      // Step 3: finalize (server HEADs the bucket).
+      // Step 3: finalize (server HEADs the bucket and re-validates the link).
       setPhase('finalizing');
-      const finalizeResult = await finalizeUploadTicket(ticket.ticketId);
+      const finalizeOutcome = await finalizeUploadTicket(
+        ticket.value.ticketId,
+        meta?.passwordRequired ? password : null,
+      );
 
-      if (finalizeResult.status === 'completed') {
+      if (finalizeOutcome.kind === 'ok' && finalizeOutcome.value.status === 'completed') {
         setPhase('completed');
         setCompletedName(file.name);
-      } else {
+      } else if (finalizeOutcome.kind === 'ok') {
         setPhase('failed');
         setError(
-          finalizeResult.reason === 'object_not_found'
+          finalizeOutcome.value.reason === 'object_not_found'
             ? 'The server could not verify your upload. Please try again.'
             : 'Upload failed during finalization.',
         );
+      } else {
+        handleRejection(finalizeOutcome);
+        return;
       }
     } catch (err) {
       setPhase('failed');
@@ -110,7 +135,52 @@ export function PublicReceivePage(): JSX.Element {
     } finally {
       // Reset the input so the user can pick the same file again after a
       // failure without weirdness.
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (inputEl) inputEl.value = '';
+    }
+  };
+
+  /**
+   * Render the right inline state for a policy rejection (or generic error).
+   * `password_required` / `password_wrong` are recoverable — leave the form
+   * usable so the user can retype. The others lock the form.
+   */
+  const handleRejection = (
+    outcome:
+      | { kind: 'policy_rejected'; reason: PolicyRejection }
+      | { kind: 'not_found' }
+      | { kind: 'error'; message: string },
+  ): void => {
+    if (outcome.kind === 'not_found') {
+      setPhase('locked');
+      setError('This upload link is not available.');
+      return;
+    }
+    if (outcome.kind === 'error') {
+      setPhase('failed');
+      setError(outcome.message);
+      return;
+    }
+    switch (outcome.reason) {
+      case 'password_required':
+        setPhase('idle');
+        setError('A password is required to upload to this link.');
+        break;
+      case 'password_wrong':
+        setPhase('idle');
+        setError('Incorrect password. Please try again.');
+        break;
+      case 'quota_exhausted':
+        setPhase('locked');
+        setError('This link has reached its upload limit and is no longer accepting files.');
+        break;
+      case 'expired':
+        setPhase('locked');
+        setError('This link has expired.');
+        break;
+      case 'disabled':
+        setPhase('locked');
+        setError('This link is currently disabled.');
+        break;
     }
   };
 
@@ -141,6 +211,9 @@ export function PublicReceivePage(): JSX.Element {
   }
 
   const busy = phase === 'minting' || phase === 'uploading' || phase === 'finalizing';
+  // The file picker requires a password (when set) AND the link must not be
+  // in a terminal failure state. Locked = unrecoverable; failed = re-pickable.
+  const passwordReady = !meta.passwordRequired || password.length > 0;
 
   return (
     <main className="page">
@@ -160,11 +233,42 @@ export function PublicReceivePage(): JSX.Element {
         </div>
       )}
 
-      {phase !== 'completed' && (
+      {phase === 'locked' && (
+        <p role="alert" className="error">
+          {error ?? 'This link is no longer accepting uploads.'}
+        </p>
+      )}
+
+      {phase !== 'completed' && phase !== 'locked' && (
         <div className="stack">
+          {meta.passwordRequired && (
+            <label>
+              Password
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  // Clear a previous password-wrong / password-required error
+                  // as soon as the user starts retyping — feels more responsive
+                  // than waiting for the next submit.
+                  if (error) setError(null);
+                }}
+                disabled={busy}
+                autoComplete="off"
+                autoFocus
+              />
+            </label>
+          )}
+
           <label>
             Pick a file
-            <input ref={fileInputRef} type="file" onChange={onFileChange} disabled={busy} />
+            <input
+              ref={fileInputRef}
+              type="file"
+              onChange={onFileChange}
+              disabled={busy || !passwordReady}
+            />
           </label>
 
           {phase === 'minting' && <p className="muted">Preparing upload…</p>}
@@ -178,7 +282,7 @@ export function PublicReceivePage(): JSX.Element {
 
           {phase === 'finalizing' && <p className="muted">Confirming with server…</p>}
 
-          {phase === 'failed' && error && (
+          {error && (
             <p role="alert" className="error">
               {error}
             </p>

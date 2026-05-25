@@ -1,15 +1,23 @@
 /**
  * Link policy: pure functions that decide whether a link is currently usable.
  *
- * Why this lives in its own module from day one, even though #5 only ever
- * returns `ok` or `disabled`: the result shape — a discriminated union of all
- * possible outcomes — is the contract every later slice (#6 password/quota/
- * expiry, #7 download, #8 send) builds against. Pin the shape early so adding
- * `password_required` in #6 is a single arm change, not a refactor.
- *
  * No I/O. The caller supplies the inputs (link row, "now", uploads-so-far,
- * supplied password). The function returns a verdict. Side effects (logging,
- * mutating counters) live elsewhere.
+ * password verdict). The function returns a verdict. Side effects (logging,
+ * mutating counters, hashing/verifying passwords) live elsewhere.
+ *
+ * Why the caller pre-resolves the password verdict (rather than passing in the
+ * plaintext): password verification is async (scrypt). Keeping the policy a
+ * pure synchronous function means every caller doesn't have to be `async`,
+ * the function is trivial to reason about, and the policy module never sees
+ * the plaintext or the hash. The caller's responsibility:
+ *
+ *   - If the link has no password (`passwordHash === null`): pass
+ *     `{ kind: 'not_required' }`.
+ *   - If the link has a password and the uploader supplied none (or empty):
+ *     pass `{ kind: 'missing' }`.
+ *   - If the link has a password and the uploader supplied one: verify it
+ *     (await `verifyPassword`) and pass `{ kind: 'correct' }` or
+ *     `{ kind: 'wrong' }`.
  */
 
 import type { ReceiveLink } from '../receive-links.js';
@@ -23,29 +31,37 @@ export type ReceiveLinkPolicyResult =
   | { kind: 'password_wrong' };
 
 /**
+ * The caller's pre-resolved verdict on the password the uploader supplied.
+ * See module docstring for the contract.
+ */
+export type PasswordCheck =
+  | { kind: 'not_required' }
+  | { kind: 'missing' }
+  | { kind: 'correct' }
+  | { kind: 'wrong' };
+
+/**
  * Decide whether `link` is currently usable for upload.
  *
  * - `now` is unix epoch seconds (UTC). Passed in (not read here) so callers
- *   can drive deterministic tests in later slices.
+ *   can drive deterministic tests.
  * - `uploadsSoFar` is the count of `completed` files already attached to the
- *   link. Caller computes it (cheap join — see `receive-links.recordUploadCount`).
- * - `providedPassword` is the plaintext password the uploader supplied, if any.
- *   #5 ignores it (no link ever has a password); #6 lights up the comparison.
+ *   link.
+ * - `passwordCheck` is the caller's resolved verdict on the supplied password.
  *
- * For #5 only the `disabled` arm is reachable. The rest are stubbed so the
- * call sites are stable when #6 fills them in.
+ * Evaluation order is intentional: `disabled` first (cheapest, hardest fail),
+ * then time-based (`expired`), then quota, then password. The order doesn't
+ * change which result wins for any given input — only one branch can be true
+ * at a time for a well-formed call — but it keeps the read order easy to
+ * follow.
  */
 export function evaluateReceiveLink(
   link: ReceiveLink,
   now: number,
   uploadsSoFar: number,
-  providedPassword: string | null,
+  passwordCheck: PasswordCheck,
 ): ReceiveLinkPolicyResult {
   if (link.status === 'disabled') return { kind: 'disabled' };
-
-  // The remaining checks are stubbed for #5 — every column they read is null
-  // until #6 adds the form fields. They're written defensively so #6 only has
-  // to flesh out the password comparison.
 
   if (link.expiresAt !== null && link.expiresAt <= now) {
     return { kind: 'expired' };
@@ -55,15 +71,13 @@ export function evaluateReceiveLink(
     return { kind: 'quota_exhausted' };
   }
 
-  if (link.passwordHash !== null) {
-    if (providedPassword === null || providedPassword.length === 0) {
+  switch (passwordCheck.kind) {
+    case 'not_required':
+    case 'correct':
+      return { kind: 'ok' };
+    case 'missing':
       return { kind: 'password_required' };
-    }
-    // #6 wires the real comparison. Intentionally pessimistic in the meantime:
-    // if someone manages to set a password_hash before #6 lands, every upload
-    // is rejected as `password_wrong` rather than silently accepted.
-    return { kind: 'password_wrong' };
+    case 'wrong':
+      return { kind: 'password_wrong' };
   }
-
-  return { kind: 'ok' };
 }

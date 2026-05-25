@@ -4,13 +4,21 @@ import { Link, useParams } from 'react-router-dom';
 import { getReceiveLink, type FileRecord, type ReceiveLink } from '../lib/api.js';
 
 /**
- * Receive link detail. Shows the shareable URL (with a copy button) and lists
- * the files that have landed via this link.
+ * Receive link detail. Shows the shareable URL (with a copy button), the
+ * policy summary (password / quota / expiry), and lists the files that have
+ * landed via this link.
+ *
+ * Expiries are stored as UTC epoch seconds and rendered here in viewer-local
+ * time — `toLocaleString()` uses the browser's locale and timezone by default.
  */
 export function ReceiveLinkDetailPage(): JSX.Element {
   const params = useParams<{ id: string }>();
   const id = params.id ?? '';
-  const [data, setData] = useState<{ link: ReceiveLink; files: FileRecord[] } | null>(null);
+  const [data, setData] = useState<{
+    link: ReceiveLink;
+    files: FileRecord[];
+    uploadsSoFar: number;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -89,6 +97,21 @@ export function ReceiveLinkDetailPage(): JSX.Element {
               <div className="muted small">Status</div>
               <div>{data.link.status}</div>
             </div>
+            <div>
+              <div className="muted small">Password</div>
+              <div>{data.link.passwordProtected ? 'Protected' : 'None'}</div>
+            </div>
+            <div>
+              <div className="muted small">Uploads</div>
+              <div>
+                {data.uploadsSoFar}
+                {data.link.maxUploads !== null ? ` used / ${data.link.maxUploads} max` : ' (unlimited)'}
+              </div>
+            </div>
+            <div>
+              <div className="muted small">Expires</div>
+              <div>{formatExpiry(data.link.expiresAt)}</div>
+            </div>
           </section>
 
           <section className="stack">
@@ -121,4 +144,20 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+/**
+ * Render an expiry timestamp. Includes the timezone abbreviation so the
+ * operator isn't left guessing which zone the displayed time refers to —
+ * common foot-gun when sharing a link across continents.
+ */
+function formatExpiry(epochSeconds: number | null): string {
+  if (epochSeconds === null) return 'Never';
+  const date = new Date(epochSeconds * 1000);
+  const tz =
+    Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
+      .formatToParts(date)
+      .find((p) => p.type === 'timeZoneName')?.value ?? '';
+  const expired = date.getTime() <= Date.now();
+  return `${date.toLocaleString()}${tz ? ` (${tz})` : ''}${expired ? ' — expired' : ''}`;
 }

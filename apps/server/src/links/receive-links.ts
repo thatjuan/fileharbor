@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
+import { hashPassword } from '@better-auth/utils/password';
 
 import type { Db } from '../db/client.js';
 import { files, receiveLinks } from '../db/schema.js';
@@ -41,6 +42,12 @@ export interface ReceiveLinksModule {
 
 export interface CreateReceiveLinkInput {
   label: string;
+  /** Optional plaintext password. Hashed before storage; never persisted raw. */
+  password?: string | null;
+  /** Optional positive integer cap on completed uploads. */
+  maxUploads?: number | null;
+  /** Optional expiry as unix epoch seconds, UTC. */
+  expiresAt?: number | null;
 }
 
 export function createReceiveLinksModule(db: Db): ReceiveLinksModule {
@@ -63,6 +70,42 @@ export function createReceiveLinksModule(db: Db): ReceiveLinksModule {
         throw new Error('label_too_long');
       }
 
+      // `maxUploads`: a positive integer or null. Treat 0 / negative / non-integer
+      // as user error — silently coercing them would let a typo create a link
+      // that can never accept an upload.
+      let maxUploads: number | null = null;
+      if (input.maxUploads !== undefined && input.maxUploads !== null) {
+        if (!Number.isInteger(input.maxUploads) || input.maxUploads < 1) {
+          throw new Error('invalid_max_uploads');
+        }
+        maxUploads = input.maxUploads;
+      }
+
+      // `expiresAt`: unix epoch seconds, UTC. We accept any integer the caller
+      // hands us (incl. already-past values, useful for "instant disable" and
+      // for testing the `expired` branch deterministically). The policy module
+      // makes the same comparison either way.
+      let expiresAt: number | null = null;
+      if (input.expiresAt !== undefined && input.expiresAt !== null) {
+        if (!Number.isInteger(input.expiresAt)) {
+          throw new Error('invalid_expires_at');
+        }
+        expiresAt = input.expiresAt;
+      }
+
+      // Password (optional). Hashed via Better Auth's own scrypt helper so we
+      // reuse the same primitive that hashes the admin login password — no new
+      // hash library to audit. Empty/whitespace-only input is treated as "no
+      // password" so a casual operator doesn't accidentally lock themselves out
+      // with a stray space.
+      let passwordHash: string | null = null;
+      if (input.password !== undefined && input.password !== null) {
+        const trimmedPassword = input.password;
+        if (trimmedPassword.length > 0) {
+          passwordHash = await hashPassword(trimmedPassword);
+        }
+      }
+
       const code = await mintUniqueCode(codeExists);
       const id = randomUUID();
       const createdAt = Math.floor(Date.now() / 1000);
@@ -72,9 +115,9 @@ export function createReceiveLinksModule(db: Db): ReceiveLinksModule {
           id,
           code,
           label: trimmedLabel,
-          passwordHash: null,
-          maxUploads: null,
-          expiresAt: null,
+          passwordHash,
+          maxUploads,
+          expiresAt,
           status: 'active',
           createdAt,
         })
@@ -84,9 +127,9 @@ export function createReceiveLinksModule(db: Db): ReceiveLinksModule {
         id,
         code,
         label: trimmedLabel,
-        passwordHash: null,
-        maxUploads: null,
-        expiresAt: null,
+        passwordHash,
+        maxUploads,
+        expiresAt,
         status: 'active',
         createdAt,
       };
