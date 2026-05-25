@@ -18,6 +18,35 @@ export interface AppConfig {
   auth: AuthConfig;
   /** S3-compatible storage settings. */
   storage: StorageConfig;
+  /** Ticket-cleanup background sweep (issue #10). */
+  ticketSweep: TicketSweepConfig;
+}
+
+/**
+ * Ticket-cleanup sweep tuning. The sweep runs inside the existing Node process
+ * (no external worker) and does two things every `intervalSeconds`:
+ *   1. Transition pending tickets older than (presign TTL + grace) to expired.
+ *   2. Delete tickets in terminal states older than `retentionSeconds`.
+ *
+ * Defaults are reasonable for a typical self-hosted deploy. Operators with
+ * specific retention needs can override via env.
+ */
+export interface TicketSweepConfig {
+  /** How often the sweep wakes up, in seconds. Default 60. */
+  intervalSeconds: number;
+  /**
+   * Buffer added to the presign TTL before a pending ticket is considered
+   * expired. Guards against clock skew between server and storage provider,
+   * and against a ticket minted seconds before a user finalises. Default 60.
+   */
+  pendingGraceSeconds: number;
+  /**
+   * Retention window for terminal tickets (expired / failed / completed).
+   * Rows older than `now - retentionSeconds` are deleted entirely.
+   * Default 7 days. The completed-ticket file rows are NOT touched —
+   * they're independently owned by the `files` table.
+   */
+  retentionSeconds: number;
 }
 
 export interface StorageConfig {
@@ -210,6 +239,7 @@ export function loadConfig(env: Env = process.env as Env): AppConfig {
   };
 
   const storage = resolveStorageConfig(env);
+  const ticketSweep = resolveTicketSweepConfig(env);
 
   return Object.freeze({
     port,
@@ -219,5 +249,56 @@ export function loadConfig(env: Env = process.env as Env): AppConfig {
     webDistDir,
     auth,
     storage,
+    ticketSweep,
   });
+}
+
+/**
+ * Parse a positive-integer seconds env var with a default and clamping bounds.
+ * Rejects non-integers and zero/negative values — the sweep needs sane numbers
+ * and a misconfigured operator is better served by a hard error at boot than
+ * by a silently disabled sweeper.
+ */
+function parsePositiveIntSeconds(
+  raw: string | undefined,
+  fallback: number,
+  varName: string,
+  max: number,
+): number {
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isInteger(n) || n <= 0 || n > max) {
+    throw new Error(
+      `${varName} must be a positive integer <= ${max}. Got: ${raw}`,
+    );
+  }
+  return n;
+}
+
+function resolveTicketSweepConfig(env: Env): TicketSweepConfig {
+  // Reasonable upper bounds: a year of seconds caps the universe of sane
+  // values. We're not trying to be clever, just catching pasted-wrong env
+  // values like `60000000` for "minute" before they become a 23-day interval.
+  const ONE_YEAR = 365 * 24 * 3600;
+
+  const intervalSeconds = parsePositiveIntSeconds(
+    env.TICKET_SWEEP_INTERVAL_SECONDS,
+    60,
+    'TICKET_SWEEP_INTERVAL_SECONDS',
+    ONE_YEAR,
+  );
+  const pendingGraceSeconds = parsePositiveIntSeconds(
+    env.TICKET_PENDING_GRACE_SECONDS,
+    60,
+    'TICKET_PENDING_GRACE_SECONDS',
+    ONE_YEAR,
+  );
+  const retentionSeconds = parsePositiveIntSeconds(
+    env.TICKET_RETENTION_SECONDS,
+    7 * 24 * 3600,
+    'TICKET_RETENTION_SECONDS',
+    ONE_YEAR,
+  );
+
+  return { intervalSeconds, pendingGraceSeconds, retentionSeconds };
 }

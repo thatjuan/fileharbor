@@ -1,0 +1,2 @@
+CREATE INDEX `idx_download_tickets_status_expires` ON `download_tickets` (`status`,`expires_at`);--> statement-breakpoint
+CREATE INDEX `idx_upload_tickets_status_created` ON `upload_tickets` (`status`,`created_at`);

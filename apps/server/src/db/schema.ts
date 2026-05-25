@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 /**
  * Single-row table used as a sentinel that the schema bootstrap ran. Domain
@@ -225,6 +225,14 @@ export const uploadTickets = sqliteTable(
     // Hard-stop in SQL even though the Drizzle enum keeps TS honest. Belt and
     // braces for the day a raw SQL write or migration data-fix forgets.
     intentCheck: check('upload_tickets_intent_check', sql`${t.intent} in ('receive', 'send')`),
+    /**
+     * Composite index for the #10 cleanup sweep. The sweep's two hot queries
+     * are `WHERE status='pending' AND created_at < ?` (passive expiry) and
+     * `WHERE status IN (...) AND created_at < ?` (terminal retention delete).
+     * Leading on `status` keeps the scan tight even when the bulk of rows are
+     * in terminal states.
+     */
+    statusCreatedIdx: index('idx_upload_tickets_status_created').on(t.status, t.createdAt),
   }),
 );
 
@@ -293,27 +301,38 @@ export const notifications = sqliteTable('notifications', {
   readAt: integer('read_at'),
 });
 
-export const downloadTickets = sqliteTable('download_tickets', {
-  id: text('id').primaryKey(),
-  sendLinkId: text('send_link_id')
-    .notNull()
-    .references(() => sendLinks.id, { onDelete: 'cascade' }),
-  fileId: text('file_id')
-    .notNull()
-    .references(() => files.id, { onDelete: 'cascade' }),
-  /** Bucket key the URL is signed against. Mirrors the file's key. */
-  s3Key: text('s3_key').notNull(),
-  /** Filename surfaced to the recipient via response-content-disposition. */
-  filename: text('filename').notNull(),
-  /**
-   * The presigned GET. Goes stale within minutes — persisted for audit, not
-   * for re-use. Never returned by any GET endpoint.
-   */
-  presignedGetUrl: text('presigned_get_url').notNull(),
-  expiresAt: integer('expires_at').notNull(),
-  status: text('status', { enum: ['pending', 'completed', 'failed', 'expired'] })
-    .notNull()
-    .default('pending'),
-  createdAt: integer('created_at').notNull(),
-  completedAt: integer('completed_at'),
-});
+export const downloadTickets = sqliteTable(
+  'download_tickets',
+  {
+    id: text('id').primaryKey(),
+    sendLinkId: text('send_link_id')
+      .notNull()
+      .references(() => sendLinks.id, { onDelete: 'cascade' }),
+    fileId: text('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    /** Bucket key the URL is signed against. Mirrors the file's key. */
+    s3Key: text('s3_key').notNull(),
+    /** Filename surfaced to the recipient via response-content-disposition. */
+    filename: text('filename').notNull(),
+    /**
+     * The presigned GET. Goes stale within minutes — persisted for audit, not
+     * for re-use. Never returned by any GET endpoint.
+     */
+    presignedGetUrl: text('presigned_get_url').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+    status: text('status', { enum: ['pending', 'completed', 'failed', 'expired'] })
+      .notNull()
+      .default('pending'),
+    createdAt: integer('created_at').notNull(),
+    completedAt: integer('completed_at'),
+  },
+  (t) => ({
+    /**
+     * Composite index for the #10 cleanup sweep. Pending-expiry scans by
+     * `status='pending' AND expires_at < ?`; terminal retention scans by
+     * `status IN (...)`. Leading on `status` matches both query shapes.
+     */
+    statusExpiresIdx: index('idx_download_tickets_status_expires').on(t.status, t.expiresAt),
+  }),
+);
