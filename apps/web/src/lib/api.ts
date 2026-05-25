@@ -292,6 +292,41 @@ export async function getSendLink(
   return jsonOrThrow<{ link: SendLink; files: FileRecord[] }>(res);
 }
 
+/**
+ * Toggle a send link's lifecycle flag. The server returns the updated row;
+ * `displayStatus` is recomputed from policy at the same time. Mirrors
+ * `updateReceiveLinkStatus`.
+ */
+export async function updateSendLinkStatus(
+  id: string,
+  status: 'active' | 'disabled',
+): Promise<SendLink> {
+  const res = await fetch(`/api/send-links/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status }),
+    credentials: 'include',
+  });
+  const data = await jsonOrThrow<{ link: SendLink }>(res);
+  return data.link;
+}
+
+/**
+ * Delete a send link. The link's bundled files survive — the FK is
+ * `ON DELETE SET NULL`, so they become orphans accessible via
+ * `/api/files/:id`. Outstanding download / upload tickets cascade-delete
+ * with the link.
+ */
+export async function deleteSendLink(id: string): Promise<void> {
+  const res = await fetch(`/api/send-links/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!res.ok && res.status !== 204) {
+    await jsonOrThrow<unknown>(res);
+  }
+}
+
 // ---------- Public --------------------------------------------------------
 
 export async function getPublicReceiveLink(code: string): Promise<PublicReceiveLink> {

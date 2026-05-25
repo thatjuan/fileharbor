@@ -1,20 +1,33 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { StatusBadge } from '../components/StatusBadge.js';
-import { getSendLink, type FileRecord, type SendLink } from '../lib/api.js';
+import {
+  deleteSendLink,
+  getSendLink,
+  updateSendLinkStatus,
+  type FileRecord,
+  type SendLink,
+} from '../lib/api.js';
 
 /**
  * Send link detail. Shows the shareable URL (with a copy button), the file(s)
- * the admin packaged into the link, and policy summary fields. For this slice
- * there are no actions — disable / re-enable / delete is #12, and adding more
- * files to an existing link is #11.
+ * the admin packaged into the link, and policy summary fields.
+ *
+ * Admin actions (#12):
+ *   - Disable / Re-enable the link (toggles `status`).
+ *   - Delete the link (bundled files survive — they orphan to
+ *     `send_link_id = NULL` and remain reachable at `/api/files/:id`; the
+ *     S3 bytes are untouched).
  */
 export function SendLinkDetailPage(): JSX.Element {
   const params = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const id = params.id ?? '';
   const [data, setData] = useState<{ link: SendLink; files: FileRecord[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -44,6 +57,41 @@ export function SendLinkDetailPage(): JSX.Element {
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       setCopied(false);
+    }
+  };
+
+  const onToggleStatus = async (): Promise<void> => {
+    if (!data) return;
+    const next = data.link.status === 'active' ? 'disabled' : 'active';
+    setBusy(true);
+    setActionError(null);
+    try {
+      const updated = await updateSendLinkStatus(data.link.id, next);
+      setData({ ...data, link: updated });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to update link.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDeleteLink = async (): Promise<void> => {
+    if (!data) return;
+    if (
+      !window.confirm(
+        'Delete this send link? The bundled files will be kept (admin only), but the code will stop working.',
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setActionError(null);
+    try {
+      await deleteSendLink(data.link.id);
+      navigate('/', { replace: true });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to delete link.');
+      setBusy(false);
     }
   };
 
@@ -109,6 +157,25 @@ export function SendLinkDetailPage(): JSX.Element {
               <div className="muted small">Expires</div>
               <div>{formatExpiry(data.link.expiresAt)}</div>
             </div>
+
+            <div className="row">
+              <button type="button" onClick={onToggleStatus} disabled={busy}>
+                {data.link.status === 'active' ? 'Disable link' : 'Re-enable link'}
+              </button>
+              <button
+                type="button"
+                onClick={onDeleteLink}
+                disabled={busy}
+                className="button-danger"
+              >
+                Delete link
+              </button>
+            </div>
+            {actionError && (
+              <p role="alert" className="error">
+                {actionError}
+              </p>
+            )}
           </section>
 
           <section className="stack">
@@ -117,8 +184,8 @@ export function SendLinkDetailPage(): JSX.Element {
               // The link is created the moment the admin POSTs `/api/send-links`,
               // but the file row only appears after the finalize call returns.
               // If the user navigates here mid-upload (or the upload failed),
-              // they'll see this — the situation is recoverable in #12 with a
-              // delete button.
+              // they'll see this — and the Delete-link button above is the
+              // recovery path.
               <p className="muted">No files yet. The upload may still be finalizing.</p>
             )}
             {data.files.length > 0 && (
