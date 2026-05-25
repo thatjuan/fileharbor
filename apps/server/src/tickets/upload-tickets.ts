@@ -11,6 +11,7 @@ import {
 import { resolvePasswordCheck } from '../links/policy/password-check.js';
 import type { ReceiveLink, ReceiveLinksModule } from '../links/receive-links.js';
 import type { SendLink, SendLinksModule } from '../links/send-links.js';
+import type { NotificationsModule } from '../notifications/notifications.js';
 import type { StorageProvider } from '../storage/index.js';
 
 /**
@@ -145,6 +146,7 @@ export function createUploadTicketsModule(
   receiveLinksModule: ReceiveLinksModule,
   sendLinksModule: SendLinksModule,
   filesModule: FilesModule,
+  notificationsModule: NotificationsModule,
 ): UploadTicketsModule {
   /**
    * Shared private helper: presign + persist a pending ticket row. Both
@@ -342,6 +344,39 @@ export function createUploadTicketsModule(
         .set({ status: 'completed', completedAt })
         .where(eq(uploadTickets.id, ticketId))
         .run();
+
+      // Notifications: inbound (receive-intent) uploads only. Admin send-link
+      // uploads do NOT produce a notification (PRD: in-app on inbound only).
+      //
+      // This insert is intentionally placed AFTER the file row is created and
+      // the ticket is marked completed — never inside the already-completed
+      // idempotency branch above. That keeps "one upload = exactly one
+      // notification" honest even if a flaky client double-finalizes.
+      //
+      // Wrapped in try/catch so a notification failure cannot fail the upload:
+      // the bytes are already in the bucket and the file row is committed; a
+      // missing notification is a downstream cosmetic loss, not data loss.
+      if (ticketRow.intent === 'receive' && ticketRow.receiveLinkId !== null) {
+        try {
+          const link = await receiveLinksModule.getById(ticketRow.receiveLinkId);
+          await notificationsModule.record('upload_received', {
+            receiveLinkId: ticketRow.receiveLinkId,
+            // Defensive null-coalesce: a cascade-delete of the link between
+            // HEAD and notify is theoretically possible. Surface a placeholder
+            // rather than fail — the file still exists and is admin-visible.
+            receiveLinkLabel: link?.label ?? 'unknown',
+            fileId,
+            filename: ticketRow.filename,
+            size: info.size,
+          });
+        } catch (err) {
+          console.error('[upload-tickets] notification record failed', {
+            ticketId,
+            fileId,
+            err,
+          });
+        }
+      }
 
       return { kind: 'completed', fileId };
     },
