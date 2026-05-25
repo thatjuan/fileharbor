@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "skills": {
+    "caveman": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/caveman/SKILL.md",
+      "computedHash": "934433479903febc585bf6deb5f0cebc63137e3f86b7babe0aab1ecb94d6d7a4"
+    },
+    "commitpush": {
+      "source": "thatjuan/agent-skills",
+      "sourceType": "github",
+      "skillPath": "commitpush/SKILL.md",
+      "computedHash": "239eba25b40550e02a25b4d3a9a76f562db181089790b285449927d77e520bce"
+    },
+    "create-readme": {
+      "source": "thatjuan/agent-skills",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/create-readme/SKILL.md",
+      "computedHash": "d0ece1b2164ce1376e4ab6e98d6ac079df3a2a94f5f02224362b6a1ce2516ae9"
+    },
+    "drizzle-orm": {
+      "source": "thatjuan/agent-skills",
+      "sourceType": "github",
+      "skillPath": "drizzle-orm/SKILL.md",
+      "computedHash": "5ef7685af65f422ea56a24fde464d38c9a9026cdc918d39ca0772eb764568d91"
+    },
+    "grill-with-docs": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/grill-with-docs/SKILL.md",
+      "computedHash": "a5c65e76275008b469962f7bee8b34866f1c9b0709f4886e71c8e731735640e4"
+    },
+    "implement-issue": {
+      "source": "thatjuan/agent-skills",
+      "sourceType": "github",
+      "skillPath": "implement-issue/SKILL.md",
+      "computedHash": "fa05c1d71bd1a9590206dfae94783a891931ff3dfb0d077a02c82a9a51a13a70"
+    },
+    "setup-matt-pocock-skills": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/setup-matt-pocock-skills/SKILL.md",
+      "computedHash": "0164a8b1ef998abca426056c6ed8a7716a9d4692fc6daa5378f68381a6dafd24"
+    },
+    "team-executor": {
+      "source": "thatjuan/agent-skills",
+      "sourceType": "github",
+      "skillPath": "team-executor/SKILL.md",
+      "computedHash": "0de77cf13530d969ad5bf1c109b7693d8085659b94f4893d3355f119b70787fd"
+    },
+    "to-issues": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/to-issues/SKILL.md",
+      "computedHash": "47f648f3414848ccfc62cb41d2828b7e575fb5e7cbd6c4bdf630c063b5dc5e82"
+    },
+    "to-prd": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/to-prd/SKILL.md",
+      "computedHash": "6d741474efd4bc3db55fabc2722ed78ca9c374cabcb6212936d79d4fd4a30fcb"
+    }
+  }
+}
