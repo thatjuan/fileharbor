@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "composite": true,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": true,
+    "verbatimModuleSyntax": false
+  },
+  "include": ["src/**/*.ts"]
+}
