@@ -34,6 +34,12 @@ export interface FilesModule {
   create(input: CreateFileInput): Promise<FileRecord>;
   getById(id: string): Promise<FileRecord | null>;
   listForReceiveLink(linkId: string): Promise<FileRecord[]>;
+  /**
+   * Delete the DB row for a file by id. Returns `true` when a row was
+   * removed. The S3 object is the caller's responsibility — #7's admin
+   * delete handler deletes the object first, then calls this.
+   */
+  deleteById(id: string): Promise<boolean>;
 }
 
 export function createFilesModule(db: Db): FilesModule {
@@ -77,6 +83,11 @@ export function createFilesModule(db: Db): FilesModule {
         .orderBy(desc(files.createdAt))
         .all();
       return rows.map(toFileRecord);
+    },
+
+    async deleteById(id) {
+      const result = db.delete(files).where(eq(files.id, id)).run();
+      return Number(result.changes) > 0;
     },
   };
 }

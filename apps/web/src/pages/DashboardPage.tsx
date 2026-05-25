@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
+import { StatusBadge } from '../components/StatusBadge.js';
 import { listReceiveLinks, type ReceiveLink } from '../lib/api.js';
 import { signOut, useSession } from '../lib/auth-client.js';
 
@@ -83,10 +84,11 @@ export function DashboardPage(): JSX.Element {
                     <strong>{link.label}</strong>
                   </Link>
                   <div className="muted small">
-                    Code <code>{link.code}</code> · {link.status} ·{' '}
+                    Code <code>{link.code}</code> ·{' '}
                     {new Date(link.createdAt * 1000).toLocaleString()}
                   </div>
                 </div>
+                <StatusBadge status={link.displayStatus} />
               </li>
             ))}
           </ul>
