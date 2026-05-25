@@ -78,6 +78,7 @@ async function main(): Promise<void> {
     receiveLinksModule,
     uploadTicketsModule,
     filesModule,
+    storage,
   });
 
   serve({ fetch: app.fetch, port: config.port }, (info) => {

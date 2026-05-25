@@ -12,6 +12,7 @@ import { createPublicReceiveLinksRoute } from './routes/public-receive-links.js'
 import { createPublicUploadTicketsRoute } from './routes/public-upload-tickets.js';
 import { createReceiveLinksRoute } from './routes/receive-links.js';
 import { createSetupRoute } from './routes/setup.js';
+import type { StorageProvider } from './storage/index.js';
 import type { UploadTicketsModule } from './tickets/upload-tickets.js';
 
 const MIME_TYPES: Record<string, string> = {
@@ -53,10 +54,11 @@ export interface AppModules {
   receiveLinksModule: ReceiveLinksModule;
   uploadTicketsModule: UploadTicketsModule;
   filesModule: FilesModule;
+  storage: StorageProvider;
 }
 
 export function createApp(config: AppConfig, modules: AppModules): Hono {
-  const { authModule, receiveLinksModule, uploadTicketsModule, filesModule } = modules;
+  const { authModule, receiveLinksModule, uploadTicketsModule, filesModule, storage } = modules;
   const app = new Hono();
 
   // Better Auth exposes its own fetch handler at /api/auth/*. It is not a
@@ -73,7 +75,7 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
 
   // Admin (authed) surfaces.
   api.route('/receive-links', createReceiveLinksRoute(authModule, receiveLinksModule, filesModule));
-  api.route('/files', createFilesRoute(authModule, filesModule));
+  api.route('/files', createFilesRoute(authModule, filesModule, storage));
 
   // Public (unauthed, policy-gated) surfaces. Kept under `/api/public/*` so
   // the boundary is obvious in route maps and reverse-proxy rules.

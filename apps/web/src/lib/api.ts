@@ -7,6 +7,18 @@
  * hurt to pass them (they're ignored server-side).
  */
 
+/**
+ * Computed "what would happen if a stranger tried to upload right now?".
+ * Server-side, derived from the policy module + state. Don't reproduce the
+ * computation client-side — the badge is a switch on this string.
+ *
+ * `active`            — link is usable.
+ * `disabled`          — admin toggled it off.
+ * `expired`           — past its `expiresAt`.
+ * `quota_exhausted`   — `maxUploads` reached.
+ */
+export type ReceiveLinkDisplayStatus = 'active' | 'expired' | 'quota_exhausted' | 'disabled';
+
 export interface ReceiveLink {
   id: string;
   code: string;
@@ -19,7 +31,10 @@ export interface ReceiveLink {
   maxUploads: number | null;
   /** Unix epoch seconds, UTC. Rendered in viewer-local time by the dashboard. */
   expiresAt: number | null;
+  /** Persisted lifecycle flag (admin toggle). */
   status: 'active' | 'disabled';
+  /** Policy-derived status for badge rendering. See `ReceiveLinkDisplayStatus`. */
+  displayStatus: ReceiveLinkDisplayStatus;
   createdAt: number;
 }
 
@@ -90,6 +105,70 @@ export async function getReceiveLink(
     credentials: 'include',
   });
   return jsonOrThrow<{ link: ReceiveLink; files: FileRecord[]; uploadsSoFar: number }>(res);
+}
+
+/**
+ * Toggle a link's lifecycle flag. The server returns the updated row;
+ * `displayStatus` is recomputed from policy at the same time.
+ */
+export async function updateReceiveLinkStatus(
+  id: string,
+  status: 'active' | 'disabled',
+): Promise<ReceiveLink> {
+  const res = await fetch(`/api/receive-links/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status }),
+    credentials: 'include',
+  });
+  const data = await jsonOrThrow<{ link: ReceiveLink }>(res);
+  return data.link;
+}
+
+/**
+ * Delete a receive link. The link's received files survive — the FK is
+ * `ON DELETE SET NULL`, so they become orphans accessible via `/api/files/:id`.
+ */
+export async function deleteReceiveLink(id: string): Promise<void> {
+  const res = await fetch(`/api/receive-links/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!res.ok && res.status !== 204) {
+    await jsonOrThrow<unknown>(res);
+  }
+}
+
+export interface FileDownloadResponse {
+  url: string;
+  /** ISO 8601 expiry of the presigned URL. */
+  expiresAt: string;
+  filename: string;
+  size: number;
+  contentType: string;
+}
+
+/**
+ * Mint a presigned GET for an admin download. The returned `url` is opened
+ * directly by the browser (navigation / `<a download>`); File Harbor never
+ * proxies the bytes.
+ */
+export async function getFileDownload(id: string): Promise<FileDownloadResponse> {
+  const res = await fetch(`/api/files/${encodeURIComponent(id)}/download`, {
+    credentials: 'include',
+  });
+  return jsonOrThrow<FileDownloadResponse>(res);
+}
+
+/** Delete a received file. S3 object first, then DB row. */
+export async function deleteFile(id: string): Promise<void> {
+  const res = await fetch(`/api/files/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  });
+  if (!res.ok && res.status !== 204) {
+    await jsonOrThrow<unknown>(res);
+  }
 }
 
 // ---------- Public --------------------------------------------------------

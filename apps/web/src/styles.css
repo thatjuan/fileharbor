@@ -136,3 +136,53 @@ h2 {
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/*
+ * Status badges for receive links. Colour-coded by `displayStatus` so the
+ * dashboard list communicates lifecycle at a glance. The four values match
+ * the server's wire type: active / expired / quota_exhausted / disabled.
+ *
+ * Each variant pairs a tinted background with a darker text colour — chosen
+ * to read on both light and dark backgrounds via fixed RGB rather than
+ * `currentColor`.
+ */
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.badge-active {
+  background: rgba(42, 168, 80, 0.15);
+  color: #1e7a3e;
+  border-color: rgba(42, 168, 80, 0.35);
+}
+
+.badge-disabled {
+  background: rgba(128, 128, 128, 0.18);
+  color: #555;
+  border-color: rgba(128, 128, 128, 0.4);
+}
+
+.badge-expired {
+  background: rgba(211, 51, 51, 0.15);
+  color: #b02828;
+  border-color: rgba(211, 51, 51, 0.35);
+}
+
+.badge-quota_exhausted {
+  background: rgba(220, 150, 30, 0.18);
+  color: #8a5a00;
+  border-color: rgba(220, 150, 30, 0.4);
+}
+
+.button-danger {
+  border-color: #d33;
+  color: #d33;
+}
+
