@@ -140,15 +140,50 @@ export const receiveLinks = sqliteTable('receive_links', {
 });
 
 /**
+ * A send link — an admin-created URL anyone can open to download the file(s)
+ * the admin packaged into the link. Lifecycle mirrors `receive_links` but the
+ * counter direction is reversed: `maxDownloads` caps how many recipient GETs
+ * are allowed, and `downloadCount` is the running tally. Both columns exist
+ * already at the schema level so #11 (policy: password/quota/expiry on send
+ * links) can wire them without another migration. This slice (#8) only writes
+ * the row with `passwordHash`/`maxDownloads`/`expiresAt` all null.
+ */
+export const sendLinks = sqliteTable('send_links', {
+  id: text('id').primaryKey(),
+  /** Short URL-safe public code. Used in `/s/:code`. */
+  code: text('code').notNull().unique(),
+  /** Admin-facing label, e.g. "Q3 audit pack". */
+  label: text('label').notNull(),
+  /** Hashed link password. Null = no password. Algorithm matches receive links. */
+  passwordHash: text('password_hash'),
+  /** Quota in number of recipient downloads. Null = unlimited. */
+  maxDownloads: integer('max_downloads'),
+  /**
+   * Running count of completed downloads. Pre-baked so the policy module only
+   * has to compare two integers; the decrement-on-confirmation logic lands in
+   * #11 with `download-tickets.confirm`. Stays at 0 in this slice.
+   */
+  downloadCount: integer('download_count').notNull().default(0),
+  /** Expiry as unix epoch seconds, UTC. Null = never. */
+  expiresAt: integer('expires_at'),
+  /** Lifecycle flag. Disabled links 404 from the public surface. */
+  status: text('status', { enum: ['active', 'disabled'] })
+    .notNull()
+    .default('active'),
+  createdAt: integer('created_at').notNull(),
+});
+
+/**
  * An upload ticket — short-lived authorization to PUT one object into the
  * bucket. The same primitive serves both the inbound direction (`intent =
- * 'receive'`, FK to `receive_links`) and, in #8, the outbound direction
- * (`intent = 'send'`, FK to `send_links`). #5 only writes receive tickets.
+ * 'receive'`, FK to `receive_links`) and the outbound direction (`intent =
+ * 'send'`, FK to `send_links`) — see issue #8. Which FK is non-null is driven
+ * by the `intent` enum; the other side is null.
  *
  * Why a `CHECK` on `intent` plus a TS-side enum: the enum gives us compile-time
  * exhaustiveness in the policy/ticket modules; the CHECK constraint is the
  * last line of defence against a stray raw SQL write inserting an unknown
- * value (the kind of bug that's invisible until #8 lands).
+ * value.
  */
 export const uploadTickets = sqliteTable(
   'upload_tickets',
@@ -166,11 +201,12 @@ export const uploadTickets = sqliteTable(
       onDelete: 'cascade',
     }),
     /**
-     * Forward-compat for #8 send links. No FK yet — the `send_links` table
-     * doesn't exist until that slice. A column with no FK keeps the schema
-     * stable so #8 only has to add the table and (optionally) the FK.
+     * FK to send_links; non-null when `intent = 'send'`. Same cascade
+     * rationale as the receive side.
      */
-    sendLinkId: text('send_link_id'),
+    sendLinkId: text('send_link_id').references(() => sendLinks.id, {
+      onDelete: 'cascade',
+    }),
     /** Bucket key the ticket was minted for. Stable, opaque. */
     s3Key: text('s3_key').notNull(),
     /** Filename the uploader claimed. Echoed back on download. */
@@ -212,6 +248,45 @@ export const files = sqliteTable('files', {
   receiveLinkId: text('receive_link_id').references(() => receiveLinks.id, {
     onDelete: 'set null',
   }),
-  /** Forward-compat for #8. No FK yet — same reasoning as upload_tickets.send_link_id. */
-  sendLinkId: text('send_link_id'),
+  /**
+   * FK to send_links with ON DELETE SET NULL — same intent as
+   * `receive_link_id`: deleting the link should not destroy the historical
+   * file row. (Send-link delete lands in #12.)
+   */
+  sendLinkId: text('send_link_id').references(() => sendLinks.id, {
+    onDelete: 'set null',
+  }),
+});
+
+/**
+ * A download ticket — short-lived authorization for one recipient GET against
+ * the bucket. Minted by `download-tickets.createForSendLink` after the link
+ * policy passes; the presigned URL is returned inline and persisted for the
+ * audit trail. This slice (#8) doesn't read the persisted URL back — #11 adds
+ * `confirm(ticketId)` which will close out the ticket and decrement
+ * `send_links.download_count`.
+ */
+export const downloadTickets = sqliteTable('download_tickets', {
+  id: text('id').primaryKey(),
+  sendLinkId: text('send_link_id')
+    .notNull()
+    .references(() => sendLinks.id, { onDelete: 'cascade' }),
+  fileId: text('file_id')
+    .notNull()
+    .references(() => files.id, { onDelete: 'cascade' }),
+  /** Bucket key the URL is signed against. Mirrors the file's key. */
+  s3Key: text('s3_key').notNull(),
+  /** Filename surfaced to the recipient via response-content-disposition. */
+  filename: text('filename').notNull(),
+  /**
+   * The presigned GET. Goes stale within minutes — persisted for audit, not
+   * for re-use. Never returned by any GET endpoint.
+   */
+  presignedGetUrl: text('presigned_get_url').notNull(),
+  expiresAt: integer('expires_at').notNull(),
+  status: text('status', { enum: ['pending', 'completed', 'failed', 'expired'] })
+    .notNull()
+    .default('pending'),
+  createdAt: integer('created_at').notNull(),
+  completedAt: integer('completed_at'),
 });

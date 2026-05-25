@@ -22,6 +22,13 @@
       "when": 1779742264567,
       "tag": "0002_gigantic_reavers",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1779745461066,
+      "tag": "0003_secret_angel",
+      "breakpoints": true
     }
   ]
 }
