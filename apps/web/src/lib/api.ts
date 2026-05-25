@@ -92,6 +92,16 @@ export interface PublicSendLink {
   label: string;
   passwordRequired: boolean;
   status: 'ok';
+  /** Admin-configured cap on recipient downloads, or null when unlimited. */
+  maxDownloads: number | null;
+  /**
+   * Pre-computed "remaining slots" for UI rendering. Clamped at 0, null when
+   * `maxDownloads` is null (unlimited). The `downloadCount` itself is not
+   * exposed — the recipient doesn't need to see how often the link was hit.
+   */
+  remainingDownloads: number | null;
+  /** Unix epoch seconds, UTC. Null when no expiry was set. */
+  expiresAt: number | null;
   files: PublicSendLinkFile[];
 }
 
@@ -213,31 +223,58 @@ export async function deleteFile(id: string): Promise<void> {
 
 // ---------- Admin: send links --------------------------------------------
 
+/**
+ * Body shape for `POST /api/send-links`. As of #11 the create call is
+ * file-less — the link is created first, then files are added one at a time
+ * via `addFileToSendLink`. Mirrors `CreateReceiveLinkInput` for the policy
+ * fields.
+ */
 export interface CreateSendLinkInput {
   label: string;
-  filename: string;
-  contentType: string;
-  size: number;
+  /** Plaintext. Hashed server-side. Empty / undefined = no password. */
+  password?: string | null;
+  /** Positive integer. Undefined / null = unlimited. */
+  maxDownloads?: number | null;
+  /** Unix epoch seconds, UTC. Undefined / null = never. */
+  expiresAt?: number | null;
 }
 
-/**
- * Server returns `{ link, ticket }` atomically: the send link is minted and
- * its first upload ticket presigned in one request. The caller (the new-link
- * page) then PUTs the file to S3 and calls `finalizeUploadTicket`.
- */
-export interface CreateSendLinkResponse {
-  link: SendLink;
-  ticket: UploadTicketResponse;
-}
-
-export async function createSendLink(input: CreateSendLinkInput): Promise<CreateSendLinkResponse> {
+export async function createSendLink(input: CreateSendLinkInput): Promise<SendLink> {
   const res = await fetch('/api/send-links', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
     credentials: 'include',
   });
-  return jsonOrThrow<CreateSendLinkResponse>(res);
+  const data = await jsonOrThrow<{ link: SendLink }>(res);
+  return data.link;
+}
+
+export interface AddFileToSendLinkInput {
+  filename: string;
+  contentType: string;
+  size: number;
+}
+
+/**
+ * Mint an upload-ticket for an additional file bound to `sendLinkId`. The
+ * admin then PUTs to `ticket.presignedPutUrl` and calls
+ * `finalizeUploadTicket(ticketId)` to confirm bytes landed. Used by both the
+ * new-link page (looping over the admin's picked files) and the detail page
+ * ("add another file" affordance — kept for #12+).
+ */
+export async function addFileToSendLink(
+  sendLinkId: string,
+  input: AddFileToSendLinkInput,
+): Promise<UploadTicketResponse> {
+  const res = await fetch(`/api/send-links/${encodeURIComponent(sendLinkId)}/files`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+    credentials: 'include',
+  });
+  const data = await jsonOrThrow<{ ticket: UploadTicketResponse }>(res);
+  return data.ticket;
 }
 
 export async function listSendLinks(): Promise<SendLink[]> {
@@ -412,4 +449,35 @@ export async function createDownloadTicket(
   const rejection = asPolicyRejection(body.error);
   if (rejection) return { kind: 'policy_rejected', reason: rejection };
   return { kind: 'error', message: body.message ?? body.error ?? `${res.status}` };
+}
+
+/**
+ * Fire-and-forget confirm. Tells the server "I just kicked off the presigned
+ * GET; please burn one quota slot and mark this ticket completed". Idempotent;
+ * the server is happy to receive duplicates. We don't await the result on the
+ * caller's critical path — the public download page hits this immediately
+ * after handing the URL to the browser and continues regardless of the
+ * response (the eventual-expiry sweep is the safety net).
+ *
+ * `outcome: 'failed'` is the explicit "the user cancelled" signal; it marks
+ * the ticket failed WITHOUT consuming a quota slot.
+ */
+export async function confirmDownloadTicket(
+  ticketId: string,
+  outcome: 'completed' | 'failed' = 'completed',
+): Promise<void> {
+  const body = outcome === 'failed' ? JSON.stringify({ outcome: 'failed' }) : '';
+  try {
+    await fetch(`/api/public/download-tickets/${encodeURIComponent(ticketId)}/confirm`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+      // `keepalive` lets the request survive a navigation-away. Same shape
+      // that analytics beacons use; relevant here because the page may be
+      // unloading as the browser fetches the presigned GET URL.
+      keepalive: true,
+    });
+  } catch {
+    // Swallow — the sweep will catch unconfirmed pendings.
+  }
 }

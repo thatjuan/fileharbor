@@ -1,41 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { verifyPassword } from '@better-auth/utils/password';
 
 import type { Db } from '../db/client.js';
 import { uploadTickets } from '../db/schema.js';
 import type { FilesModule } from '../files/files.js';
 import {
   evaluateReceiveLink,
-  evaluateSendLink,
-  type PasswordCheck,
   type ReceiveLinkPolicyResult,
 } from '../links/policy/index.js';
+import { resolvePasswordCheck } from '../links/policy/password-check.js';
 import type { ReceiveLink, ReceiveLinksModule } from '../links/receive-links.js';
 import type { SendLink, SendLinksModule } from '../links/send-links.js';
 import type { StorageProvider } from '../storage/index.js';
-
-/**
- * Resolve the password verdict for a link (either intent — both have the same
- * shape of `passwordHash` field). Async because scrypt is async; running it
- * here lets the policy modules stay pure synchronous functions.
- *
- * `verifyPassword` is constant-time on the hash bytes; passing a non-matching
- * plaintext yields `false` without a timing channel that distinguishes "no
- * hash on file" from "wrong password" — the `null` short-circuit handles the
- * former case before we get here.
- */
-async function resolvePasswordCheck(
-  passwordHash: string | null,
-  providedPassword: string | null,
-): Promise<PasswordCheck> {
-  if (passwordHash === null) return { kind: 'not_required' };
-  if (providedPassword === null || providedPassword.length === 0) {
-    return { kind: 'missing' };
-  }
-  const ok = await verifyPassword(passwordHash, providedPassword);
-  return ok ? { kind: 'correct' } : { kind: 'wrong' };
-}
 
 /**
  * Upload-ticket lifecycle. The primitive is the same for both directions —
@@ -115,10 +91,17 @@ export interface CreateForSendLinkInput {
   sizeHint: number;
 }
 
+/**
+ * Admin upload to a send link bypasses recipient policy (password / quota /
+ * expiry) — the admin owns the link and isn't downloading. The only verdict
+ * that can fire here is the admin's own `disabled` toggle. Typing this branch
+ * as the literal `{ kind: 'disabled' }` tells the truth at the type level so
+ * callers don't have to handle policy branches that can never occur.
+ */
 export type CreateForSendLinkOutcome =
   | { kind: 'ok'; value: CreateForReceiveLinkResult }
   | { kind: 'link_not_found' }
-  | { kind: 'policy_rejected'; policy: ReceiveLinkPolicyResult }
+  | { kind: 'policy_rejected'; policy: { kind: 'disabled' } }
   | { kind: 'invalid_input'; reason: string };
 
 export type FinalizeOutcome =
@@ -246,15 +229,14 @@ export function createUploadTicketsModule(
       const link = await sendLinksModule.getById(input.sendLinkId);
       if (!link) return { kind: 'link_not_found' };
 
-      // Admin upload flow: only `disabled` matters in #8 (no password / quota /
-      // expiry on send links yet). The send policy module returns the full
-      // discriminated shape; we run it for symmetry with the receive path so
-      // #11 doesn't have to reshape anything here.
-      const now = Math.floor(Date.now() / 1000);
-      const downloadsSoFar = await sendLinksModule.recordDownloadCount(link.id);
-      const policy = evaluateSendLink(link, now, downloadsSoFar, { kind: 'not_required' });
-      if (policy.kind !== 'ok') {
-        return { kind: 'policy_rejected', policy };
+      // Admin upload flow. `password` / `max_downloads` / `expires_at` are
+      // recipient-side policy: an admin adding a file to a link they own is
+      // not "downloading", so those branches don't apply here. We do still
+      // honour `status === 'disabled'` — the admin's own toggle (#12) should
+      // also gate the admin's own add-file path so the dashboard doesn't show
+      // "I disabled this" while still letting the admin grow it.
+      if (link.status === 'disabled') {
+        return { kind: 'policy_rejected', policy: { kind: 'disabled' } };
       }
 
       const value = await mintTicket({
@@ -322,13 +304,11 @@ export function createUploadTicketsModule(
       } else if (ticketRow.intent === 'send' && ticketRow.sendLinkId !== null) {
         const link = await sendLinksModule.getById(ticketRow.sendLinkId);
         if (link) {
-          const now = Math.floor(Date.now() / 1000);
-          const downloadsSoFar = await sendLinksModule.recordDownloadCount(link.id);
-          // Admin route gates the mint; no password is in play on the send
-          // upload side for #8. `not_required` mirrors the mint path.
-          const policy = evaluateSendLink(link, now, downloadsSoFar, { kind: 'not_required' });
-          if (policy.kind !== 'ok') {
-            return { kind: 'policy_rejected', policy };
+          // Same admin-bypass semantics as the mint path: only `disabled`
+          // gates the admin's own finalize for a send link. Password / quota
+          // / expiry are recipient-side concerns.
+          if (link.status === 'disabled') {
+            return { kind: 'policy_rejected', policy: { kind: 'disabled' } };
           }
         }
       }
