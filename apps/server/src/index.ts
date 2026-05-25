@@ -12,6 +12,7 @@ import { createSendLinksModule } from './links/send-links.js';
 import { createNotificationsModule } from './notifications/notifications.js';
 import { createStorageProvider, verifyStorage } from './storage/index.js';
 import { createDownloadTicketsModule } from './tickets/download-tickets.js';
+import { createTicketSweeper } from './tickets/sweep.js';
 import { createUploadTicketsModule } from './tickets/upload-tickets.js';
 
 /**
@@ -97,9 +98,92 @@ async function main(): Promise<void> {
     storage,
   });
 
-  serve({ fetch: app.fetch, port: config.port }, (info) => {
+  const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
     console.log(`[fileharbor] listening on http://0.0.0.0:${info.port}`);
   });
+
+  // ----- Background ticket sweep (issue #10) --------------------------------
+  // Runs inside this same Node process — no separate worker. The sweep:
+  //   - expires `pending` upload/download tickets past TTL + grace
+  //   - deletes terminal tickets older than the retention window
+  // See `tickets/sweep.ts` for the race-safety and overlap-safety story.
+  const ticketSweeper = createTicketSweeper({
+    db,
+    downloadTicketsModule,
+    presignTtlSeconds: config.storage.presignTtlSeconds,
+    intervalSeconds: config.ticketSweep.intervalSeconds,
+    pendingGraceSeconds: config.ticketSweep.pendingGraceSeconds,
+    retentionSeconds: config.ticketSweep.retentionSeconds,
+  });
+
+  console.log(
+    `[fileharbor] ticket sweep enabled (interval=${config.ticketSweep.intervalSeconds}s, ` +
+      `pendingGrace=${config.ticketSweep.pendingGraceSeconds}s, ` +
+      `retention=${config.ticketSweep.retentionSeconds}s)`,
+  );
+
+  // Fire one pass immediately so a freshly-restarted server cleans whatever
+  // accumulated while it was down. Fire-and-forget so it doesn't block boot
+  // logging or the first inbound request. `runOnce` catches its own errors.
+  void ticketSweeper
+    .runOnce(Math.floor(Date.now() / 1000))
+    .then((counters) => {
+      const total =
+        counters.expiredUploadTickets +
+        counters.expiredDownloadTickets +
+        counters.deletedUploadTickets +
+        counters.deletedDownloadTickets;
+      if (total > 0) {
+        console.log('[fileharbor] initial sweep complete', counters);
+      }
+    })
+    .catch((err) => {
+      console.error('[fileharbor] initial sweep threw', err);
+    });
+
+  ticketSweeper.start();
+
+  // ----- Graceful shutdown --------------------------------------------------
+  // Handle SIGTERM (docker stop, k8s) and SIGINT (Ctrl-C in dev). On either:
+  //   1. Stop accepting new HTTP connections (server.close).
+  //   2. Stop the sweeper (cancel its timer; await any in-flight pass).
+  //   3. Exit.
+  //
+  // If a second signal arrives during shutdown, force-exit so a stuck
+  // connection can't keep the container alive forever.
+  let shuttingDown = false;
+  const shutdown = (signal: 'SIGTERM' | 'SIGINT'): void => {
+    if (shuttingDown) {
+      console.warn(`[fileharbor] received ${signal} during shutdown; forcing exit`);
+      process.exit(1);
+    }
+    shuttingDown = true;
+    console.log(`[fileharbor] received ${signal}, shutting down`);
+
+    server.close((err) => {
+      if (err) {
+        console.error('[fileharbor] http server close error', err);
+      } else {
+        console.log('[fileharbor] http server closed');
+      }
+    });
+
+    // Drain the sweep concurrently with the http close. Both should complete
+    // promptly; we exit once the sweeper has settled. server.close is
+    // best-effort here — open connections may hold it longer than the sweep.
+    ticketSweeper
+      .stop()
+      .then(() => {
+        console.log('[fileharbor] ticket sweep stopped');
+        process.exit(0);
+      })
+      .catch((err) => {
+        console.error('[fileharbor] ticket sweep stop error', err);
+        process.exit(1);
+      });
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 main().catch((err) => {
