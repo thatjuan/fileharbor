@@ -1,0 +1,38 @@
+{
+  "name": "fileharbor",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Self-hosted file send/receive service.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:server dev:web",
+    "dev:server": "npm --workspace @fileharbor/server run dev",
+    "dev:web": "npm --workspace @fileharbor/web run dev",
+    "build": "npm-run-all build:web build:server",
+    "build:web": "npm --workspace @fileharbor/web run build",
+    "build:server": "npm --workspace @fileharbor/server run build",
+    "start": "npm --workspace @fileharbor/server run start",
+    "db:generate": "npm --workspace @fileharbor/server run db:generate",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.14.0",
+    "@typescript-eslint/eslint-plugin": "^8.13.0",
+    "@typescript-eslint/parser": "^8.13.0",
+    "eslint": "^9.14.0",
+    "eslint-config-prettier": "^9.1.0",
+    "globals": "^15.12.0",
+    "npm-run-all2": "^7.0.1",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

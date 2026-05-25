@@ -1,0 +1,12 @@
+node_modules
+dist
+build
+data
+**/drizzle/**
+package-lock.json
+
+# Vendored skills and project-meta docs — leave their formatting alone.
+.agents
+.claude
+.github
+CONTRIBUTING.md
