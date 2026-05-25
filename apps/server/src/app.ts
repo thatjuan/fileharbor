@@ -6,13 +6,17 @@ import type { AuthModule } from './auth/index.js';
 import type { AppConfig } from './config.js';
 import type { FilesModule } from './files/files.js';
 import type { ReceiveLinksModule } from './links/receive-links.js';
+import type { SendLinksModule } from './links/send-links.js';
 import { createFilesRoute } from './routes/files.js';
 import { healthRoute } from './routes/health.js';
 import { createPublicReceiveLinksRoute } from './routes/public-receive-links.js';
+import { createPublicSendLinksRoute } from './routes/public-send-links.js';
 import { createPublicUploadTicketsRoute } from './routes/public-upload-tickets.js';
 import { createReceiveLinksRoute } from './routes/receive-links.js';
+import { createSendLinksRoute } from './routes/send-links.js';
 import { createSetupRoute } from './routes/setup.js';
 import type { StorageProvider } from './storage/index.js';
+import type { DownloadTicketsModule } from './tickets/download-tickets.js';
 import type { UploadTicketsModule } from './tickets/upload-tickets.js';
 
 const MIME_TYPES: Record<string, string> = {
@@ -52,13 +56,23 @@ function contentTypeFor(filePath: string): string {
 export interface AppModules {
   authModule: AuthModule;
   receiveLinksModule: ReceiveLinksModule;
+  sendLinksModule: SendLinksModule;
   uploadTicketsModule: UploadTicketsModule;
+  downloadTicketsModule: DownloadTicketsModule;
   filesModule: FilesModule;
   storage: StorageProvider;
 }
 
 export function createApp(config: AppConfig, modules: AppModules): Hono {
-  const { authModule, receiveLinksModule, uploadTicketsModule, filesModule, storage } = modules;
+  const {
+    authModule,
+    receiveLinksModule,
+    sendLinksModule,
+    uploadTicketsModule,
+    downloadTicketsModule,
+    filesModule,
+    storage,
+  } = modules;
   const app = new Hono();
 
   // Better Auth exposes its own fetch handler at /api/auth/*. It is not a
@@ -75,6 +89,10 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
 
   // Admin (authed) surfaces.
   api.route('/receive-links', createReceiveLinksRoute(authModule, receiveLinksModule, filesModule));
+  api.route(
+    '/send-links',
+    createSendLinksRoute(authModule, sendLinksModule, uploadTicketsModule, filesModule),
+  );
   api.route('/files', createFilesRoute(authModule, filesModule, storage));
 
   // Public (unauthed, policy-gated) surfaces. Kept under `/api/public/*` so
@@ -83,6 +101,10 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
   publicApi.route(
     '/receive-links',
     createPublicReceiveLinksRoute(receiveLinksModule, uploadTicketsModule),
+  );
+  publicApi.route(
+    '/send-links',
+    createPublicSendLinksRoute(sendLinksModule, filesModule, downloadTicketsModule),
   );
   publicApi.route('/upload-tickets', createPublicUploadTicketsRoute(uploadTicketsModule));
   api.route('/public', publicApi);

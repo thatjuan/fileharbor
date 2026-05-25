@@ -21,6 +21,7 @@
  */
 
 import type { ReceiveLink } from '../receive-links.js';
+import type { SendLink } from '../send-links.js';
 
 export type ReceiveLinkPolicyResult =
   | { kind: 'ok' }
@@ -29,6 +30,15 @@ export type ReceiveLinkPolicyResult =
   | { kind: 'quota_exhausted' }
   | { kind: 'password_required' }
   | { kind: 'password_wrong' };
+
+/**
+ * Result of evaluating a send link. Same discriminated shape as the receive
+ * side — every branch maps 1:1 except for `quota_exhausted`, which on the
+ * send side means `download_count >= max_downloads` rather than
+ * `uploads_so_far >= max_uploads`. Reusing the shape lets the public surface
+ * funnel both directions through one error code.
+ */
+export type SendLinkPolicyResult = ReceiveLinkPolicyResult;
 
 /**
  * The caller's pre-resolved verdict on the password the uploader supplied.
@@ -68,6 +78,47 @@ export function evaluateReceiveLink(
   }
 
   if (link.maxUploads !== null && uploadsSoFar >= link.maxUploads) {
+    return { kind: 'quota_exhausted' };
+  }
+
+  switch (passwordCheck.kind) {
+    case 'not_required':
+    case 'correct':
+      return { kind: 'ok' };
+    case 'missing':
+      return { kind: 'password_required' };
+    case 'wrong':
+      return { kind: 'password_wrong' };
+  }
+}
+
+/**
+ * Decide whether `link` is currently usable for download.
+ *
+ * - `now` is unix epoch seconds (UTC). Caller-supplied for determinism.
+ * - `downloadsSoFar` is the persisted `download_count` on the link row. In
+ *   this slice (#8) it's always 0; #11 wires the decrement and the quota
+ *   compare uses this value.
+ * - `passwordCheck` is the caller's resolved verdict; identical contract to
+ *   the receive side.
+ *
+ * Same evaluation order as the receive side: disabled → expired → quota →
+ * password. The `quota_exhausted` branch fires when `downloadsSoFar` has
+ * reached `maxDownloads` — semantic mirror of "uploads vs. max_uploads".
+ */
+export function evaluateSendLink(
+  link: SendLink,
+  now: number,
+  downloadsSoFar: number,
+  passwordCheck: PasswordCheck,
+): SendLinkPolicyResult {
+  if (link.status === 'disabled') return { kind: 'disabled' };
+
+  if (link.expiresAt !== null && link.expiresAt <= now) {
+    return { kind: 'expired' };
+  }
+
+  if (link.maxDownloads !== null && downloadsSoFar >= link.maxDownloads) {
     return { kind: 'quota_exhausted' };
   }
 

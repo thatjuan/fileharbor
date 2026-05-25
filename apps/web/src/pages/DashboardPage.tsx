@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { StatusBadge } from '../components/StatusBadge.js';
-import { listReceiveLinks, type ReceiveLink } from '../lib/api.js';
+import {
+  listReceiveLinks,
+  listSendLinks,
+  type ReceiveLink,
+  type SendLink,
+} from '../lib/api.js';
 import { signOut, useSession } from '../lib/auth-client.js';
 
 /**
@@ -14,16 +19,28 @@ export function DashboardPage(): JSX.Element {
   const { data: session } = useSession();
   const navigate = useNavigate();
   const [links, setLinks] = useState<ReceiveLink[] | null>(null);
+  const [sendLinks, setSendLinks] = useState<SendLink[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    // Two independent loads; failure of one doesn't blank the other. Both go
+    // out in parallel — total wait time is the slower of the two.
     listReceiveLinks()
       .then((l) => {
         if (!cancelled) setLinks(l);
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load links.');
+      });
+    listSendLinks()
+      .then((l) => {
+        if (!cancelled) setSendLinks(l);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled)
+          setSendError(err instanceof Error ? err.message : 'Failed to load send links.');
       });
     return () => {
       cancelled = true;
@@ -81,6 +98,46 @@ export function DashboardPage(): JSX.Element {
               <li key={link.id} className="card row between">
                 <div>
                   <Link to={`/links/receive/${link.id}`}>
+                    <strong>{link.label}</strong>
+                  </Link>
+                  <div className="muted small">
+                    Code <code>{link.code}</code> ·{' '}
+                    {new Date(link.createdAt * 1000).toLocaleString()}
+                  </div>
+                </div>
+                <StatusBadge status={link.displayStatus} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="stack">
+        <div className="row between">
+          <h2>Send links</h2>
+          <Link to="/links/send/new" className="button-link">
+            New send link
+          </Link>
+        </div>
+
+        {sendError && (
+          <p role="alert" className="error">
+            {sendError}
+          </p>
+        )}
+
+        {sendLinks === null && !sendError && <p className="muted">Loading…</p>}
+
+        {sendLinks !== null && sendLinks.length === 0 && (
+          <p className="muted">No send links yet. Create one to share a file.</p>
+        )}
+
+        {sendLinks !== null && sendLinks.length > 0 && (
+          <ul className="list-reset stack">
+            {sendLinks.map((link) => (
+              <li key={link.id} className="card row between">
+                <div>
+                  <Link to={`/links/send/${link.id}`}>
                     <strong>{link.label}</strong>
                   </Link>
                   <div className="muted small">

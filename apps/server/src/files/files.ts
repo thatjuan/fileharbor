@@ -35,6 +35,13 @@ export interface FilesModule {
   getById(id: string): Promise<FileRecord | null>;
   listForReceiveLink(linkId: string): Promise<FileRecord[]>;
   /**
+   * Files bound to a send link (i.e. completed admin uploads). Newest first.
+   * Mirror of `listForReceiveLink`. Used by the admin send-link detail page,
+   * the public send-link metadata endpoint, and the `finalize` idempotency
+   * branch for send-intent tickets.
+   */
+  listForSendLink(linkId: string): Promise<FileRecord[]>;
+  /**
    * Delete the DB row for a file by id. Returns `true` when a row was
    * removed. The S3 object is the caller's responsibility — #7's admin
    * delete handler deletes the object first, then calls this.
@@ -80,6 +87,16 @@ export function createFilesModule(db: Db): FilesModule {
         .select()
         .from(files)
         .where(and(eq(files.receiveLinkId, linkId)))
+        .orderBy(desc(files.createdAt))
+        .all();
+      return rows.map(toFileRecord);
+    },
+
+    async listForSendLink(linkId) {
+      const rows = db
+        .select()
+        .from(files)
+        .where(eq(files.sendLinkId, linkId))
         .orderBy(desc(files.createdAt))
         .all();
       return rows.map(toFileRecord);
