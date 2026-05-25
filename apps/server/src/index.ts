@@ -8,7 +8,9 @@ import { loadConfig } from './config.js';
 import { openDatabase } from './db/client.js';
 import { createFilesModule } from './files/files.js';
 import { createReceiveLinksModule } from './links/receive-links.js';
+import { createSendLinksModule } from './links/send-links.js';
 import { createStorageProvider, verifyStorage } from './storage/index.js';
+import { createDownloadTicketsModule } from './tickets/download-tickets.js';
 import { createUploadTicketsModule } from './tickets/upload-tickets.js';
 
 /**
@@ -65,18 +67,28 @@ async function main(): Promise<void> {
   // raw `db`/`storage`. That keeps route code testable: a fake module
   // implementation can be substituted without monkey-patching SQL.
   const receiveLinksModule = createReceiveLinksModule(db);
+  const sendLinksModule = createSendLinksModule(db);
   const filesModule = createFilesModule(db);
   const uploadTicketsModule = createUploadTicketsModule(
     db,
     storage,
     receiveLinksModule,
+    sendLinksModule,
+    filesModule,
+  );
+  const downloadTicketsModule = createDownloadTicketsModule(
+    db,
+    storage,
+    sendLinksModule,
     filesModule,
   );
 
   const app = createApp(config, {
     authModule,
     receiveLinksModule,
+    sendLinksModule,
     uploadTicketsModule,
+    downloadTicketsModule,
     filesModule,
     storage,
   });

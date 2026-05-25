@@ -4,8 +4,11 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import { DashboardPage } from './pages/DashboardPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { NewReceiveLinkPage } from './pages/NewReceiveLinkPage.js';
+import { NewSendLinkPage } from './pages/NewSendLinkPage.js';
 import { PublicReceivePage } from './pages/PublicReceivePage.js';
+import { PublicSendPage } from './pages/PublicSendPage.js';
 import { ReceiveLinkDetailPage } from './pages/ReceiveLinkDetailPage.js';
+import { SendLinkDetailPage } from './pages/SendLinkDetailPage.js';
 import { SetupPage } from './pages/SetupPage.js';
 import { useSession } from './lib/auth-client.js';
 import { fetchSetupStatus } from './lib/setup.js';
@@ -65,6 +68,7 @@ export function App(): JSX.Element {
       <Routes>
         {/* Public routes — always available regardless of admin setup state. */}
         <Route path="/r/:code" element={<PublicReceivePage />} />
+        <Route path="/s/:code" element={<PublicSendPage />} />
 
         {setup.status === 'needs-setup' ? (
           <>
@@ -102,6 +106,22 @@ export function App(): JSX.Element {
               element={
                 <RequireAuth>
                   <ReceiveLinkDetailPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/links/send/new"
+              element={
+                <RequireAuth>
+                  <NewSendLinkPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/links/send/:id"
+              element={
+                <RequireAuth>
+                  <SendLinkDetailPage />
                 </RequireAuth>
               }
             />

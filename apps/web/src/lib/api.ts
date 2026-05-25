@@ -55,6 +55,46 @@ export interface PublicReceiveLink {
   status: 'ok';
 }
 
+/**
+ * Same `displayStatus` lexicon the receive side uses. The send link's quota
+ * column (`max_downloads`) is the source of `quota_exhausted` here. #8 always
+ * persists `null`, so the branch is unreachable until #11.
+ */
+export type SendLinkDisplayStatus = ReceiveLinkDisplayStatus;
+
+export interface SendLink {
+  id: string;
+  code: string;
+  label: string;
+  passwordProtected: boolean;
+  maxDownloads: number | null;
+  /** Running tally of completed recipient downloads. Always 0 in this slice. */
+  downloadCount: number;
+  expiresAt: number | null;
+  status: 'active' | 'disabled';
+  displayStatus: SendLinkDisplayStatus;
+  createdAt: number;
+}
+
+/**
+ * Public face of a send link, returned by `GET /api/public/send-links/:code`.
+ * Internal ids (link id, s3 keys) are deliberately omitted; file ids are
+ * surfaced because the recipient needs them to request a download ticket.
+ */
+export interface PublicSendLinkFile {
+  id: string;
+  filename: string;
+  size: number;
+  contentType: string;
+}
+
+export interface PublicSendLink {
+  label: string;
+  passwordRequired: boolean;
+  status: 'ok';
+  files: PublicSendLinkFile[];
+}
+
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let detail = '';
@@ -171,6 +211,50 @@ export async function deleteFile(id: string): Promise<void> {
   }
 }
 
+// ---------- Admin: send links --------------------------------------------
+
+export interface CreateSendLinkInput {
+  label: string;
+  filename: string;
+  contentType: string;
+  size: number;
+}
+
+/**
+ * Server returns `{ link, ticket }` atomically: the send link is minted and
+ * its first upload ticket presigned in one request. The caller (the new-link
+ * page) then PUTs the file to S3 and calls `finalizeUploadTicket`.
+ */
+export interface CreateSendLinkResponse {
+  link: SendLink;
+  ticket: UploadTicketResponse;
+}
+
+export async function createSendLink(input: CreateSendLinkInput): Promise<CreateSendLinkResponse> {
+  const res = await fetch('/api/send-links', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+    credentials: 'include',
+  });
+  return jsonOrThrow<CreateSendLinkResponse>(res);
+}
+
+export async function listSendLinks(): Promise<SendLink[]> {
+  const res = await fetch('/api/send-links', { credentials: 'include' });
+  const data = await jsonOrThrow<{ links: SendLink[] }>(res);
+  return data.links;
+}
+
+export async function getSendLink(
+  id: string,
+): Promise<{ link: SendLink; files: FileRecord[] }> {
+  const res = await fetch(`/api/send-links/${encodeURIComponent(id)}`, {
+    credentials: 'include',
+  });
+  return jsonOrThrow<{ link: SendLink; files: FileRecord[] }>(res);
+}
+
 // ---------- Public --------------------------------------------------------
 
 export async function getPublicReceiveLink(code: string): Promise<PublicReceiveLink> {
@@ -283,4 +367,49 @@ export async function finalizeUploadTicket(
   const rejection = asPolicyRejection(errBody.error);
   if (rejection) return { kind: 'policy_rejected', reason: rejection };
   return { kind: 'error', message: errBody.message ?? errBody.error ?? `${res.status}` };
+}
+
+// ---------- Public: send links -------------------------------------------
+
+export async function getPublicSendLink(code: string): Promise<PublicSendLink> {
+  const res = await fetch(`/api/public/send-links/${encodeURIComponent(code)}`);
+  return jsonOrThrow<PublicSendLink>(res);
+}
+
+export interface DownloadTicketResponse {
+  ticketId: string;
+  presignedGetUrl: string;
+  expiresAt: string;
+}
+
+export type CreateDownloadTicketOutcome =
+  | { kind: 'ok'; value: DownloadTicketResponse }
+  | { kind: 'policy_rejected'; reason: PolicyRejection }
+  | { kind: 'not_found' }
+  | { kind: 'error'; message: string };
+
+/**
+ * Mint a download ticket for a public send link. The returned
+ * `presignedGetUrl` is a short-lived S3 GET; the recipient page navigates to
+ * it directly to trigger the download (Content-Disposition is set so the
+ * browser saves with the friendly filename).
+ */
+export async function createDownloadTicket(
+  code: string,
+  payload: { fileId: string; password?: string | null },
+): Promise<CreateDownloadTicketOutcome> {
+  const res = await fetch(`/api/public/send-links/${encodeURIComponent(code)}/download-tickets`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (res.ok) {
+    const value = (await res.json()) as DownloadTicketResponse;
+    return { kind: 'ok', value };
+  }
+  const body = await readErrorBody(res);
+  if (res.status === 404) return { kind: 'not_found' };
+  const rejection = asPolicyRejection(body.error);
+  if (rejection) return { kind: 'policy_rejected', reason: rejection };
+  return { kind: 'error', message: body.message ?? body.error ?? `${res.status}` };
 }

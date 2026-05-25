@@ -7,55 +7,62 @@ import { uploadTickets } from '../db/schema.js';
 import type { FilesModule } from '../files/files.js';
 import {
   evaluateReceiveLink,
+  evaluateSendLink,
   type PasswordCheck,
   type ReceiveLinkPolicyResult,
 } from '../links/policy/index.js';
 import type { ReceiveLink, ReceiveLinksModule } from '../links/receive-links.js';
+import type { SendLink, SendLinksModule } from '../links/send-links.js';
 import type { StorageProvider } from '../storage/index.js';
 
 /**
- * Resolve the password verdict for a link. The policy module is a pure sync
- * function (#6 design note); we do the async work here so the verdict is a
- * simple discriminated value by the time policy runs.
+ * Resolve the password verdict for a link (either intent — both have the same
+ * shape of `passwordHash` field). Async because scrypt is async; running it
+ * here lets the policy modules stay pure synchronous functions.
  *
- * `verifyPassword` is constant-time on the hash bytes via Node's `scrypt`
- * comparison; passing a non-matching plaintext yields `false` without a
- * timing channel that distinguishes "no hash on file" from "wrong password"
- * — the `null` short-circuit above handles the former case before we get here.
+ * `verifyPassword` is constant-time on the hash bytes; passing a non-matching
+ * plaintext yields `false` without a timing channel that distinguishes "no
+ * hash on file" from "wrong password" — the `null` short-circuit handles the
+ * former case before we get here.
  */
 async function resolvePasswordCheck(
-  link: ReceiveLink,
+  passwordHash: string | null,
   providedPassword: string | null,
 ): Promise<PasswordCheck> {
-  if (link.passwordHash === null) return { kind: 'not_required' };
+  if (passwordHash === null) return { kind: 'not_required' };
   if (providedPassword === null || providedPassword.length === 0) {
     return { kind: 'missing' };
   }
-  const ok = await verifyPassword(link.passwordHash, providedPassword);
+  const ok = await verifyPassword(passwordHash, providedPassword);
   return ok ? { kind: 'correct' } : { kind: 'wrong' };
 }
 
 /**
- * Upload-ticket lifecycle. Two operations:
+ * Upload-ticket lifecycle. The primitive is the same for both directions —
+ * what differs is which link the ticket points at and what bucket-key prefix
+ * is minted. PRD: "the same ticket primitive serves both directions — the
+ * ticket carries an 'intent' of which link it belongs to."
  *
- *   - `createForReceiveLink` — validates link via `policy`, mints an S3 key,
- *     calls `storage.presignPut` (signing the claimed `Content-Type` so a
- *     mismatched upload fails with `SignatureDoesNotMatch` rather than landing
- *     silently-wrong), persists the ticket as `pending`, returns the URL and
- *     ticket id.
+ *   - `createForReceiveLink` — caller is the external uploader. Policy
+ *     (status/expiry/quota/password) is checked before minting. Bucket key
+ *     prefix is `receive/<link_id>/<ticket_id>/<filename>`.
  *
- *   - `finalize` — calls `storage.headObject`. On success: creates a `file`
- *     record bound to the link, marks the ticket `completed`. On missing
- *     object: marks the ticket `failed` and does NOT create a file row.
- *     Idempotent on completed: re-calls return the existing status with no
- *     side effects. Re-finalize is allowed on `failed` (the uploader may
- *     retry the PUT then re-finalize).
+ *   - `createForSendLink` — caller is the admin (auth checked upstream at
+ *     the route). Send-link policy for #8 only excludes `disabled` links;
+ *     password/quota/expiry land in #11. Bucket key prefix is
+ *     `send/<link_id>/<ticket_id>/<filename>`.
  *
- * The bucket key shape is `receive/<link_id>/<ticket_id>/<filename>` per
- * PRD. `<filename>` is included for human-legible logs in the bucket browser
- * but is sanitised — slashes, control chars, and NULs are stripped, and a
- * fallback name is used if the result is empty. The DB row is the source of
- * truth for the displayed filename; the key is opaque.
+ *   - `finalize` — intent-agnostic. Calls `storage.headObject`; on success
+ *     creates a `file` record bound to the right link (whichever FK was
+ *     non-null on the ticket), marks the ticket completed. Re-finalize on
+ *     completed is idempotent; on failed it's a retry path. Re-validates the
+ *     link's policy when re-finalising to guard against an attacker holding a
+ *     pre-disable ticket.
+ *
+ * The bucket key includes the `<filename>` segment for human-legible logs in
+ * the bucket browser but it is sanitised first — slashes, control chars, and
+ * NULs are stripped, and a fallback name is used if the result is empty. The
+ * DB row is the source of truth for the displayed filename; the key is opaque.
  */
 
 export type UploadTicketStatus = 'pending' | 'completed' | 'failed' | 'expired';
@@ -94,6 +101,26 @@ export type CreateForReceiveLinkOutcome =
   | { kind: 'policy_rejected'; policy: ReceiveLinkPolicyResult }
   | { kind: 'invalid_input'; reason: string };
 
+/**
+ * Send-side: caller already has the link id (it minted the link a moment ago
+ * via the admin route), so we accept the id rather than the code. The admin
+ * route is `requireAdmin`-gated, so password isn't applicable here in #8 —
+ * password / quota on send links is #11 and lives on the *recipient* surface,
+ * not the admin upload surface.
+ */
+export interface CreateForSendLinkInput {
+  sendLinkId: string;
+  filename: string;
+  contentType: string;
+  sizeHint: number;
+}
+
+export type CreateForSendLinkOutcome =
+  | { kind: 'ok'; value: CreateForReceiveLinkResult }
+  | { kind: 'link_not_found' }
+  | { kind: 'policy_rejected'; policy: ReceiveLinkPolicyResult }
+  | { kind: 'invalid_input'; reason: string };
+
 export type FinalizeOutcome =
   | { kind: 'completed'; fileId: string }
   | { kind: 'failed'; reason: 'object_not_found' }
@@ -102,75 +129,143 @@ export type FinalizeOutcome =
 
 export interface UploadTicketsModule {
   createForReceiveLink(input: CreateForReceiveLinkInput): Promise<CreateForReceiveLinkOutcome>;
+  createForSendLink(input: CreateForSendLinkInput): Promise<CreateForSendLinkOutcome>;
   finalize(
     ticketId: string,
     input?: { providedPassword?: string | null },
   ): Promise<FinalizeOutcome>;
 }
 
+/** Shared validation for both intents — same checks, same error strings. */
+function validateUploadInput(input: {
+  filename: string;
+  contentType: string;
+  sizeHint: number;
+}): { ok: true; filename: string; contentType: string } | { ok: false; reason: string } {
+  const filename = sanitizeFilename(input.filename);
+  if (filename.length === 0) {
+    return { ok: false, reason: 'filename_required' };
+  }
+  const contentType = input.contentType.trim();
+  if (contentType.length === 0) {
+    return { ok: false, reason: 'content_type_required' };
+  }
+  if (!Number.isInteger(input.sizeHint) || input.sizeHint < 0) {
+    return { ok: false, reason: 'invalid_size' };
+  }
+  return { ok: true, filename, contentType };
+}
+
 export function createUploadTicketsModule(
   db: Db,
   storage: StorageProvider,
   receiveLinksModule: ReceiveLinksModule,
+  sendLinksModule: SendLinksModule,
   filesModule: FilesModule,
 ): UploadTicketsModule {
+  /**
+   * Shared private helper: presign + persist a pending ticket row. Both
+   * `createForReceiveLink` and `createForSendLink` funnel through here once
+   * they've resolved policy on their respective link types. Keeping the
+   * insert in one place means the row shape stays in lockstep across intents.
+   */
+  async function mintTicket(args: {
+    intent: 'receive' | 'send';
+    keyPrefix: 'receive' | 'send';
+    linkId: string;
+    filename: string;
+    contentType: string;
+    sizeHint: number;
+  }): Promise<CreateForReceiveLinkResult> {
+    const ticketId = randomUUID();
+    const s3Key = `${args.keyPrefix}/${args.linkId}/${ticketId}/${args.filename}`;
+
+    const presigned = await storage.presignPut(s3Key, {
+      contentType: args.contentType,
+      contentLength: args.sizeHint,
+    });
+
+    const now = Math.floor(Date.now() / 1000);
+    db.insert(uploadTickets)
+      .values({
+        id: ticketId,
+        intent: args.intent,
+        receiveLinkId: args.intent === 'receive' ? args.linkId : null,
+        sendLinkId: args.intent === 'send' ? args.linkId : null,
+        s3Key,
+        filename: args.filename,
+        contentType: args.contentType,
+        sizeHint: args.sizeHint,
+        status: 'pending',
+        createdAt: now,
+        completedAt: null,
+      })
+      .run();
+
+    return {
+      ticketId,
+      presignedPutUrl: presigned.url,
+      expiresAt: presigned.expiresAt,
+    };
+  }
+
   return {
     async createForReceiveLink(input) {
-      const filename = sanitizeFilename(input.filename);
-      if (filename.length === 0) {
-        return { kind: 'invalid_input', reason: 'filename_required' };
-      }
-      const contentType = input.contentType.trim();
-      if (contentType.length === 0) {
-        return { kind: 'invalid_input', reason: 'content_type_required' };
-      }
-      if (!Number.isInteger(input.sizeHint) || input.sizeHint < 0) {
-        return { kind: 'invalid_input', reason: 'invalid_size' };
-      }
+      const validated = validateUploadInput(input);
+      if (!validated.ok) return { kind: 'invalid_input', reason: validated.reason };
 
       const link = await receiveLinksModule.getByCode(input.linkCode);
       if (!link) return { kind: 'link_not_found' };
 
       const now = Math.floor(Date.now() / 1000);
       const uploadsSoFar = await receiveLinksModule.recordUploadCount(link.id);
-      const passwordCheck = await resolvePasswordCheck(link, input.providedPassword ?? null);
+      const passwordCheck = await resolvePasswordCheck(
+        link.passwordHash,
+        input.providedPassword ?? null,
+      );
       const policy = evaluateReceiveLink(link, now, uploadsSoFar, passwordCheck);
       if (policy.kind !== 'ok') {
         return { kind: 'policy_rejected', policy };
       }
 
-      const ticketId = randomUUID();
-      const s3Key = `receive/${link.id}/${ticketId}/${filename}`;
-
-      const presigned = await storage.presignPut(s3Key, {
-        contentType,
-        contentLength: input.sizeHint,
+      const value = await mintTicket({
+        intent: 'receive',
+        keyPrefix: 'receive',
+        linkId: link.id,
+        filename: validated.filename,
+        contentType: validated.contentType,
+        sizeHint: input.sizeHint,
       });
+      return { kind: 'ok', value };
+    },
 
-      db.insert(uploadTickets)
-        .values({
-          id: ticketId,
-          intent: 'receive',
-          receiveLinkId: link.id,
-          sendLinkId: null,
-          s3Key,
-          filename,
-          contentType,
-          sizeHint: input.sizeHint,
-          status: 'pending',
-          createdAt: now,
-          completedAt: null,
-        })
-        .run();
+    async createForSendLink(input) {
+      const validated = validateUploadInput(input);
+      if (!validated.ok) return { kind: 'invalid_input', reason: validated.reason };
 
-      return {
-        kind: 'ok',
-        value: {
-          ticketId,
-          presignedPutUrl: presigned.url,
-          expiresAt: presigned.expiresAt,
-        },
-      };
+      const link = await sendLinksModule.getById(input.sendLinkId);
+      if (!link) return { kind: 'link_not_found' };
+
+      // Admin upload flow: only `disabled` matters in #8 (no password / quota /
+      // expiry on send links yet). The send policy module returns the full
+      // discriminated shape; we run it for symmetry with the receive path so
+      // #11 doesn't have to reshape anything here.
+      const now = Math.floor(Date.now() / 1000);
+      const downloadsSoFar = await sendLinksModule.recordDownloadCount(link.id);
+      const policy = evaluateSendLink(link, now, downloadsSoFar, { kind: 'not_required' });
+      if (policy.kind !== 'ok') {
+        return { kind: 'policy_rejected', policy };
+      }
+
+      const value = await mintTicket({
+        intent: 'send',
+        keyPrefix: 'send',
+        linkId: link.id,
+        filename: validated.filename,
+        contentType: validated.contentType,
+        sizeHint: input.sizeHint,
+      });
+      return { kind: 'ok', value };
     },
 
     async finalize(ticketId, input) {
@@ -179,17 +274,19 @@ export function createUploadTicketsModule(
 
       // Idempotency on completed: if a finalize call previously created the
       // file row and marked the ticket completed, return the same answer with
-      // no extra work. We look up the `file` row by `s3_key` (the ticket-file
-      // pairing is 1:1) and return its id so the caller can still link to it.
+      // no extra work. The lookup path differs by intent — receive tickets
+      // resolve via `listForReceiveLink`, send tickets via `listForSendLink`.
       //
       // We do NOT re-run policy on this branch: the file already exists; the
       // bytes have already landed; refusing to acknowledge that because the
       // link has since been disabled or expired would be a lie. The dashboard
       // can still delete the file via its own surface.
       if (ticketRow.status === 'completed') {
-        const existing = await filesModule
-          .listForReceiveLink(ticketRow.receiveLinkId ?? '')
-          .then((list) => list.find((f) => f.s3Key === ticketRow.s3Key));
+        const list =
+          ticketRow.intent === 'receive'
+            ? await filesModule.listForReceiveLink(ticketRow.receiveLinkId ?? '')
+            : await filesModule.listForSendLink(ticketRow.sendLinkId ?? '');
+        const existing = list.find((f) => f.s3Key === ticketRow.s3Key);
         // Defensive: a completed ticket should always have a corresponding
         // file row, but if state got out of sync we still return completed
         // with a synthetic id rather than 500. The dashboard will only
@@ -203,17 +300,33 @@ export function createUploadTicketsModule(
         return { kind: 'failed', reason: 'object_not_found' };
       }
 
-      // Re-validate the link policy. The link may have been disabled, expired,
-      // or had a password set between mint and finalize. We also re-check the
-      // password if the link still has one — guards against the case where an
-      // attacker held a ticket from before the password was applied.
-      if (ticketRow.receiveLinkId !== null) {
+      // Re-validate the link policy. For receive tickets the same paranoia
+      // applies as before (link might have flipped to disabled/expired/etc).
+      // For send tickets in #8 only `disabled` can change between mint and
+      // finalize — but we still run the same code path because the policy
+      // module owns the decision; future widening doesn't touch this site.
+      if (ticketRow.intent === 'receive' && ticketRow.receiveLinkId !== null) {
         const link = await receiveLinksModule.getById(ticketRow.receiveLinkId);
         if (link) {
           const now = Math.floor(Date.now() / 1000);
           const uploadsSoFar = await receiveLinksModule.recordUploadCount(link.id);
-          const passwordCheck = await resolvePasswordCheck(link, input?.providedPassword ?? null);
+          const passwordCheck = await resolvePasswordCheck(
+            link.passwordHash,
+            input?.providedPassword ?? null,
+          );
           const policy = evaluateReceiveLink(link, now, uploadsSoFar, passwordCheck);
+          if (policy.kind !== 'ok') {
+            return { kind: 'policy_rejected', policy };
+          }
+        }
+      } else if (ticketRow.intent === 'send' && ticketRow.sendLinkId !== null) {
+        const link = await sendLinksModule.getById(ticketRow.sendLinkId);
+        if (link) {
+          const now = Math.floor(Date.now() / 1000);
+          const downloadsSoFar = await sendLinksModule.recordDownloadCount(link.id);
+          // Admin route gates the mint; no password is in play on the send
+          // upload side for #8. `not_required` mirrors the mint path.
+          const policy = evaluateSendLink(link, now, downloadsSoFar, { kind: 'not_required' });
           if (policy.kind !== 'ok') {
             return { kind: 'policy_rejected', policy };
           }
@@ -278,3 +391,7 @@ function sanitizeFilename(raw: string): string {
     .slice(0, 200);
   return cleaned.length > 0 ? cleaned : 'file';
 }
+
+// Re-export for callers that still import the old surface name; keeps the
+// public `ReceiveLink`/`SendLink` types out of this module's responsibility.
+export type { ReceiveLink, SendLink };
