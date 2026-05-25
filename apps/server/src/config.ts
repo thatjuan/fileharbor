@@ -16,6 +16,38 @@ export interface AppConfig {
   webDistDir: string;
   /** Auth-related settings. */
   auth: AuthConfig;
+  /** S3-compatible storage settings. */
+  storage: StorageConfig;
+}
+
+export interface StorageConfig {
+  /**
+   * Endpoint URL for the S3-compatible service. Required.
+   * Examples:
+   *   - AWS S3:        https://s3.us-east-1.amazonaws.com
+   *   - Cloudflare R2: https://<acct>.r2.cloudflarestorage.com
+   *   - MinIO:         http://localhost:9000
+   */
+  endpoint: string;
+  /** AWS region. Required by the SDK even for non-AWS providers (use any value, e.g. `auto`). */
+  region: string;
+  /** Access key id. Required. */
+  accessKeyId: string;
+  /** Secret access key. Required. */
+  secretAccessKey: string;
+  /** Bucket name. Required. */
+  bucket: string;
+  /**
+   * When true, addresses objects as `endpoint/bucket/key` rather than
+   * `bucket.endpoint/key`. Required for MinIO and certain R2 setups.
+   */
+  forcePathStyle: boolean;
+  /**
+   * TTL applied to presigned PUT / GET / DELETE URLs, in seconds. Kept short
+   * (minutes, not hours) per PRD: a leaked URL should not be useful for long.
+   * Default: 300s (5 minutes).
+   */
+  presignTtlSeconds: number;
 }
 
 export interface AuthConfig {
@@ -88,6 +120,60 @@ function resolveAuthSecret(raw: string | undefined, nodeEnv: AppConfig['nodeEnv'
   return generated;
 }
 
+function parseBool(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined || raw === '') return fallback;
+  const v = raw.trim().toLowerCase();
+  if (v === 'true' || v === '1' || v === 'yes' || v === 'on') return true;
+  if (v === 'false' || v === '0' || v === 'no' || v === 'off') return false;
+  throw new Error(`Invalid boolean value: ${raw}`);
+}
+
+function requireEnv(env: Env, key: string): string {
+  const raw = env[key];
+  if (!raw || raw.trim() === '') {
+    throw new Error(`${key} is required.`);
+  }
+  return raw.trim();
+}
+
+function resolveStorageConfig(env: Env): StorageConfig {
+  const endpoint = requireEnv(env, 'S3_ENDPOINT');
+  // Validate it parses as a URL — catches obvious typos early.
+  try {
+    void new URL(endpoint);
+  } catch {
+    throw new Error(`S3_ENDPOINT is not a valid URL: ${endpoint}`);
+  }
+
+  const region = env.S3_REGION?.trim() || 'auto';
+  const accessKeyId = requireEnv(env, 'S3_ACCESS_KEY_ID');
+  const secretAccessKey = requireEnv(env, 'S3_SECRET_ACCESS_KEY');
+  const bucket = requireEnv(env, 'S3_BUCKET');
+  const forcePathStyle = parseBool(env.S3_FORCE_PATH_STYLE, false);
+
+  const ttlRaw = env.S3_PRESIGN_TTL_SECONDS;
+  const presignTtlSeconds = ttlRaw ? Number.parseInt(ttlRaw, 10) : 300;
+  if (
+    !Number.isInteger(presignTtlSeconds) ||
+    presignTtlSeconds <= 0 ||
+    presignTtlSeconds > 7 * 24 * 3600
+  ) {
+    throw new Error(
+      `S3_PRESIGN_TTL_SECONDS must be a positive integer <= 604800 (7 days, the SigV4 maximum). Got: ${ttlRaw}`,
+    );
+  }
+
+  return {
+    endpoint,
+    region,
+    accessKeyId,
+    secretAccessKey,
+    bucket,
+    forcePathStyle,
+    presignTtlSeconds,
+  };
+}
+
 function resolveAdminSeed(env: Env): AdminSeed | null {
   const username = env.ADMIN_USERNAME?.trim();
   const password = env.ADMIN_PASSWORD;
@@ -123,6 +209,8 @@ export function loadConfig(env: Env = process.env as Env): AppConfig {
     adminSeed: resolveAdminSeed(env),
   };
 
+  const storage = resolveStorageConfig(env);
+
   return Object.freeze({
     port,
     nodeEnv,
@@ -130,5 +218,6 @@ export function loadConfig(env: Env = process.env as Env): AppConfig {
     databasePath,
     webDistDir,
     auth,
+    storage,
   });
 }
