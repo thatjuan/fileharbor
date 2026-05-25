@@ -7,8 +7,10 @@ import type { AppConfig } from './config.js';
 import type { FilesModule } from './files/files.js';
 import type { ReceiveLinksModule } from './links/receive-links.js';
 import type { SendLinksModule } from './links/send-links.js';
+import type { NotificationsModule } from './notifications/notifications.js';
 import { createFilesRoute } from './routes/files.js';
 import { healthRoute } from './routes/health.js';
+import { createNotificationsRoute } from './routes/notifications.js';
 import { createPublicDownloadTicketsRoute } from './routes/public-download-tickets.js';
 import { createPublicReceiveLinksRoute } from './routes/public-receive-links.js';
 import { createPublicSendLinksRoute } from './routes/public-send-links.js';
@@ -61,6 +63,7 @@ export interface AppModules {
   uploadTicketsModule: UploadTicketsModule;
   downloadTicketsModule: DownloadTicketsModule;
   filesModule: FilesModule;
+  notificationsModule: NotificationsModule;
   storage: StorageProvider;
 }
 
@@ -72,6 +75,7 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
     uploadTicketsModule,
     downloadTicketsModule,
     filesModule,
+    notificationsModule,
     storage,
   } = modules;
   const app = new Hono();
@@ -95,6 +99,7 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
     createSendLinksRoute(authModule, sendLinksModule, uploadTicketsModule, filesModule),
   );
   api.route('/files', createFilesRoute(authModule, filesModule, storage));
+  api.route('/notifications', createNotificationsRoute(authModule, notificationsModule));
 
   // Public (unauthed, policy-gated) surfaces. Kept under `/api/public/*` so
   // the boundary is obvious in route maps and reverse-proxy rules.

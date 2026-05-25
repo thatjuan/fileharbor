@@ -327,6 +327,90 @@ export async function deleteSendLink(id: string): Promise<void> {
   }
 }
 
+// ---------- Admin: notifications -----------------------------------------
+
+/**
+ * Payload shape for the `upload_received` notification kind — frozen at write
+ * time on the server. The dashboard renders directly from these strings so
+ * deleting the underlying file or link doesn't leave a notification claiming
+ * "file <missing>"; the historical filename / label persist in the payload.
+ */
+export interface UploadReceivedPayload {
+  receiveLinkId: string;
+  receiveLinkLabel: string;
+  fileId: string;
+  filename: string;
+  size: number;
+}
+
+export interface NotificationRecord {
+  id: string;
+  kind: string;
+  payload: unknown;
+  createdAt: number;
+  readAt: number | null;
+}
+
+export interface NotificationsResponse {
+  notifications: NotificationRecord[];
+  unreadCount: number;
+}
+
+export interface MarkReadResponse {
+  markedCount: number;
+  unreadCount: number;
+}
+
+export async function listNotifications(
+  options: { unreadOnly?: boolean; limit?: number } = {},
+): Promise<NotificationsResponse> {
+  const params = new URLSearchParams();
+  if (options.unreadOnly) params.set('unreadOnly', 'true');
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+  const qs = params.toString();
+  const res = await fetch(`/api/notifications${qs ? `?${qs}` : ''}`, { credentials: 'include' });
+  return jsonOrThrow<NotificationsResponse>(res);
+}
+
+/**
+ * Lightweight count-only fetch for the polling hook. Server returns the count
+ * regardless of `unreadOnly`, but `unreadOnly=true&limit=1` minimises payload
+ * size for the 30s tick.
+ */
+export async function fetchUnreadNotificationCount(): Promise<number> {
+  const data = await listNotifications({ unreadOnly: true, limit: 1 });
+  return data.unreadCount;
+}
+
+export async function markNotificationsRead(
+  input: { ids: string[] } | { all: true },
+): Promise<MarkReadResponse> {
+  const res = await fetch('/api/notifications/mark-read', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+    credentials: 'include',
+  });
+  return jsonOrThrow<MarkReadResponse>(res);
+}
+
+/**
+ * Type guard: narrows a notification's `unknown` payload to the
+ * `upload_received` shape. Validates the field types so a corrupt row can't
+ * crash the dashboard render.
+ */
+export function isUploadReceivedPayload(p: unknown): p is UploadReceivedPayload {
+  if (typeof p !== 'object' || p === null) return false;
+  const o = p as Record<string, unknown>;
+  return (
+    typeof o.receiveLinkId === 'string' &&
+    typeof o.receiveLinkLabel === 'string' &&
+    typeof o.fileId === 'string' &&
+    typeof o.filename === 'string' &&
+    typeof o.size === 'number'
+  );
+}
+
 // ---------- Public --------------------------------------------------------
 
 export async function getPublicReceiveLink(code: string): Promise<PublicReceiveLink> {

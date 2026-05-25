@@ -266,6 +266,33 @@ export const files = sqliteTable('files', {
  * `confirm(ticketId)` which will close out the ticket and decrement
  * `send_links.download_count`.
  */
+/**
+ * In-app notifications surfaced in the admin dashboard. A row is written by
+ * `upload-tickets.finalize` on every successful inbound (receive-intent)
+ * upload; admin send-link uploads do NOT generate notifications (PRD).
+ *
+ * `kind` is a discriminator string so future event types (link expired, quota
+ * reached, ...) can land here without another migration. v1 only writes
+ * `upload_received`. `payload` is JSON-encoded with the discriminator-specific
+ * fields: for `upload_received` that's
+ * `{ receiveLinkId, receiveLinkLabel, fileId, filename, size }`.
+ *
+ * `read_at` is nullable so the unread set is a cheap `where read_at IS NULL`
+ * filter. We deliberately do NOT cascade-delete with the receive link or file
+ * — a notification is a historical event; deleting the underlying file
+ * shouldn't erase the record that an upload happened. The dashboard tolerates
+ * dangling ids by surfacing the payload's frozen-at-write-time `filename` /
+ * `receiveLinkLabel`.
+ */
+export const notifications = sqliteTable('notifications', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  /** JSON-encoded payload. Shape is `kind`-dependent. */
+  payload: text('payload').notNull(),
+  createdAt: integer('created_at').notNull(),
+  readAt: integer('read_at'),
+});
+
 export const downloadTickets = sqliteTable('download_tickets', {
   id: text('id').primaryKey(),
   sendLinkId: text('send_link_id')

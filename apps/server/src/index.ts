@@ -9,6 +9,7 @@ import { openDatabase } from './db/client.js';
 import { createFilesModule } from './files/files.js';
 import { createReceiveLinksModule } from './links/receive-links.js';
 import { createSendLinksModule } from './links/send-links.js';
+import { createNotificationsModule } from './notifications/notifications.js';
 import { createStorageProvider, verifyStorage } from './storage/index.js';
 import { createDownloadTicketsModule } from './tickets/download-tickets.js';
 import { createUploadTicketsModule } from './tickets/upload-tickets.js';
@@ -69,12 +70,14 @@ async function main(): Promise<void> {
   const receiveLinksModule = createReceiveLinksModule(db);
   const sendLinksModule = createSendLinksModule(db);
   const filesModule = createFilesModule(db);
+  const notificationsModule = createNotificationsModule(db);
   const uploadTicketsModule = createUploadTicketsModule(
     db,
     storage,
     receiveLinksModule,
     sendLinksModule,
     filesModule,
+    notificationsModule,
   );
   const downloadTicketsModule = createDownloadTicketsModule(
     db,
@@ -90,6 +93,7 @@ async function main(): Promise<void> {
     uploadTicketsModule,
     downloadTicketsModule,
     filesModule,
+    notificationsModule,
     storage,
   });
 
