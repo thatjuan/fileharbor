@@ -32,12 +32,32 @@ export interface ReceiveLinksModule {
   getById(id: string): Promise<ReceiveLink | null>;
   list(): Promise<ReceiveLink[]>;
   /**
+   * Update the mutable bits of a link. Currently just `status` (#7's
+   * disable / re-enable). Returns the updated row, or `null` when the id
+   * doesn't match an existing link.
+   */
+  update(id: string, input: UpdateReceiveLinkInput): Promise<ReceiveLink | null>;
+  /**
+   * Delete a link by id. Returns `true` when a row was removed, `false` when
+   * no link with that id existed.
+   *
+   * Cascade behaviour is defined in the schema: `upload_tickets.receive_link_id`
+   * is `ON DELETE CASCADE` (junk tickets follow the link they belonged to),
+   * but `files.receive_link_id` is `ON DELETE SET NULL` (received files are
+   * separate artifacts the admin chose to keep — they survive their link).
+   */
+  remove(id: string): Promise<boolean>;
+  /**
    * Count of files attached to this link (i.e. completed uploads). Computed
    * on demand from `files` rather than denormalised on the link row; #5 has
    * one place that needs it and joining is cheap. If a later slice surfaces
    * this on every list response we'll consider caching.
    */
   recordUploadCount(linkId: string): Promise<number>;
+}
+
+export interface UpdateReceiveLinkInput {
+  status?: 'active' | 'disabled';
 }
 
 export interface CreateReceiveLinkInput {
@@ -153,6 +173,37 @@ export function createReceiveLinksModule(db: Db): ReceiveLinksModule {
         .orderBy(sql`${receiveLinks.createdAt} desc`)
         .all();
       return rows.map(toReceiveLink);
+    },
+
+    async update(id, input) {
+      const existing = db.select().from(receiveLinks).where(eq(receiveLinks.id, id)).get();
+      if (!existing) return null;
+
+      const patch: Partial<typeof receiveLinks.$inferInsert> = {};
+      if (input.status !== undefined) {
+        if (input.status !== 'active' && input.status !== 'disabled') {
+          throw new Error('invalid_status');
+        }
+        patch.status = input.status;
+      }
+
+      // No-op update: caller passed nothing actionable. Return the existing
+      // row unchanged rather than 500'ing — the API surface decides whether
+      // an empty body is a 400.
+      if (Object.keys(patch).length === 0) {
+        return toReceiveLink(existing);
+      }
+
+      db.update(receiveLinks).set(patch).where(eq(receiveLinks.id, id)).run();
+      const updated = db.select().from(receiveLinks).where(eq(receiveLinks.id, id)).get();
+      return updated ? toReceiveLink(updated) : null;
+    },
+
+    async remove(id) {
+      const result = db.delete(receiveLinks).where(eq(receiveLinks.id, id)).run();
+      // better-sqlite3's `RunResult.changes` is `number | bigint`; coerce so
+      // the caller gets a plain boolean.
+      return Number(result.changes) > 0;
     },
 
     async recordUploadCount(linkId) {

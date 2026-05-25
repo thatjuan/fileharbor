@@ -1,18 +1,35 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
-import { getReceiveLink, type FileRecord, type ReceiveLink } from '../lib/api.js';
+import { StatusBadge } from '../components/StatusBadge.js';
+import {
+  deleteFile,
+  deleteReceiveLink,
+  getFileDownload,
+  getReceiveLink,
+  updateReceiveLinkStatus,
+  type FileRecord,
+  type ReceiveLink,
+} from '../lib/api.js';
 
 /**
  * Receive link detail. Shows the shareable URL (with a copy button), the
  * policy summary (password / quota / expiry), and lists the files that have
  * landed via this link.
  *
+ * Admin actions:
+ *   - Disable / Re-enable the link (toggles `status`).
+ *   - Delete the link (received files survive — they orphan to
+ *     `receive_link_id = NULL` and remain reachable at `/api/files/:id`).
+ *   - Per-file: Download (presigned GET → browser navigation) and Delete
+ *     (S3 object then DB row).
+ *
  * Expiries are stored as UTC epoch seconds and rendered here in viewer-local
  * time — `toLocaleString()` uses the browser's locale and timezone by default.
  */
 export function ReceiveLinkDetailPage(): JSX.Element {
   const params = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const id = params.id ?? '';
   const [data, setData] = useState<{
     link: ReceiveLink;
@@ -20,6 +37,8 @@ export function ReceiveLinkDetailPage(): JSX.Element {
     uploadsSoFar: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -51,6 +70,74 @@ export function ReceiveLinkDetailPage(): JSX.Element {
       // Clipboard API can fail in HTTP / iframes. The URL is still in the
       // text input — fall back to "select manually".
       setCopied(false);
+    }
+  };
+
+  const onToggleStatus = async (): Promise<void> => {
+    if (!data) return;
+    const next = data.link.status === 'active' ? 'disabled' : 'active';
+    setBusy(true);
+    setActionError(null);
+    try {
+      const updated = await updateReceiveLinkStatus(data.link.id, next);
+      setData({ ...data, link: updated });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to update link.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDeleteLink = async (): Promise<void> => {
+    if (!data) return;
+    if (
+      !window.confirm(
+        'Delete this receive link? Already-uploaded files will be kept (admin only), but the code will stop working.',
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setActionError(null);
+    try {
+      await deleteReceiveLink(data.link.id);
+      navigate('/', { replace: true });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to delete link.');
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Mint a presigned GET and navigate to it. We use `window.location.assign`
+   * rather than synthesising an `<a download>`: presigned GETs already sign
+   * `response-content-disposition: attachment; filename="..."`, so the
+   * browser's default behaviour is exactly the save-with-friendly-name path.
+   * A normal navigation keeps the URL inspectable in DevTools for support.
+   */
+  const onDownloadFile = async (fileId: string): Promise<void> => {
+    setActionError(null);
+    try {
+      const dl = await getFileDownload(fileId);
+      window.location.assign(dl.url);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to start download.');
+    }
+  };
+
+  const onDeleteFile = async (fileId: string, filename: string): Promise<void> => {
+    if (!data) return;
+    if (!window.confirm(`Delete "${filename}"? The S3 object will be removed too.`)) return;
+    setActionError(null);
+    try {
+      await deleteFile(fileId);
+      setData({
+        ...data,
+        files: data.files.filter((f) => f.id !== fileId),
+        uploadsSoFar: Math.max(0, data.uploadsSoFar - 1),
+      });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to delete file.');
     }
   };
 
@@ -95,7 +182,9 @@ export function ReceiveLinkDetailPage(): JSX.Element {
             </div>
             <div>
               <div className="muted small">Status</div>
-              <div>{data.link.status}</div>
+              <div className="row">
+                <StatusBadge status={data.link.displayStatus} />
+              </div>
             </div>
             <div>
               <div className="muted small">Password</div>
@@ -105,13 +194,34 @@ export function ReceiveLinkDetailPage(): JSX.Element {
               <div className="muted small">Uploads</div>
               <div>
                 {data.uploadsSoFar}
-                {data.link.maxUploads !== null ? ` used / ${data.link.maxUploads} max` : ' (unlimited)'}
+                {data.link.maxUploads !== null
+                  ? ` used / ${data.link.maxUploads} max`
+                  : ' (unlimited)'}
               </div>
             </div>
             <div>
               <div className="muted small">Expires</div>
               <div>{formatExpiry(data.link.expiresAt)}</div>
             </div>
+
+            <div className="row">
+              <button type="button" onClick={onToggleStatus} disabled={busy}>
+                {data.link.status === 'active' ? 'Disable link' : 'Re-enable link'}
+              </button>
+              <button
+                type="button"
+                onClick={onDeleteLink}
+                disabled={busy}
+                className="button-danger"
+              >
+                Delete link
+              </button>
+            </div>
+            {actionError && (
+              <p role="alert" className="error">
+                {actionError}
+              </p>
+            )}
           </section>
 
           <section className="stack">
@@ -120,13 +230,27 @@ export function ReceiveLinkDetailPage(): JSX.Element {
             {data.files.length > 0 && (
               <ul className="list-reset stack">
                 {data.files.map((file) => (
-                  <li key={file.id} className="card">
+                  <li key={file.id} className="card row between">
                     <div>
-                      <strong>{file.filename}</strong>
+                      <div>
+                        <strong>{file.filename}</strong>
+                      </div>
+                      <div className="muted small">
+                        {formatBytes(file.size)} · {file.contentType} ·{' '}
+                        {new Date(file.createdAt * 1000).toLocaleString()}
+                      </div>
                     </div>
-                    <div className="muted small">
-                      {formatBytes(file.size)} · {file.contentType} ·{' '}
-                      {new Date(file.createdAt * 1000).toLocaleString()}
+                    <div className="row">
+                      <button type="button" onClick={() => void onDownloadFile(file.id)}>
+                        Download
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void onDeleteFile(file.id, file.filename)}
+                        className="button-danger"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </li>
                 ))}
