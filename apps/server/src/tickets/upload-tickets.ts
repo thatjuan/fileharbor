@@ -1,12 +1,39 @@
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
+import { verifyPassword } from '@better-auth/utils/password';
 
 import type { Db } from '../db/client.js';
 import { uploadTickets } from '../db/schema.js';
 import type { FilesModule } from '../files/files.js';
-import { evaluateReceiveLink, type ReceiveLinkPolicyResult } from '../links/policy/index.js';
-import type { ReceiveLinksModule } from '../links/receive-links.js';
+import {
+  evaluateReceiveLink,
+  type PasswordCheck,
+  type ReceiveLinkPolicyResult,
+} from '../links/policy/index.js';
+import type { ReceiveLink, ReceiveLinksModule } from '../links/receive-links.js';
 import type { StorageProvider } from '../storage/index.js';
+
+/**
+ * Resolve the password verdict for a link. The policy module is a pure sync
+ * function (#6 design note); we do the async work here so the verdict is a
+ * simple discriminated value by the time policy runs.
+ *
+ * `verifyPassword` is constant-time on the hash bytes via Node's `scrypt`
+ * comparison; passing a non-matching plaintext yields `false` without a
+ * timing channel that distinguishes "no hash on file" from "wrong password"
+ * — the `null` short-circuit above handles the former case before we get here.
+ */
+async function resolvePasswordCheck(
+  link: ReceiveLink,
+  providedPassword: string | null,
+): Promise<PasswordCheck> {
+  if (link.passwordHash === null) return { kind: 'not_required' };
+  if (providedPassword === null || providedPassword.length === 0) {
+    return { kind: 'missing' };
+  }
+  const ok = await verifyPassword(link.passwordHash, providedPassword);
+  return ok ? { kind: 'correct' } : { kind: 'wrong' };
+}
 
 /**
  * Upload-ticket lifecycle. Two operations:
@@ -106,7 +133,8 @@ export function createUploadTicketsModule(
 
       const now = Math.floor(Date.now() / 1000);
       const uploadsSoFar = await receiveLinksModule.recordUploadCount(link.id);
-      const policy = evaluateReceiveLink(link, now, uploadsSoFar, input.providedPassword ?? null);
+      const passwordCheck = await resolvePasswordCheck(link, input.providedPassword ?? null);
+      const policy = evaluateReceiveLink(link, now, uploadsSoFar, passwordCheck);
       if (policy.kind !== 'ok') {
         return { kind: 'policy_rejected', policy };
       }
@@ -145,7 +173,7 @@ export function createUploadTicketsModule(
       };
     },
 
-    async finalize(ticketId, _input) {
+    async finalize(ticketId, input) {
       const ticketRow = db.select().from(uploadTickets).where(eq(uploadTickets.id, ticketId)).get();
       if (!ticketRow) return { kind: 'ticket_not_found' };
 
@@ -153,6 +181,11 @@ export function createUploadTicketsModule(
       // file row and marked the ticket completed, return the same answer with
       // no extra work. We look up the `file` row by `s3_key` (the ticket-file
       // pairing is 1:1) and return its id so the caller can still link to it.
+      //
+      // We do NOT re-run policy on this branch: the file already exists; the
+      // bytes have already landed; refusing to acknowledge that because the
+      // link has since been disabled or expired would be a lie. The dashboard
+      // can still delete the file via its own surface.
       if (ticketRow.status === 'completed') {
         const existing = await filesModule
           .listForReceiveLink(ticketRow.receiveLinkId ?? '')
@@ -168,6 +201,23 @@ export function createUploadTicketsModule(
       // re-finalizes). For `expired` we don't — the presigned URL is gone.
       if (ticketRow.status === 'expired') {
         return { kind: 'failed', reason: 'object_not_found' };
+      }
+
+      // Re-validate the link policy. The link may have been disabled, expired,
+      // or had a password set between mint and finalize. We also re-check the
+      // password if the link still has one — guards against the case where an
+      // attacker held a ticket from before the password was applied.
+      if (ticketRow.receiveLinkId !== null) {
+        const link = await receiveLinksModule.getById(ticketRow.receiveLinkId);
+        if (link) {
+          const now = Math.floor(Date.now() / 1000);
+          const uploadsSoFar = await receiveLinksModule.recordUploadCount(link.id);
+          const passwordCheck = await resolvePasswordCheck(link, input?.providedPassword ?? null);
+          const policy = evaluateReceiveLink(link, now, uploadsSoFar, passwordCheck);
+          if (policy.kind !== 'ok') {
+            return { kind: 'policy_rejected', policy };
+          }
+        }
       }
 
       const info = await storage.headObject(ticketRow.s3Key);
