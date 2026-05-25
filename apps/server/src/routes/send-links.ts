@@ -20,6 +20,10 @@ interface AddFileBody {
   size?: unknown;
 }
 
+interface UpdateBody {
+  status?: unknown;
+}
+
 /**
  * Display statuses surfaced to the admin UI. Same set the receive side uses,
  * minus `password_required`/`password_wrong` (those are per-attempt verdicts,
@@ -91,19 +95,23 @@ function toResponse(link: SendLink): SendLinkResponse {
  *                              the public finalize endpoint.
  *  - `GET    /`             — list links (newest first) with `displayStatus`.
  *  - `GET    /:id`          — link detail + bundled files.
+ *  - `PATCH  /:id`          — update link status (`active` | `disabled`).
+ *                              Mirrors the receive-side PATCH shape.
+ *  - `DELETE /:id`          — remove the link. Bundled files survive
+ *                              (`files.send_link_id` → SET NULL); outstanding
+ *                              upload + download tickets are cascade-deleted
+ *                              by the schema. S3 objects are NOT touched.
  *
  * The split (#11) replaces the old atomic "create-link-and-mint-ticket" route.
  * Rationale: a send link is now a bundle of multiple files, not 1:1 with a
  * file. Two endpoints model the lifecycle honestly — the link is the
- * container; files come and go. The detail page reuses `/:id/files` to grow
- * the bundle after creation, which #12 (delete file) inverts.
+ * container; files come and go.
  *
  * On atomicity: the previous route compensated by deleting the link if the
  * first ticket mint failed. With the split, the link is intentionally allowed
  * to exist empty — the public page already renders empty bundles cleanly (#8).
- * #12 lets the admin delete the link if a creation flow goes sideways.
- *
- * No PATCH/DELETE this slice — that's #12.
+ * #12's DELETE lets the admin clean up the link if a creation flow goes
+ * sideways without losing the files that did land.
  */
 export function createSendLinksRoute(
   authModule: AuthModule,
@@ -210,6 +218,48 @@ export function createSendLinksRoute(
     if (!link) return c.json({ error: 'not_found' }, 404);
     const filesList = await filesModule.listForSendLink(link.id);
     return c.json({ link: toResponse(link), files: filesList });
+  });
+
+  route.patch('/:id', async (c) => {
+    const id = c.req.param('id');
+
+    let body: UpdateBody;
+    try {
+      body = (await c.req.json()) as UpdateBody;
+    } catch {
+      return c.json({ error: 'invalid_json' }, 400);
+    }
+
+    // Whitelist `status`. Future PATCH fields (label, policy bits) get added
+    // here; we don't blindly pass the body through to the module. Mirrors
+    // the receive-side PATCH shape exactly.
+    const status = body.status;
+    if (status !== 'active' && status !== 'disabled') {
+      return c.json({ error: 'invalid_input', message: 'status_required' }, 400);
+    }
+
+    let updated;
+    try {
+      updated = await sendLinksModule.update(id, { status });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown_error';
+      return c.json({ error: 'invalid_input', message }, 400);
+    }
+    if (!updated) return c.json({ error: 'not_found' }, 404);
+    return c.json({ link: toResponse(updated) });
+  });
+
+  route.delete('/:id', async (c) => {
+    const id = c.req.param('id');
+    const removed = await sendLinksModule.remove(id);
+    if (!removed) return c.json({ error: 'not_found' }, 404);
+    // 204 No Content. Cascade behaviour (per schema FKs):
+    //   - `upload_tickets.send_link_id`   → CASCADE
+    //   - `download_tickets.send_link_id` → CASCADE
+    //   - `files.send_link_id`            → SET NULL
+    // S3 objects are intentionally untouched — the bytes remain in the bucket
+    // and are still reachable via `/api/files/:id`.
+    return c.body(null, 204);
   });
 
   return route;
