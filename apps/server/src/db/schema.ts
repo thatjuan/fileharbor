@@ -119,11 +119,18 @@ export const receiveLinks = sqliteTable('receive_links', {
   code: text('code').notNull().unique(),
   /** Admin-facing label, e.g. "Photos from Bob". */
   label: text('label').notNull(),
-  /** Argon2 hash of the link password. Null = no password (always null in #5). */
+  /**
+   * Hashed link password. Null = no password.
+   *
+   * Algorithm: scrypt (via `@better-auth/utils/password`). Format is
+   * `<salt-hex>:<key-hex>`. Reusing Better Auth's hash primitive avoids a
+   * second password-hashing library in the dependency surface — the admin
+   * login password is hashed the same way.
+   */
   passwordHash: text('password_hash'),
-  /** Quota in number of uploads. Null = unlimited (always null in #5). */
+  /** Quota in number of completed uploads. Null = unlimited. */
   maxUploads: integer('max_uploads'),
-  /** Expiry as unix epoch seconds, UTC. Null = never (always null in #5). */
+  /** Expiry as unix epoch seconds, UTC. Null = never. */
   expiresAt: integer('expires_at'),
   /** Lifecycle flag. Disabled links 404 from the public surface. */
   status: text('status', { enum: ['active', 'disabled'] })
