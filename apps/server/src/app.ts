@@ -4,9 +4,15 @@ import { Hono } from 'hono';
 
 import type { AuthModule } from './auth/index.js';
 import type { AppConfig } from './config.js';
+import type { FilesModule } from './files/files.js';
+import type { ReceiveLinksModule } from './links/receive-links.js';
+import { createFilesRoute } from './routes/files.js';
 import { healthRoute } from './routes/health.js';
+import { createPublicReceiveLinksRoute } from './routes/public-receive-links.js';
+import { createPublicUploadTicketsRoute } from './routes/public-upload-tickets.js';
+import { createReceiveLinksRoute } from './routes/receive-links.js';
 import { createSetupRoute } from './routes/setup.js';
-import type { StorageProvider } from './storage/index.js';
+import type { UploadTicketsModule } from './tickets/upload-tickets.js';
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -42,15 +48,15 @@ function contentTypeFor(filePath: string): string {
  * In development we don't serve static assets at all — the Vite dev server
  * does, and proxies `/api/*` to this Hono instance.
  */
-export function createApp(
-  config: AppConfig,
-  authModule: AuthModule,
-  // Storage is constructed and verified in `main()` and threaded through here
-  // so route modules can receive it via the same DI pattern used for auth.
-  // No route consumes it yet (#5+); the parameter is in place to avoid
-  // churning every call site when those routes land.
-  _storage: StorageProvider,
-): Hono {
+export interface AppModules {
+  authModule: AuthModule;
+  receiveLinksModule: ReceiveLinksModule;
+  uploadTicketsModule: UploadTicketsModule;
+  filesModule: FilesModule;
+}
+
+export function createApp(config: AppConfig, modules: AppModules): Hono {
+  const { authModule, receiveLinksModule, uploadTicketsModule, filesModule } = modules;
   const app = new Hono();
 
   // Better Auth exposes its own fetch handler at /api/auth/*. It is not a
@@ -64,6 +70,21 @@ export function createApp(
   const api = new Hono();
   api.route('/health', healthRoute);
   api.route('/setup', createSetupRoute(authModule));
+
+  // Admin (authed) surfaces.
+  api.route('/receive-links', createReceiveLinksRoute(authModule, receiveLinksModule, filesModule));
+  api.route('/files', createFilesRoute(authModule, filesModule));
+
+  // Public (unauthed, policy-gated) surfaces. Kept under `/api/public/*` so
+  // the boundary is obvious in route maps and reverse-proxy rules.
+  const publicApi = new Hono();
+  publicApi.route(
+    '/receive-links',
+    createPublicReceiveLinksRoute(receiveLinksModule, uploadTicketsModule),
+  );
+  publicApi.route('/upload-tickets', createPublicUploadTicketsRoute(uploadTicketsModule));
+  api.route('/public', publicApi);
+
   app.route('/api', api);
 
   if (config.nodeEnv === 'production') {

@@ -23,6 +23,15 @@ main {
   max-width: 28rem;
 }
 
+main.page.wide {
+  max-width: 48rem;
+}
+
+main.page.wide,
+main.page {
+  width: 100%;
+}
+
 h1 {
   margin: 0 0 1rem;
   font-size: clamp(2rem, 5vw, 3rem);
@@ -86,4 +95,44 @@ button:disabled {
 .error {
   color: #d33;
   margin: 0;
+}
+
+.success {
+  color: #2a8;
+  margin: 0;
+}
+
+.small {
+  font-size: 0.8rem;
+}
+
+.list-reset {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.card {
+  border: 1px solid currentColor;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  opacity: 0.95;
+}
+
+.button-link {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border: 1px solid currentColor;
+  border-radius: 0.375rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }

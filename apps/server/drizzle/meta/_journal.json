@@ -15,6 +15,13 @@
       "when": 1779740890956,
       "tag": "0001_breezy_fabian_cortez",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779742264567,
+      "tag": "0002_gigantic_reavers",
+      "breakpoints": true
     }
   ]
 }
