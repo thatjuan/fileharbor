@@ -11,11 +11,20 @@ import { mintUniqueCode, normalizeCode } from './code-generator.js';
  * `recordFileCount` views. Parallel in shape to `receive-links.ts` — same
  * facade pattern, same id/code conventions, same code-generator probe.
  *
- * For #8 only `create`, `getByCode`, `getById`, `list`, and the two
- * aggregate views are wired. `update` / `remove` are left for #12 (send link
- * lifecycle: disable/re-enable/delete); password / quota / expiry policy is
- * #11. The accept-and-store columns for those fields already exist on the
- * schema so this slice can persist `null`s without another migration.
+ * `update` / `remove` cover the disable/re-enable/delete lifecycle (#12);
+ * password / quota / expiry policy was added in #11. The cascade on delete
+ * is defined in the schema:
+ *
+ *   - `upload_tickets.send_link_id`   — ON DELETE CASCADE (in-flight tickets
+ *     bound to the link disappear with it).
+ *   - `download_tickets.send_link_id` — ON DELETE CASCADE (outstanding
+ *     recipient tickets are invalidated when the link goes away).
+ *   - `files.send_link_id`            — ON DELETE SET NULL (the bytes the
+ *     admin uploaded survive in the file library, just orphaned from the
+ *     link). Mirrors the receive-side decision.
+ *
+ * The S3 objects themselves are NOT touched by `remove` — the admin can still
+ * download or explicitly delete those files via `/api/files/:id`.
  */
 
 export interface SendLink {
@@ -38,12 +47,16 @@ export interface SendLinksModule {
   getById(id: string): Promise<SendLink | null>;
   list(): Promise<SendLink[]>;
   /**
-   * Compensating remove — used when a caller (e.g. atomic create-link-and-ticket)
-   * needs to roll back a freshly-created link because a downstream step failed.
-   * Returns `true` when a row was removed.
-   *
-   * Public delete (with all its policy + cascade nuances) lands in #12; this
-   * is the narrow internal lifecycle hook the create-and-mint flow needs.
+   * Update the mutable bits of a link. Currently just `status` (#12's
+   * disable / re-enable). Returns the updated row, or `null` when the id
+   * doesn't match an existing link.
+   */
+  update(id: string, input: UpdateSendLinkInput): Promise<SendLink | null>;
+  /**
+   * Delete a link by id. Returns `true` when a row was removed, `false` when
+   * no link with that id existed. Originally introduced as a compensating
+   * rollback for the create-and-mint flow (#8); #12 makes it the user-facing
+   * delete too. Cascade behaviour is defined in the module docstring above.
    */
   remove(id: string): Promise<boolean>;
   /**
@@ -57,6 +70,10 @@ export interface SendLinksModule {
    * from `files`, like `receive-links.recordUploadCount`.
    */
   recordFileCount(linkId: string): Promise<number>;
+}
+
+export interface UpdateSendLinkInput {
+  status?: 'active' | 'disabled';
 }
 
 export interface CreateSendLinkInput {
@@ -166,8 +183,36 @@ export function createSendLinksModule(db: Db): SendLinksModule {
       return rows.map(toSendLink);
     },
 
+    async update(id, input) {
+      const existing = db.select().from(sendLinks).where(eq(sendLinks.id, id)).get();
+      if (!existing) return null;
+
+      const patch: Partial<typeof sendLinks.$inferInsert> = {};
+      if (input.status !== undefined) {
+        if (input.status !== 'active' && input.status !== 'disabled') {
+          throw new Error('invalid_status');
+        }
+        patch.status = input.status;
+      }
+
+      // No-op update: caller passed nothing actionable. Return the existing
+      // row unchanged rather than 500'ing — the API surface decides whether
+      // an empty body is a 400. Mirrors `receive-links.update`.
+      if (Object.keys(patch).length === 0) {
+        return toSendLink(existing);
+      }
+
+      db.update(sendLinks).set(patch).where(eq(sendLinks.id, id)).run();
+      const updated = db.select().from(sendLinks).where(eq(sendLinks.id, id)).get();
+      return updated ? toSendLink(updated) : null;
+    },
+
     async remove(id) {
       const result = db.delete(sendLinks).where(eq(sendLinks.id, id)).run();
+      // The schema's FK cascades (upload_tickets.send_link_id,
+      // download_tickets.send_link_id) and SET NULLs (files.send_link_id)
+      // do the rest of the work. We never touch S3 here — the admin's
+      // bundled files survive as orphans, reachable via `/api/files/:id`.
       return Number(result.changes) > 0;
     },
 
