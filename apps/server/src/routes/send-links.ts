@@ -9,6 +9,12 @@ import type { UploadTicketsModule } from '../tickets/upload-tickets.js';
 
 interface CreateBody {
   label?: unknown;
+  password?: unknown;
+  maxDownloads?: unknown;
+  expiresAt?: unknown;
+}
+
+interface AddFileBody {
   filename?: unknown;
   contentType?: unknown;
   size?: unknown;
@@ -17,9 +23,7 @@ interface CreateBody {
 /**
  * Display statuses surfaced to the admin UI. Same set the receive side uses,
  * minus `password_required`/`password_wrong` (those are per-attempt verdicts,
- * not dashboard states). `quota_exhausted` here means the recipient download
- * cap was reached — in #8 the column is always null, so this branch is
- * unreachable until #11 wires send-link quotas.
+ * not dashboard states).
  */
 type DisplayStatus = 'active' | 'expired' | 'quota_exhausted' | 'disabled';
 
@@ -75,22 +79,31 @@ function toResponse(link: SendLink): SendLinkResponse {
 /**
  * Admin (authed) routes over `send_links`. Mounted at `/api/send-links`.
  *
- *  - `POST   /`        — atomic-ish create-link-and-mint-ticket. Body:
- *                        `{ label, filename, contentType, size }`. Returns
- *                        `{ link, ticket: { ticketId, presignedPutUrl, expiresAt } }`.
- *                        Admin then PUTs to the URL and calls finalize.
- *  - `GET    /`        — list links (newest first) with `displayStatus`.
- *  - `GET    /:id`     — link detail + bundled files.
+ *  - `POST   /`             — create a link with `{ label, password?,
+ *                              maxDownloads?, expiresAt? }`. Returns the link
+ *                              row. NO file is attached; the admin then calls
+ *                              `POST /:id/files` once per file to bundle.
+ *  - `POST   /:id/files`    — mint an upload-ticket for an additional file
+ *                              bound to this send link. Body:
+ *                              `{ filename, contentType, size }`. Returns
+ *                              `{ ticket: { ticketId, presignedPutUrl,
+ *                              expiresAt } }`. Admin PUTs to the URL and calls
+ *                              the public finalize endpoint.
+ *  - `GET    /`             — list links (newest first) with `displayStatus`.
+ *  - `GET    /:id`          — link detail + bundled files.
+ *
+ * The split (#11) replaces the old atomic "create-link-and-mint-ticket" route.
+ * Rationale: a send link is now a bundle of multiple files, not 1:1 with a
+ * file. Two endpoints model the lifecycle honestly — the link is the
+ * container; files come and go. The detail page reuses `/:id/files` to grow
+ * the bundle after creation, which #12 (delete file) inverts.
+ *
+ * On atomicity: the previous route compensated by deleting the link if the
+ * first ticket mint failed. With the split, the link is intentionally allowed
+ * to exist empty — the public page already renders empty bundles cleanly (#8).
+ * #12 lets the admin delete the link if a creation flow goes sideways.
  *
  * No PATCH/DELETE this slice — that's #12.
- *
- * On atomicity: SQLite transactions are sync; the presign call inside ticket
- * creation is async, so a single BEGIN/COMMIT spanning both isn't on the
- * table. Pragma: create the link, then mint the ticket; on ticket failure,
- * compensate by deleting the link row. The window where a link exists with
- * no ticket is bounded by the presign + insert duration (sub-second) and the
- * admin UI immediately attempts the PUT — a lingering link with no file is
- * the same state as a finalized failure, which #12 lets the admin clean up.
  */
 export function createSendLinksRoute(
   authModule: AuthModule,
@@ -110,6 +123,33 @@ export function createSendLinksRoute(
       return c.json({ error: 'invalid_json' }, 400);
     }
     const label = typeof body.label === 'string' ? body.label : '';
+
+    // Each policy field is independently optional. Mirrors the receive side's
+    // POST body shape.
+    const password = typeof body.password === 'string' ? body.password : null;
+    const maxDownloads = typeof body.maxDownloads === 'number' ? body.maxDownloads : null;
+    const expiresAt = typeof body.expiresAt === 'number' ? body.expiresAt : null;
+
+    try {
+      const link = await sendLinksModule.create({ label, password, maxDownloads, expiresAt });
+      return c.json({ link: toResponse(link) });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown_error';
+      // Thrown shapes: `label_required`, `label_too_long`,
+      // `invalid_max_downloads`, `invalid_expires_at`. All user-fixable 400s.
+      return c.json({ error: 'invalid_input', message }, 400);
+    }
+  });
+
+  route.post('/:id/files', async (c) => {
+    const id = c.req.param('id');
+
+    let body: AddFileBody;
+    try {
+      body = (await c.req.json()) as AddFileBody;
+    } catch {
+      return c.json({ error: 'invalid_json' }, 400);
+    }
     const filename = typeof body.filename === 'string' ? body.filename : '';
     const contentType =
       typeof body.contentType === 'string' && body.contentType.trim().length > 0
@@ -117,18 +157,11 @@ export function createSendLinksRoute(
         : 'application/octet-stream';
     const size = typeof body.size === 'number' ? body.size : NaN;
 
-    let link;
-    try {
-      link = await sendLinksModule.create({ label });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'unknown_error';
-      return c.json({ error: 'invalid_input', message }, 400);
-    }
+    // Pre-flight: confirm the link exists so we can return a clean 404 rather
+    // than letting the ticket module's `link_not_found` outcome carry it.
+    const link = await sendLinksModule.getById(id);
+    if (!link) return c.json({ error: 'not_found' }, 404);
 
-    // Mint the first (and, in #8, only) upload ticket for this link. If mint
-    // fails for any reason — bad filename, presign error — compensate by
-    // removing the just-created link so the admin can retry from a clean
-    // slate. We avoid leaving a "link with zero files" lying around.
     let ticketOutcome;
     try {
       ticketOutcome = await uploadTicketsModule.createForSendLink({
@@ -138,26 +171,24 @@ export function createSendLinksRoute(
         sizeHint: size,
       });
     } catch (err) {
-      await sendLinksModule.remove(link.id);
       const message = err instanceof Error ? err.message : 'unknown_error';
       return c.json({ error: 'mint_failed', message }, 500);
     }
 
     if (ticketOutcome.kind !== 'ok') {
-      await sendLinksModule.remove(link.id);
       if (ticketOutcome.kind === 'invalid_input') {
         return c.json({ error: 'invalid_input', message: ticketOutcome.reason }, 400);
       }
       if (ticketOutcome.kind === 'link_not_found') {
-        // Theoretically impossible (we just created the link) but the
-        // exhaustive switch is cheap insurance.
-        return c.json({ error: 'mint_failed', message: 'link_not_found' }, 500);
+        return c.json({ error: 'not_found' }, 404);
       }
+      // Admin-bypass in `createForSendLink` means only `disabled` can land
+      // here — but we serialize the full policy code regardless for forward-
+      // compat with any future admin-side gating.
       return c.json({ error: ticketOutcome.policy.kind }, 403);
     }
 
     return c.json({
-      link: toResponse(link),
       ticket: {
         ticketId: ticketOutcome.value.ticketId,
         presignedPutUrl: ticketOutcome.value.presignedPutUrl,
