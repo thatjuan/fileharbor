@@ -1,10 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
+import { AdminShell } from './components/AdminShell.js';
 import { DashboardPage } from './pages/DashboardPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { NewReceiveLinkPage } from './pages/NewReceiveLinkPage.js';
 import { NewSendLinkPage } from './pages/NewSendLinkPage.js';
+import { NotificationsPage } from './pages/NotificationsPage.js';
 import { PublicReceivePage } from './pages/PublicReceivePage.js';
 import { PublicSendPage } from './pages/PublicSendPage.js';
 import { ReceiveLinkDetailPage } from './pages/ReceiveLinkDetailPage.js';
@@ -89,7 +91,9 @@ export function App(): JSX.Element {
               path="/"
               element={
                 <RequireAuth>
-                  <DashboardPage />
+                  <AdminShell>
+                    <DashboardPage />
+                  </AdminShell>
                 </RequireAuth>
               }
             />
@@ -97,7 +101,9 @@ export function App(): JSX.Element {
               path="/links/receive/new"
               element={
                 <RequireAuth>
-                  <NewReceiveLinkPage />
+                  <AdminShell>
+                    <NewReceiveLinkPage />
+                  </AdminShell>
                 </RequireAuth>
               }
             />
@@ -105,7 +111,9 @@ export function App(): JSX.Element {
               path="/links/receive/:id"
               element={
                 <RequireAuth>
-                  <ReceiveLinkDetailPage />
+                  <AdminShell>
+                    <ReceiveLinkDetailPage />
+                  </AdminShell>
                 </RequireAuth>
               }
             />
@@ -113,7 +121,9 @@ export function App(): JSX.Element {
               path="/links/send/new"
               element={
                 <RequireAuth>
-                  <NewSendLinkPage />
+                  <AdminShell>
+                    <NewSendLinkPage />
+                  </AdminShell>
                 </RequireAuth>
               }
             />
@@ -121,7 +131,19 @@ export function App(): JSX.Element {
               path="/links/send/:id"
               element={
                 <RequireAuth>
-                  <SendLinkDetailPage />
+                  <AdminShell>
+                    <SendLinkDetailPage />
+                  </AdminShell>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/notifications"
+              element={
+                <RequireAuth>
+                  <AdminShell>
+                    <NotificationsPage />
+                  </AdminShell>
                 </RequireAuth>
               }
             />
