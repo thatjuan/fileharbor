@@ -2,8 +2,10 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { Hono } from 'hono';
 
+import type { AuthModule } from './auth/index.js';
 import type { AppConfig } from './config.js';
 import { healthRoute } from './routes/health.js';
+import { createSetupRoute } from './routes/setup.js';
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -39,11 +41,20 @@ function contentTypeFor(filePath: string): string {
  * In development we don't serve static assets at all — the Vite dev server
  * does, and proxies `/api/*` to this Hono instance.
  */
-export function createApp(config: AppConfig): Hono {
+export function createApp(config: AppConfig, authModule: AuthModule): Hono {
   const app = new Hono();
+
+  // Better Auth exposes its own fetch handler at /api/auth/*. It is not a
+  // Hono router — it's a single fetch handler — so we wire it via `app.all`
+  // rather than `app.route`. Everything under /api/auth (sign-in, sign-out,
+  // get-session, ...) is handled here. Public signup is sealed by
+  // `disableSignUp: true` in the auth options, so /api/auth/sign-up/email
+  // and /api/auth/sign-up/username both reject.
+  app.all('/api/auth/*', (c) => authModule.auth.handler(c.req.raw));
 
   const api = new Hono();
   api.route('/health', healthRoute);
+  api.route('/setup', createSetupRoute(authModule));
   app.route('/api', api);
 
   if (config.nodeEnv === 'production') {
