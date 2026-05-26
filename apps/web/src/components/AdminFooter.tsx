@@ -27,11 +27,7 @@ export function AdminFooter(): JSX.Element {
           <h4>Resources</h4>
           <ul className="list-reset">
             <li>
-              <a
-                href="https://github.com/thatjuan/fileharbor"
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a href="https://github.com/thatjuan/fileharbor" target="_blank" rel="noreferrer">
                 GitHub
               </a>
             </li>

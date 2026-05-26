@@ -29,18 +29,18 @@ Variable Inter ships all weights in one file, so the 300 / 400 / 600 / 700 ladde
 
 DESIGN.md "Known Gaps" admits that dark-mode card/input tokens were not surfaced in the analyzed pages. The mapping below is an extrapolation grounded in the existing near-black tile family:
 
-| Light token | Dark override |
-|---|---|
-| `--color-canvas` (#ffffff) | `--color-surface-tile-1` (#272729) |
-| `--color-canvas-parchment` (#f5f5f7) | `--color-surface-tile-2` (#2a2a2c) |
-| `--color-surface-pearl` (#fafafc) | `--color-surface-tile-3` (#252527) |
-| `--color-ink`, `--color-body` (#1d1d1f) | `#ffffff` (`body-on-dark`) |
-| `--color-ink-muted-80` (#333) | `rgba(255, 255, 255, 0.7)` |
-| `--color-ink-muted-48` (#7a7a7a) | `rgba(255, 255, 255, 0.45)` |
-| `--color-hairline` (#e0e0e0) | `rgba(255, 255, 255, 0.08)` |
-| `--color-divider-soft` (rgba(0,0,0,0.04)) | `rgba(255, 255, 255, 0.04)` |
-| `--color-primary` (#0066cc) | **unchanged** |
-| `--color-primary-on-dark` (#2997ff) | **unchanged** (already the on-dark variant) |
+| Light token                               | Dark override                               |
+| ----------------------------------------- | ------------------------------------------- |
+| `--color-canvas` (#ffffff)                | `--color-surface-tile-1` (#272729)          |
+| `--color-canvas-parchment` (#f5f5f7)      | `--color-surface-tile-2` (#2a2a2c)          |
+| `--color-surface-pearl` (#fafafc)         | `--color-surface-tile-3` (#252527)          |
+| `--color-ink`, `--color-body` (#1d1d1f)   | `#ffffff` (`body-on-dark`)                  |
+| `--color-ink-muted-80` (#333)             | `rgba(255, 255, 255, 0.7)`                  |
+| `--color-ink-muted-48` (#7a7a7a)          | `rgba(255, 255, 255, 0.45)`                 |
+| `--color-hairline` (#e0e0e0)              | `rgba(255, 255, 255, 0.08)`                 |
+| `--color-divider-soft` (rgba(0,0,0,0.04)) | `rgba(255, 255, 255, 0.04)`                 |
+| `--color-primary` (#0066cc)               | **unchanged**                               |
+| `--color-primary-on-dark` (#2997ff)       | **unchanged** (already the on-dark variant) |
 
 Inline links rendered on a `.tile-dark*` surface should pick up the brighter Sky Link Blue by adding the `text-link-on-dark` class or wrapping a region with the `.on-dark` scope.
 

@@ -50,8 +50,7 @@ export function NotificationBell(): JSX.Element {
     };
   }, []);
 
-  const label =
-    unread === 0 ? 'Notifications' : `Notifications (${unread} unread)`;
+  const label = unread === 0 ? 'Notifications' : `Notifications (${unread} unread)`;
 
   return (
     <Link

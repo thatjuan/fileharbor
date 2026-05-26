@@ -8,13 +8,7 @@ import type { ReactNode } from 'react';
  *
  * Used inside `AdminShell` and (optionally) on focused single-purpose pages.
  */
-export function SubNav({
-  title,
-  actions,
-}: {
-  title: ReactNode;
-  actions?: ReactNode;
-}): JSX.Element {
+export function SubNav({ title, actions }: { title: ReactNode; actions?: ReactNode }): JSX.Element {
   return (
     <div className="sub-nav">
       <div className="sub-nav-inner">

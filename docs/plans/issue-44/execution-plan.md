@@ -24,6 +24,7 @@ Translate `DESIGN.md` (Apple-inspired refined minimal) into the codebase across 
 > **i18n preserved.** PR #43 wired translation keys into `PublicReceivePage` and `PublicSendPage`. The redesign must preserve every `t('...')` and `<Trans>` call exactly; only markup/styling changes.
 
 > **Dark mode token mapping (explicit).** DESIGN.md does not surface dark-card/input tokens. W1 will define:
+>
 > - `--color-canvas` → `--color-surface-tile-1` (#272729)
 > - `--color-canvas-parchment` → `--color-surface-tile-2` (#2a2a2c)
 > - `--color-surface-pearl` → `--color-surface-tile-3` (#252527)
