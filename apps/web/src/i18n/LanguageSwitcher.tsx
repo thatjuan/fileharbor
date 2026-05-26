@@ -11,7 +11,7 @@ export function LanguageSwitcher(): JSX.Element {
   const { locale, setLocale } = useLocaleContext();
   const t = useT();
   return (
-    <div className="row" style={{ justifyContent: 'flex-end', marginBottom: '1rem' }}>
+    <div className="row end" style={{ marginBottom: 'var(--space-md)' }}>
       <label className="small muted">
         {t('switcher.label')}{' '}
         <select
