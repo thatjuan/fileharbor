@@ -32,23 +32,25 @@ export function LoginPage(): JSX.Element {
   };
 
   return (
-    <main className="page">
-      <h1>File Harbor</h1>
+    <main className="page-auth">
+      <h1>Sign in</h1>
       <form onSubmit={onSubmit} className="stack">
-        <label>
+        <label className="input-label">
           Username
           <input
             type="text"
+            className="input-pill"
             autoComplete="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             required
           />
         </label>
-        <label>
+        <label className="input-label">
           Password
           <input
             type="password"
+            className="input-pill"
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -56,11 +58,11 @@ export function LoginPage(): JSX.Element {
           />
         </label>
         {error && (
-          <p role="alert" className="error">
+          <p role="alert" className="muted">
             {error}
           </p>
         )}
-        <button type="submit" disabled={submitting}>
+        <button type="submit" className="btn-primary" disabled={submitting}>
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
