@@ -1,7 +1,10 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
+import '@fontsource-variable/inter';
 import { App } from './App.js';
+import './styles/tokens.css';
+import './styles/components.css';
 import './styles.css';
 
 const rootEl = document.getElementById('root');
