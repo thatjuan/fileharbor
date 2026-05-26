@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useParams } from 'react-router-dom';
 
+import { LanguageSwitcher, Trans, mapUploadErrorMessage, useT } from '../i18n/index.js';
 import {
   abortMultipartUploadTicket,
   completeMultipartUploadTicket,
@@ -37,6 +38,7 @@ import { DEFAULT_UPLOAD_CONFIG, getUploadConfig, type UploadConfig } from '../li
 export function PublicReceivePage(): JSX.Element {
   const params = useParams<{ code: string }>();
   const code = params.code ?? '';
+  const t = useT();
 
   const [meta, setMeta] = useState<PublicReceiveLink | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
@@ -87,7 +89,7 @@ export function PublicReceivePage(): JSX.Element {
           // Belt-and-braces: if `getUploadConfig` ever changes to reject,
           // still set a usable config so the picker can mount.
           setUploadConfig((prev) => prev ?? DEFAULT_UPLOAD_CONFIG);
-          setMetaError(err instanceof Error ? err.message : 'Link not found or disabled.');
+          setMetaError(err instanceof Error ? err.message : t('receive.notAvailable'));
         }
       });
     return () => {
@@ -234,10 +236,10 @@ export function PublicReceivePage(): JSX.Element {
         setPhase('failed');
         setError(
           finalize.reason === 'object_not_found'
-            ? 'The server could not verify your upload. Please try again.'
+            ? t('errors.uploadObjectNotFound')
             : finalize.reason.length > 0
-              ? `Upload failed: ${finalize.reason}`
-              : 'Upload failed during finalization.',
+              ? t('errors.uploadFailedReason', { reason: finalize.reason })
+              : t('errors.uploadFailedFinalize'),
         );
         return;
       }
@@ -254,7 +256,7 @@ export function PublicReceivePage(): JSX.Element {
           return;
         }
         setPhase('failed');
-        setError(`Upload rejected: ${finalize.reason}`);
+        setError(t('errors.uploadRejectedReason', { reason: finalize.reason }));
         return;
       }
       handleRejection(finalize);
@@ -270,7 +272,11 @@ export function PublicReceivePage(): JSX.Element {
         return;
       }
       setPhase('failed');
-      setError(err instanceof Error ? err.message : 'Upload failed.');
+      setError(
+        err instanceof Error
+          ? t(mapUploadErrorMessage(err.message))
+          : t('errors.uploadFailedGeneric'),
+      );
     } finally {
       // Reset the input so the user can pick the same file again after a
       // failure without weirdness.
@@ -305,7 +311,7 @@ export function PublicReceivePage(): JSX.Element {
   ): void => {
     if (outcome.kind === 'not_found') {
       setPhase('locked');
-      setError('This upload link is not available.');
+      setError(t('receive.lockedDefault'));
       return;
     }
     if (outcome.kind === 'error') {
@@ -316,23 +322,23 @@ export function PublicReceivePage(): JSX.Element {
     switch (outcome.reason) {
       case 'password_required':
         setPhase('idle');
-        setError('A password is required to upload to this link.');
+        setError(t('errors.passwordRequiredReceive'));
         break;
       case 'password_wrong':
         setPhase('idle');
-        setError('Incorrect password. Please try again.');
+        setError(t('errors.passwordWrong'));
         break;
       case 'quota_exhausted':
         setPhase('locked');
-        setError('This link has reached its upload limit and is no longer accepting files.');
+        setError(t('errors.quotaExhaustedReceive'));
         break;
       case 'expired':
         setPhase('locked');
-        setError('This link has expired.');
+        setError(t('errors.expired'));
         break;
       case 'disabled':
         setPhase('locked');
-        setError('This link is currently disabled.');
+        setError(t('errors.disabled'));
         break;
     }
   };
@@ -353,9 +359,10 @@ export function PublicReceivePage(): JSX.Element {
   if (metaError) {
     return (
       <main className="page">
+        <LanguageSwitcher />
         <h1>File Harbor</h1>
         <p role="alert" className="error">
-          This upload link is not available. It may be incorrect, disabled, or expired.
+          {t('receive.notAvailable')}
         </p>
       </main>
     );
@@ -364,7 +371,8 @@ export function PublicReceivePage(): JSX.Element {
   if (!meta || !uploadConfig) {
     return (
       <main className="page">
-        <p className="muted">Loading…</p>
+        <LanguageSwitcher />
+        <p className="muted">{t('common.loading')}</p>
       </main>
     );
   }
@@ -381,25 +389,29 @@ export function PublicReceivePage(): JSX.Element {
 
   return (
     <main className="page">
-      <h1>Upload a file</h1>
+      <LanguageSwitcher />
+      <h1>{t('receive.title')}</h1>
       <p>
-        You&apos;ve been invited to upload to: <strong>{meta.label}</strong>
+        <Trans k="receive.invitedTo" components={{ label: <strong>{meta.label}</strong> }} />
       </p>
 
       {phase === 'completed' && completedName && (
         <div className="stack">
           <p className="success" role="status">
-            Upload complete: <strong>{completedName}</strong>
+            <Trans
+              k="receive.uploadComplete"
+              components={{ name: <strong>{completedName}</strong> }}
+            />
           </p>
           <button type="button" onClick={onReset}>
-            Upload another file
+            {t('receive.uploadAnother')}
           </button>
         </div>
       )}
 
       {phase === 'locked' && (
         <p role="alert" className="error">
-          {error ?? 'This link is no longer accepting uploads.'}
+          {error ?? t('receive.lockedDefault')}
         </p>
       )}
 
@@ -407,7 +419,7 @@ export function PublicReceivePage(): JSX.Element {
         <div className="stack">
           {meta.passwordRequired && (
             <label>
-              Password
+              {t('receive.password')}
               <input
                 type="password"
                 value={password}
@@ -426,7 +438,7 @@ export function PublicReceivePage(): JSX.Element {
           )}
 
           <label>
-            Pick a file
+            {t('receive.pickFile')}
             <input
               ref={fileInputRef}
               type="file"
@@ -435,7 +447,7 @@ export function PublicReceivePage(): JSX.Element {
             />
           </label>
 
-          {phase === 'minting' && <p className="muted">Preparing upload…</p>}
+          {phase === 'minting' && <p className="muted">{t('receive.preparing')}</p>}
 
           {phase === 'uploading' && (
             <div>
@@ -444,22 +456,22 @@ export function PublicReceivePage(): JSX.Element {
             </div>
           )}
 
-          {phase === 'finalizing' && <p className="muted">Confirming with server…</p>}
+          {phase === 'finalizing' && <p className="muted">{t('receive.confirming')}</p>}
 
-          {phase === 'cancelling' && <p className="muted">Cancelling…</p>}
+          {phase === 'cancelling' && <p className="muted">{t('receive.cancelling')}</p>}
 
           {phase === 'cancelled' && (
             <div className="stack">
-              <p className="muted">Upload cancelled.</p>
+              <p className="muted">{t('receive.cancelled')}</p>
               <button type="button" onClick={onRetryAfterCancel}>
-                Try again
+                {t('common.tryAgain')}
               </button>
             </div>
           )}
 
           {cancellable && (
             <button type="button" onClick={onCancel}>
-              Cancel upload
+              {t('receive.cancelUpload')}
             </button>
           )}
 
