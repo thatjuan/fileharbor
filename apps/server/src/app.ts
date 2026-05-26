@@ -125,7 +125,7 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
   // local backend; in S3 mode these routes are not registered so a
   // misconfigured deploy cannot accidentally serve bytes from a directory.
   if (config.storage.backend === 'local') {
-    app.route('/api/storage/o', createLocalStorageRoute(config.storage));
+    app.route('/api/storage/o', createLocalStorageRoute(config.storage, uploadTicketsModule));
   }
 
   if (config.nodeEnv === 'production') {
