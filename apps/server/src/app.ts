@@ -8,6 +8,7 @@ import type { FilesModule } from './files/files.js';
 import type { ReceiveLinksModule } from './links/receive-links.js';
 import type { SendLinksModule } from './links/send-links.js';
 import type { NotificationsModule } from './notifications/notifications.js';
+import { createConfigRoute } from './routes/config.js';
 import { createFilesRoute } from './routes/files.js';
 import { healthRoute } from './routes/health.js';
 import { createNotificationsRoute } from './routes/notifications.js';
@@ -91,6 +92,7 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
 
   const api = new Hono();
   api.route('/health', healthRoute);
+  api.route('/config', createConfigRoute(config.storage));
   api.route('/setup', createSetupRoute(authModule));
 
   // Admin (authed) surfaces.
