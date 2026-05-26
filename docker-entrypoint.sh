@@ -13,7 +13,12 @@ trap term TERM INT
 if [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && [ -n "${CLOUDFLARE_TUNNEL_DOMAIN:-}" ]; then
     PORT="${PORT:-3000}"
     echo "[fileharbor] starting cftunn for ${CLOUDFLARE_TUNNEL_DOMAIN} on port ${PORT}"
-    cftunn "${PORT}" "${CLOUDFLARE_TUNNEL_DOMAIN}" &
+    # -y: containers have no TTY; cftunn prompts for confirmation when a CNAME
+    # for the domain already exists (including one it created itself on a prior
+    # run, since cftunn is not idempotent on same-target records). The operator
+    # opted in by setting both env vars — that IS the consent. Without -y, every
+    # restart after the first one aborts.
+    cftunn -y "${PORT}" "${CLOUDFLARE_TUNNEL_DOMAIN}" &
     CFTUNN_PID=$!
 fi
 
