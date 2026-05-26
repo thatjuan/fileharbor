@@ -1,7 +1,8 @@
-import { and, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client.js';
-import { downloadTickets, uploadTickets } from '../db/schema.js';
+import { downloadTickets, pendingAborts, uploadTickets } from '../db/schema.js';
+import type { StorageProvider } from '../storage/index.js';
 import type { DownloadTicketsModule } from './download-tickets.js';
 
 /**
@@ -42,6 +43,22 @@ export interface SweepCounters {
   expiredDownloadTickets: number;
   deletedUploadTickets: number;
   deletedDownloadTickets: number;
+  /**
+   * Multipart sessions transitioned from `pending` → `aborting` → `expired`
+   * by Phase 1.5 (TTL expiry). Counted only when the storage-side abort
+   * succeeded in the same pass.
+   */
+  abortedPendingMultipart: number;
+  /**
+   * Sessions in `aborting` for which Phase 1.6 successfully called
+   * `storage.abortMultipart` and CASed the row to `expired`.
+   */
+  drainedAborting: number;
+  /**
+   * Rows in `pending_aborts` for which Phase 1.7 successfully called
+   * `storage.abortMultipart` and deleted the queue row.
+   */
+  drainedPendingAborts: number;
 }
 
 export interface TicketSweeper {
@@ -67,6 +84,18 @@ export interface TicketSweeperDeps {
   pendingGraceSeconds: number;
   retentionSeconds: number;
   /**
+   * Storage provider. Sweep calls `storage.abortMultipart` from Phase 1.5,
+   * 1.6, and 1.7 to free abandoned multipart sessions.
+   */
+  storage: StorageProvider;
+  /**
+   * Maximum seconds a pending multipart session may live before sweep
+   * Phase 1.5 aborts it. Longer than `presignTtlSeconds` because a real
+   * multipart upload can take minutes to hours; the per-URL presign
+   * is re-issued on every page fetch.
+   */
+  multipartTtlSeconds: number;
+  /**
    * Optional clock source for the scheduler. Defaults to `Date.now`. The
    * scheduler converts to epoch-seconds before passing to `runOnce`.
    */
@@ -80,6 +109,23 @@ export interface TicketSweeperDeps {
 
 const TERMINAL_STATUSES = ['expired', 'failed', 'completed'] as const;
 
+/**
+ * After this many failed `storage.abortMultipart` attempts on an `aborting`
+ * row, sweep force-transitions to `expired` and emits a warn log. The S3
+ * session (if any) is operator-cleanup territory after this point.
+ */
+const MAX_ABORT_ATTEMPTS = 20;
+
+/**
+ * After this many failed drain attempts on a `pending_aborts` row, sweep
+ * stops retrying and leaves the row in the table for operator cleanup.
+ * Mirrors `MAX_ABORT_ATTEMPTS`.
+ */
+const MAX_PENDING_ABORT_ATTEMPTS = 20;
+
+/** Cap per-pass on the `pending_aborts` drain so a backlog can't starve other phases. */
+const PENDING_ABORTS_BATCH_SIZE = 100;
+
 export function createTicketSweeper(deps: TicketSweeperDeps): TicketSweeper {
   const {
     db,
@@ -88,6 +134,8 @@ export function createTicketSweeper(deps: TicketSweeperDeps): TicketSweeper {
     intervalSeconds,
     pendingGraceSeconds,
     retentionSeconds,
+    storage,
+    multipartTtlSeconds,
   } = deps;
   const now = deps.now ?? (() => Date.now());
   const log = deps.logger ?? console;
@@ -104,22 +152,209 @@ export function createTicketSweeper(deps: TicketSweeperDeps): TicketSweeper {
       expiredDownloadTickets: 0,
       deletedUploadTickets: 0,
       deletedDownloadTickets: 0,
+      abortedPendingMultipart: 0,
+      drainedAborting: 0,
+      drainedPendingAborts: 0,
     };
 
-    // --- Phase 1: expire pending upload tickets ----------------------------
+    // --- Phase 1: expire pending SINGLE-PUT upload tickets -----------------
     // Single atomic bulk UPDATE. `status='pending'` in the WHERE clause is the
     // race guard against a concurrent `finalize` flipping the row to
     // completed/failed between when the sweep "decided" and when it writes.
+    //
+    // Filtering `protocol='single'` keeps multipart sessions out of this
+    // bulk-update — they have a longer TTL (multipartTtlSeconds, default 2h
+    // vs presignTtlSeconds, default 5min) and need to be aborted at the
+    // storage layer before the row can be flipped to terminal. Phase 1.5
+    // owns that path.
     try {
       const uploadCutoff = nowSeconds - presignTtlSeconds - pendingGraceSeconds;
       const res = db
         .update(uploadTickets)
         .set({ status: 'expired', completedAt: nowSeconds })
-        .where(and(eq(uploadTickets.status, 'pending'), lt(uploadTickets.createdAt, uploadCutoff)))
+        .where(
+          and(
+            eq(uploadTickets.status, 'pending'),
+            eq(uploadTickets.protocol, 'single'),
+            lt(uploadTickets.createdAt, uploadCutoff),
+          ),
+        )
         .run();
       counters.expiredUploadTickets = Number(res.changes);
     } catch (err) {
       log.error('[ticket-sweep] expire upload_tickets failed', err);
+    }
+
+    // --- Phase 1.5: TTL-expire pending MULTIPART upload tickets ------------
+    // Two-step per row: CAS pending → aborting (race-guard against a late
+    // user complete()), then call storage.abortMultipart, then CAS
+    // aborting → expired. A storage failure leaves the row in `aborting`
+    // for Phase 1.6 to retry.
+    try {
+      const multipartCutoff = nowSeconds - multipartTtlSeconds;
+      const expirable = db
+        .select({
+          id: uploadTickets.id,
+          s3Key: uploadTickets.s3Key,
+          uploadId: uploadTickets.uploadId,
+        })
+        .from(uploadTickets)
+        .where(
+          and(
+            eq(uploadTickets.status, 'pending'),
+            eq(uploadTickets.protocol, 'multipart'),
+            isNotNull(uploadTickets.uploadId),
+            lt(uploadTickets.createdAt, multipartCutoff),
+          ),
+        )
+        .all();
+
+      for (const row of expirable) {
+        if (row.uploadId === null) continue;
+        const claim = db
+          .update(uploadTickets)
+          .set({ status: 'aborting' })
+          .where(
+            and(eq(uploadTickets.id, row.id), eq(uploadTickets.status, 'pending')),
+          )
+          .run();
+        if (Number(claim.changes) === 0) continue; // raced — leave it
+        try {
+          await storage.abortMultipart(row.s3Key, row.uploadId);
+          const settle = db
+            .update(uploadTickets)
+            .set({ status: 'expired', completedAt: nowSeconds })
+            .where(
+              and(eq(uploadTickets.id, row.id), eq(uploadTickets.status, 'aborting')),
+            )
+            .run();
+          if (Number(settle.changes) > 0) counters.abortedPendingMultipart += 1;
+        } catch (err) {
+          log.error('[ticket-sweep] multipart abort failed (will retry)', {
+            ticketId: row.id,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    } catch (err) {
+      log.error('[ticket-sweep] multipart TTL phase failed', err);
+    }
+
+    // --- Phase 1.6: drain rows stuck in `aborting` -------------------------
+    // Catches three classes:
+    //   - User abort calls that flipped pending → aborting but the storage
+    //     call deferred to the sweep (or failed and was deferred).
+    //   - Phase 1.5 rows whose `storage.abortMultipart` threw.
+    //   - Process crashes between the pending → aborting CAS and the
+    //     aborting → expired CAS in Phase 1.5.
+    //
+    // `abort_attempts` is incremented BEFORE the storage call; after
+    // MAX_ABORT_ATTEMPTS we force-transition to `expired` directly (no
+    // intermediate aborting → aborting hop) so the row stops looping.
+    try {
+      const aborting = db
+        .select({
+          id: uploadTickets.id,
+          s3Key: uploadTickets.s3Key,
+          uploadId: uploadTickets.uploadId,
+          abortAttempts: uploadTickets.abortAttempts,
+        })
+        .from(uploadTickets)
+        .where(
+          and(
+            eq(uploadTickets.status, 'aborting'),
+            eq(uploadTickets.protocol, 'multipart'),
+            isNotNull(uploadTickets.uploadId),
+          ),
+        )
+        .all();
+
+      for (const row of aborting) {
+        if (row.uploadId === null) continue;
+        const nextAttempts = row.abortAttempts + 1;
+        if (nextAttempts > MAX_ABORT_ATTEMPTS) {
+          // Give up — force terminal, operator-visible via abort_attempts.
+          db.update(uploadTickets)
+            .set({ status: 'expired', completedAt: nowSeconds })
+            .where(eq(uploadTickets.id, row.id))
+            .run();
+          log.error('[ticket-sweep] giving up on multipart abort after 20 attempts', {
+            ticketId: row.id,
+            uploadId: row.uploadId,
+          });
+          continue;
+        }
+        // Bump abort_attempts first; on failure we'll still see the bump,
+        // matching the cap. This isn't a CAS guard — the source status is
+        // unchanged.
+        db.update(uploadTickets)
+          .set({ abortAttempts: nextAttempts })
+          .where(eq(uploadTickets.id, row.id))
+          .run();
+        try {
+          await storage.abortMultipart(row.s3Key, row.uploadId);
+          const settle = db
+            .update(uploadTickets)
+            .set({ status: 'expired', completedAt: nowSeconds })
+            .where(
+              and(eq(uploadTickets.id, row.id), eq(uploadTickets.status, 'aborting')),
+            )
+            .run();
+          if (Number(settle.changes) > 0) counters.drainedAborting += 1;
+        } catch (err) {
+          log.error('[ticket-sweep] aborting drain failed (will retry)', {
+            ticketId: row.id,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    } catch (err) {
+      log.error('[ticket-sweep] aborting drain phase failed', err);
+    }
+
+    // --- Phase 1.7: drain `pending_aborts` ---------------------------------
+    // Rows enqueued by `receive-links.remove` / `send-links.remove` (when the
+    // inline best-effort abort failed) or by `completeMultipart` (on
+    // storage-side failure). Ordered (attempts ASC, enqueued_at ASC) so
+    // newly-enqueued rows go first, repeatedly-failing rows last.
+    try {
+      // Filter past-cap rows out of the SELECT so they don't get re-logged
+      // every tick. Operators can query them by hand:
+      //   SELECT * FROM pending_aborts WHERE attempts >= 20;
+      const queue = db
+        .select()
+        .from(pendingAborts)
+        .where(lt(pendingAborts.attempts, MAX_PENDING_ABORT_ATTEMPTS))
+        .orderBy(asc(pendingAborts.attempts), asc(pendingAborts.enqueuedAt))
+        .limit(PENDING_ABORTS_BATCH_SIZE)
+        .all();
+
+      for (const row of queue) {
+        // Bump attempt count first so a slow/hung storage call doesn't let
+        // the same row be retried on the next tick before this one settles.
+        const nextAttempts = row.attempts + 1;
+        db.update(pendingAborts)
+          .set({ attempts: nextAttempts, lastAttemptAt: nowSeconds })
+          .where(eq(pendingAborts.id, row.id))
+          .run();
+        try {
+          await storage.abortMultipart(row.s3Key, row.uploadId);
+          db.delete(pendingAborts).where(eq(pendingAborts.id, row.id)).run();
+          counters.drainedPendingAborts += 1;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          db.update(pendingAborts)
+            .set({ lastError: message })
+            .where(eq(pendingAborts.id, row.id))
+            .run();
+          log.error('[ticket-sweep] pending_aborts drain failed', {
+            id: row.id,
+            err: message,
+          });
+        }
+      }
+    } catch (err) {
+      log.error('[ticket-sweep] pending_aborts phase failed', err);
     }
 
     // --- Phase 2: expire pending download tickets --------------------------
@@ -225,7 +460,10 @@ export function createTicketSweeper(deps: TicketSweeperDeps): TicketSweeper {
           counters.expiredUploadTickets +
           counters.expiredDownloadTickets +
           counters.deletedUploadTickets +
-          counters.deletedDownloadTickets;
+          counters.deletedDownloadTickets +
+          counters.abortedPendingMultipart +
+          counters.drainedAborting +
+          counters.drainedPendingAborts;
         if (changed > 0) {
           log.info('[ticket-sweep] pass complete', {
             elapsedMs: Date.now() - started,

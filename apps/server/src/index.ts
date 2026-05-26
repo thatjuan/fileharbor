@@ -78,8 +78,8 @@ async function main(): Promise<void> {
   // here, in `main()`, so `createApp` only sees module facades rather than
   // raw `db`/`storage`. That keeps route code testable: a fake module
   // implementation can be substituted without monkey-patching SQL.
-  const receiveLinksModule = createReceiveLinksModule(db);
-  const sendLinksModule = createSendLinksModule(db);
+  const receiveLinksModule = createReceiveLinksModule(db, storage);
+  const sendLinksModule = createSendLinksModule(db, storage);
   const filesModule = createFilesModule(db);
   const notificationsModule = createNotificationsModule(db);
   const uploadTicketsModule = createUploadTicketsModule(
@@ -89,6 +89,7 @@ async function main(): Promise<void> {
     sendLinksModule,
     filesModule,
     notificationsModule,
+    config.storage.multipart,
   );
   const downloadTicketsModule = createDownloadTicketsModule(
     db,
@@ -124,6 +125,8 @@ async function main(): Promise<void> {
     intervalSeconds: config.ticketSweep.intervalSeconds,
     pendingGraceSeconds: config.ticketSweep.pendingGraceSeconds,
     retentionSeconds: config.ticketSweep.retentionSeconds,
+    storage,
+    multipartTtlSeconds: config.storage.multipart.ttlSeconds,
   });
 
   console.log(
@@ -142,7 +145,10 @@ async function main(): Promise<void> {
         counters.expiredUploadTickets +
         counters.expiredDownloadTickets +
         counters.deletedUploadTickets +
-        counters.deletedDownloadTickets;
+        counters.deletedDownloadTickets +
+        counters.abortedPendingMultipart +
+        counters.drainedAborting +
+        counters.drainedPendingAborts;
       if (total > 0) {
         console.log('[fileharbor] initial sweep complete', counters);
       }

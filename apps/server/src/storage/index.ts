@@ -48,6 +48,71 @@ export interface StorageProvider {
   headObject(key: string): Promise<ObjectInfo | null>;
 
   deleteObject(key: string): Promise<void>;
+
+  /**
+   * Open a new multipart upload session for `key`. The provider mints an
+   * opaque `uploadId`, resolves the working `partSize` from `opts.partSizeBytes`
+   * and `opts.sizeHint` (bumping when needed to keep `expectedParts <= 10_000`),
+   * and persists enough session state that subsequent `presignUploadPart`,
+   * `completeMultipart`, and `abortMultipart` calls succeed with only
+   * `(key, uploadId)` — and, for complete, the per-part list.
+   *
+   * Resolution rule (both backends):
+   *   `partSize = max(opts.partSizeBytes, ceil(opts.sizeHint / 10_000))`
+   *   `expectedParts = ceil(opts.sizeHint / partSize)`
+   *
+   * S3 mode persists the session server-side (via `CreateMultipartUpload`)
+   * plus an in-memory cache of `{partSize, sizeHint, contentType}` keyed by
+   * uploadId. Local mode persists a `meta.json` sidecar under
+   * `${objectsDir}/.multipart/<uploadId>/`. Throws on invalid inputs (e.g.
+   * `sizeHint <= 0`, an invalid key, or an S3 SDK error).
+   */
+  initMultipart(key: string, opts: InitMultipartOptions): Promise<InitMultipartResult>;
+
+  /**
+   * Mint a presigned URL for exactly one part of an open multipart session.
+   * The provider derives the per-part Content-Length from session state
+   * (every part except the last is exactly `partSize`; the last is
+   * `sizeHint - (expectedParts - 1) * partSize`). Callers must not exceed
+   * `expectedParts` returned from `initMultipart` — providers throw on
+   * out-of-range `partNumber`.
+   *
+   * The S3 backend deliberately omits ContentType from the part presign
+   * (per execution-plan R3); the local backend's signed canonical includes
+   * uploadId/partNumber but not ContentType.
+   */
+  presignUploadPart(
+    key: string,
+    uploadId: string,
+    partNumber: number,
+    opts?: PresignUploadPartOptions,
+  ): Promise<PresignedUrl>;
+
+  /**
+   * Finalize a multipart session. `parts` is sorted ascending by partNumber
+   * by the provider before submission, but the caller MUST supply a complete
+   * list (no gaps from 1..expectedParts). The returned `etag` is opaque to
+   * callers and matches whatever the provider's natural object etag is:
+   * S3 returns the quoted multipart etag (`"abc...-N"`); local returns the
+   * hex sha256 of the concatenated bytes.
+   *
+   * Throws on any failure — including the S3 200-with-empty-ETag corner case
+   * where an `<Error>` body sneaks past the SDK's deserialiser.
+   */
+  completeMultipart(
+    key: string,
+    uploadId: string,
+    parts: CompletedPart[],
+  ): Promise<CompleteMultipartResult>;
+
+  /**
+   * Cancel a multipart session. Idempotent: an unknown uploadId resolves
+   * successfully (S3 swallows `NoSuchUpload`/404, local swallows ENOENT via
+   * `fs.rm({ force: true })`). Throws only on actual storage errors —
+   * network failure, permission denied, etc. — so callers can safely call
+   * this from cleanup paths without try/catch noise.
+   */
+  abortMultipart(key: string, uploadId: string): Promise<void>;
 }
 
 export interface PresignedUrl {
@@ -90,6 +155,42 @@ export interface ObjectInfo {
   contentType: string | null;
   etag: string | null;
   lastModified: Date | null;
+}
+
+export interface InitMultipartOptions {
+  /** Total expected upload size in bytes. Required — drives part-size computation. */
+  sizeHint: number;
+  /** Content type the uploader claimed; surfaces on the final object. */
+  contentType: string;
+  /** Server-configured part size in bytes. Provider may bump to fit <=10000 parts. */
+  partSizeBytes: number;
+  /** Override the provider default TTL for the part-PUT URLs (seconds). */
+  expiresInSeconds?: number;
+}
+
+export interface InitMultipartResult {
+  /** Opaque, provider-minted upload-session id. */
+  uploadId: string;
+  /** Bytes per part (last part may be smaller). Resolved by the provider. */
+  partSize: number;
+  /** Total expected parts: ceil(sizeHint / partSize). */
+  expectedParts: number;
+}
+
+export interface PresignUploadPartOptions {
+  /** Override the provider default TTL for this URL (seconds). */
+  expiresInSeconds?: number;
+}
+
+export interface CompletedPart {
+  partNumber: number;
+  /** Provider etag for the part. S3 returns the quoted MD5; local returns hex sha256. */
+  etag: string;
+}
+
+export interface CompleteMultipartResult {
+  /** Provider etag for the assembled object. */
+  etag: string;
 }
 
 /**

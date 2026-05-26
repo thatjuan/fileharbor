@@ -8,6 +8,7 @@ import type { FilesModule } from './files/files.js';
 import type { ReceiveLinksModule } from './links/receive-links.js';
 import type { SendLinksModule } from './links/send-links.js';
 import type { NotificationsModule } from './notifications/notifications.js';
+import { createConfigRoute } from './routes/config.js';
 import { createFilesRoute } from './routes/files.js';
 import { healthRoute } from './routes/health.js';
 import { createNotificationsRoute } from './routes/notifications.js';
@@ -91,6 +92,7 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
 
   const api = new Hono();
   api.route('/health', healthRoute);
+  api.route('/config', createConfigRoute(config.storage));
   api.route('/setup', createSetupRoute(authModule));
 
   // Admin (authed) surfaces.
@@ -123,7 +125,7 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
   // local backend; in S3 mode these routes are not registered so a
   // misconfigured deploy cannot accidentally serve bytes from a directory.
   if (config.storage.backend === 'local') {
-    app.route('/api/storage/o', createLocalStorageRoute(config.storage));
+    app.route('/api/storage/o', createLocalStorageRoute(config.storage, uploadTicketsModule));
   }
 
   if (config.nodeEnv === 'production') {

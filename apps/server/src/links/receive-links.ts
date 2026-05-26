@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { hashPassword } from '@better-auth/utils/password';
 
 import type { Db } from '../db/client.js';
-import { files, receiveLinks } from '../db/schema.js';
+import { files, pendingAborts, receiveLinks, uploadTickets } from '../db/schema.js';
+import type { StorageProvider } from '../storage/index.js';
 import { mintUniqueCode, normalizeCode } from './code-generator.js';
 
 /**
@@ -70,7 +71,10 @@ export interface CreateReceiveLinkInput {
   expiresAt?: number | null;
 }
 
-export function createReceiveLinksModule(db: Db): ReceiveLinksModule {
+export function createReceiveLinksModule(
+  db: Db,
+  storage: StorageProvider,
+): ReceiveLinksModule {
   const codeExists = async (code: string): Promise<boolean> => {
     const row = db
       .select({ id: receiveLinks.id })
@@ -200,7 +204,72 @@ export function createReceiveLinksModule(db: Db): ReceiveLinksModule {
     },
 
     async remove(id) {
+      // Cascade-abort: snapshot in-flight multipart tickets so we can
+      // (a) enqueue durable abort rows BEFORE the CASCADE wipes the source
+      //     and (b) fire inline best-effort aborts AFTER the CASCADE completes.
+      // Order matters: the SELECT/INSERT must happen while the rows still
+      // exist; CASCADE then wipes ticket rows; the inline aborts close out
+      // the storage-side sessions promptly (sub-second UX).
+      const inFlight = db
+        .select({
+          s3Key: uploadTickets.s3Key,
+          uploadId: uploadTickets.uploadId,
+        })
+        .from(uploadTickets)
+        .where(
+          and(
+            eq(uploadTickets.receiveLinkId, id),
+            eq(uploadTickets.protocol, 'multipart'),
+            inArray(uploadTickets.status, ['pending', 'aborting', 'completing']),
+          ),
+        )
+        .all()
+        .filter((r): r is { s3Key: string; uploadId: string } => r.uploadId !== null);
+
+      const now = Math.floor(Date.now() / 1000);
+      for (const row of inFlight) {
+        db.insert(pendingAborts)
+          .values({
+            s3Key: row.s3Key,
+            uploadId: row.uploadId,
+            reason: 'link_delete',
+            enqueuedAt: now,
+            attempts: 0,
+          })
+          .onConflictDoNothing()
+          .run();
+      }
+
       const result = db.delete(receiveLinks).where(eq(receiveLinks.id, id)).run();
+
+      // Fire-and-forget inline aborts. The link-delete admin call returns
+      // immediately; the storage-side teardown finishes on its own latency.
+      // On success the pending_aborts row deletes itself; on failure sweep
+      // Phase 1.7 takes over.
+      for (const row of inFlight) {
+        void (async () => {
+          try {
+            await storage.abortMultipart(row.s3Key, row.uploadId);
+            db.delete(pendingAborts)
+              .where(
+                and(
+                  eq(pendingAborts.s3Key, row.s3Key),
+                  eq(pendingAborts.uploadId, row.uploadId),
+                ),
+              )
+              .run();
+          } catch (err) {
+            console.warn(
+              '[receive-links] inline link-delete abort failed; sweep will retry',
+              {
+                uploadId: row.uploadId,
+                err: err instanceof Error ? err.message : String(err),
+              },
+            );
+          }
+        })();
+      }
+
       // better-sqlite3's `RunResult.changes` is `number | bigint`; coerce so
       // the caller gets a plain boolean.
       return Number(result.changes) > 0;

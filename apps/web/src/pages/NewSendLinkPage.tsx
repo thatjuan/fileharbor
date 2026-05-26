@@ -1,13 +1,18 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import {
+  abortSendMultipartUploadTicket,
   addFileToSendLink,
+  completeSendMultipartUploadTicket,
   createSendLink,
+  createSendMultipartUploadTicket,
+  fetchSendMultipartPartUrls,
   finalizeUploadTicket,
-  type PolicyRejection,
+  type FinalizeOutcome,
 } from '../lib/api.js';
-import { uploadFileWithProgress } from '../lib/upload.js';
+import { uploadFile, type UploadFinalizeOutcome } from '../lib/upload.js';
+import { DEFAULT_UPLOAD_CONFIG, getUploadConfig, type UploadConfig } from '../lib/upload-config.js';
 
 /**
  * Form to create a new send link. The #11 flow is:
@@ -42,6 +47,35 @@ export function NewSendLinkPage(): JSX.Element {
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // Server-issued multipart threshold + part size. `null` while the
+  // `/api/config/upload` fetch is in flight; the submit button is gated on
+  // its presence. `getUploadConfig()` never rejects (singleton handles its
+  // own fallback) so we don't need a separate error state.
+  const [uploadConfig, setUploadConfig] = useState<UploadConfig | null>(null);
+  /**
+   * Single controller per submission, recreated on each Create-link click.
+   * The Cancel button calls `.abort()`, which tears the in-flight file's
+   * part XHRs and propagates out of the dispatcher; the per-file loop
+   * checks `signal.aborted` and stops, leaving any already-finalized files
+   * intact on the partially-populated link.
+   */
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getUploadConfig()
+      .then((c) => {
+        if (!cancelled) setUploadConfig(c);
+      })
+      .catch(() => {
+        // `getUploadConfig` already swallows errors and returns defaults;
+        // the catch is here only as a structural safety net.
+        if (!cancelled) setUploadConfig(DEFAULT_UPLOAD_CONFIG);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const onFilesChange = (e: ChangeEvent<HTMLInputElement>): void => {
     setFilesPicked(Array.from(e.target.files ?? []));
@@ -57,6 +91,13 @@ export function NewSendLinkPage(): JSX.Element {
     setError(null);
     setProgress(0);
     setCurrentFileIndex(0);
+
+    // Fresh controller per submission. The Cancel button calls `.abort()`,
+    // which the dispatcher honours per-file and propagates as a throw out
+    // of the loop body.
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const cfg = uploadConfig ?? DEFAULT_UPLOAD_CONFIG;
 
     try {
       // Parse the optional policy fields. Mirror `NewReceiveLinkPage`'s shape
@@ -90,10 +131,16 @@ export function NewSendLinkPage(): JSX.Element {
         expiresAt: parsedExpiresAt,
       });
 
-      // Upload each file in sequence. Parallel would be faster but a single
-      // progress bar is the v1 UX and serial means a failure on file N
-      // leaves files 1..N-1 already finalized — clean state for retry.
+      // Upload each file in sequence via the dispatcher. Parallel would be
+      // faster but a single progress bar is the v1 UX, and serial means a
+      // failure on file N leaves files 1..N-1 already finalized — clean
+      // state for retry. The dispatcher handles single-PUT vs multipart per
+      // file based on `file.size` vs `cfg.multipartThresholdBytes`.
       for (let i = 0; i < filesPicked.length; i++) {
+        // Honour an in-flight Cancel before starting the next file.
+        if (controller.signal.aborted) {
+          throw new DOMException('Upload cancelled', 'AbortError');
+        }
         setCurrentFileIndex(i);
         const file = filesPicked[i];
         if (!file) continue; // unreachable given the loop bound; satisfies TS noUncheckedIndexedAccess
@@ -102,40 +149,110 @@ export function NewSendLinkPage(): JSX.Element {
         setPhase('uploading');
         setProgress(0);
 
-        const ticket = await addFileToSendLink(link.id, {
-          filename: file.name,
-          contentType,
-          size: file.size,
-        });
-
-        const putResult = await uploadFileWithProgress({
-          url: ticket.presignedPutUrl,
+        const result = await uploadFile({
           file,
           contentType,
-          onProgress: (loaded, total) => {
+          threshold: cfg.multipartThresholdBytes,
+          partSizeBytes: cfg.multipartPartSizeBytes,
+          single: {
+            presign: async () => {
+              const ticket = await addFileToSendLink(link.id, {
+                filename: file.name,
+                contentType,
+                size: file.size,
+              });
+              return {
+                presignedPutUrl: ticket.presignedPutUrl,
+                ticketId: ticket.ticketId,
+              };
+            },
+            finalize: async (ticketId) => {
+              setPhase('finalizing');
+              const outcome = await finalizeUploadTicket(ticketId, null);
+              return adaptFinalizeOutcome(outcome);
+            },
+          },
+          multipart: {
+            init: async () => {
+              const out = await createSendMultipartUploadTicket(link.id, {
+                filename: file.name,
+                contentType,
+                size: file.size,
+              });
+              if (out.kind !== 'ok') {
+                throw new Error(
+                  out.kind === 'policy_rejected'
+                    ? `Link policy rejected: ${out.reason}.`
+                    : out.kind === 'not_found'
+                      ? 'Send link not found.'
+                      : out.message,
+                );
+              }
+              return {
+                ticketId: out.value.ticketId,
+                uploadId: out.value.uploadId,
+                partSize: out.value.partSize,
+                expectedParts: out.value.expectedParts,
+                initialUrls: out.value.initialUrls,
+                paginated: out.value.paginated,
+              };
+            },
+            fetchPartUrls: async (ticketId, from, to) => {
+              const out = await fetchSendMultipartPartUrls(link.id, ticketId, from, to);
+              if (out.kind !== 'ok') {
+                // Throwing aborts the dispatcher's worker loop; it then
+                // calls `multipart.abort()` to tear the server session.
+                throw new Error(`Failed to fetch part URLs (${out.kind}).`);
+              }
+              return out.value.urls;
+            },
+            complete: async (ticketId, parts) => {
+              setPhase('finalizing');
+              const outcome = await completeSendMultipartUploadTicket(link.id, ticketId, {
+                parts,
+              });
+              return adaptFinalizeOutcome(outcome);
+            },
+            abort: (ticketId) => abortSendMultipartUploadTicket(link.id, ticketId),
+          },
+          onProgress: ({ loaded, total }) => {
             if (total > 0) setProgress(Math.round((loaded / total) * 100));
           },
+          signal: controller.signal,
         });
-        if (!putResult.ok) {
-          throw new Error(
-            `Upload to storage failed for "${file.name}" (status=${putResult.status}).`,
-          );
-        }
-        setProgress(100);
 
-        setPhase('finalizing');
-        const outcome = await finalizeUploadTicket(ticket.ticketId, null);
-        if (outcome.kind !== 'ok' || outcome.value.status !== 'completed') {
-          throw new Error(describeFailure(outcome));
+        // Cancel: the dispatcher returns a failed/error outcome with the
+        // signal aborted. Re-throw as AbortError so the catch below treats
+        // it as cancellation rather than a real failure.
+        if (controller.signal.aborted) {
+          throw new DOMException('Upload cancelled', 'AbortError');
         }
+
+        const finalize = result.outcome;
+        if (finalize.kind === 'ok') {
+          setProgress(100);
+          continue;
+        }
+        throw new Error(describeUploadFinalizeFailure(file.name, finalize));
       }
 
       setPhase('done');
       navigate(`/links/send/${link.id}`, { replace: true });
     } catch (err) {
       setPhase('idle');
-      setError(err instanceof Error ? err.message : 'Failed to create send link.');
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setError('Upload cancelled. The send link was created; files uploaded so far are intact.');
+      } else {
+        setError(err instanceof Error ? err.message : 'Failed to create send link.');
+      }
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
     }
+  };
+
+  const onCancel = (): void => {
+    if (!abortRef.current) return;
+    abortRef.current.abort();
   };
 
   const busy = phase !== 'idle' && phase !== 'done';
@@ -228,37 +345,69 @@ export function NewSendLinkPage(): JSX.Element {
             {error}
           </p>
         )}
-        <button
-          type="submit"
-          disabled={busy || label.trim().length === 0 || filesPicked.length === 0}
-        >
-          {busy ? 'Creating…' : 'Create send link'}
-        </button>
+        <div className="row">
+          <button
+            type="submit"
+            disabled={
+              busy ||
+              label.trim().length === 0 ||
+              filesPicked.length === 0 ||
+              uploadConfig === null
+            }
+          >
+            {busy ? 'Creating…' : 'Create send link'}
+          </button>
+          {busy && (
+            // Cancel applies to the current submission: tears the in-flight
+            // file's part XHRs, calls the server-side abort, and bails the
+            // loop. Files already finalized stay attached to the new link.
+            <button type="button" onClick={onCancel}>
+              Cancel
+            </button>
+          )}
+        </div>
       </form>
     </main>
   );
 }
 
 /**
- * Map a finalize outcome's failure branches into a user-facing string. We
- * already check `ok / completed` upstream; everything else funnels through
- * here. Policy rejections on the admin upload path are limited to `disabled`
- * by the admin-bypass in `upload-tickets.createForSendLink`.
+ * Bridge from `api.ts` `FinalizeOutcome` (nested `{ kind:'ok', value:{ status,
+ * reason? } }`) to `upload.ts` `UploadFinalizeOutcome` (flat
+ * `{ kind:'ok' } | { kind:'failed', reason } | ...`). Required because the
+ * dispatcher's `SinglePutDeps.finalize` / `MultipartDeps.complete` are typed
+ * against the flat union.
  */
-function describeFailure(
-  outcome:
-    | { kind: 'ok'; value: { status: 'completed' | 'failed'; reason?: string } }
-    | { kind: 'policy_rejected'; reason: PolicyRejection }
-    | { kind: 'not_found' }
-    | { kind: 'error'; message: string },
-): string {
-  if (outcome.kind === 'ok' && outcome.value.status === 'failed') {
-    return outcome.value.reason === 'object_not_found'
-      ? 'The server could not verify your upload. Please try again.'
-      : 'Upload failed during finalization.';
+function adaptFinalizeOutcome(outcome: FinalizeOutcome): UploadFinalizeOutcome {
+  if (outcome.kind === 'ok') {
+    if (outcome.value.status === 'completed') return { kind: 'ok' };
+    return { kind: 'failed', reason: outcome.value.reason ?? 'unknown' };
   }
-  if (outcome.kind === 'not_found') return 'The upload ticket was not found.';
-  if (outcome.kind === 'policy_rejected') return `Link policy rejected: ${outcome.reason}.`;
-  if (outcome.kind === 'error') return outcome.message;
-  return 'Unknown failure.';
+  return outcome;
 }
+
+/**
+ * Map an `UploadFinalizeOutcome` failure branch into a user-facing message
+ * including the file name. Mirrors the structure of the old `describeFailure`
+ * helper but takes the flat `upload.ts` shape rather than the `api.ts` nested
+ * outcome.
+ */
+function describeUploadFinalizeFailure(
+  filename: string,
+  outcome: Exclude<UploadFinalizeOutcome, { kind: 'ok' }>,
+): string {
+  if (outcome.kind === 'failed') {
+    if (outcome.reason === 'object_not_found') {
+      return `The server could not verify "${filename}". Please try again.`;
+    }
+    return `Upload failed for "${filename}": ${outcome.reason}.`;
+  }
+  if (outcome.kind === 'not_found') {
+    return `Upload ticket for "${filename}" was not found.`;
+  }
+  if (outcome.kind === 'policy_rejected') {
+    return `Link policy rejected "${filename}": ${outcome.reason}.`;
+  }
+  return `Upload failed for "${filename}": ${outcome.message}`;
+}
+

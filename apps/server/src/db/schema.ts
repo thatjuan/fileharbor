@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { check, index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /**
  * Single-row table used as a sentinel that the schema bootstrap ran. Domain
@@ -215,9 +215,76 @@ export const uploadTickets = sqliteTable(
     contentType: text('content_type').notNull(),
     /** Client-claimed size in bytes. Null when unknown. */
     sizeHint: integer('size_hint'),
-    status: text('status', { enum: ['pending', 'completed', 'failed', 'expired'] })
+    /**
+     * Lifecycle status.
+     *
+     * Single-PUT and multipart tickets share this column. The two transient
+     * states (`completing`, `aborting`) only apply to multipart and act as
+     * load-bearing CAS guards: a row briefly held in `completing` cannot be
+     * concurrently aborted, and a row in `aborting` cannot be raced into
+     * `completed`. Both transient states are excluded from
+     * `TERMINAL_STATUSES` in the sweep — they are non-terminal by
+     * construction and either roll forward to `completed` / `expired` /
+     * `failed`, or get drained by sweep Phase 1.6.
+     *
+     * Status is enforced only at the Drizzle TS-enum layer; there is no SQL
+     * CHECK on `status` (kept the migration to additive `ADD COLUMN`s).
+     */
+    status: text('status', {
+      enum: ['pending', 'completing', 'completed', 'failed', 'expired', 'aborting'],
+    })
       .notNull()
       .default('pending'),
+    /**
+     * Upload protocol discriminator.
+     *
+     * `single` (default) uses the pre-existing presigned single-PUT path —
+     * one `storage.presignPut`, one PUT, then `finalize` calls
+     * `storage.headObject` and creates the file row.
+     *
+     * `multipart` uses the multipart protocol: `storage.initMultipart` ->
+     * many parallel `presignUploadPart` PUTs -> `storage.completeMultipart`.
+     * The multipart-only columns (`uploadId`, `partSize`, `expectedParts`)
+     * are NULL for `single` rows and NOT NULL for `multipart` rows after
+     * init.
+     *
+     * Existing rows pick up the `'single'` default on migration; no data
+     * backfill is needed.
+     */
+    protocol: text('protocol', { enum: ['single', 'multipart'] })
+      .notNull()
+      .default('single'),
+    /**
+     * Storage-side multipart session identifier.
+     *
+     * For the S3 backend this is the `UploadId` returned by
+     * `CreateMultipartUploadCommand`. For the local backend this is a
+     * 32-char lowercase-hex id (UUID with dashes stripped) that names the
+     * `.multipart/<uploadId>/` session directory under the objects root.
+     *
+     * NULL for `protocol='single'`. Indexed-free lookup path via
+     * `findByUploadId(uploadId)` is used by the local part-receive route.
+     */
+    uploadId: text('upload_id'),
+    /**
+     * Bytes per part, pinned at `initMultipart` time. The last part may be
+     * shorter. NULL for `protocol='single'`. `completeMultipart` validates
+     * per-part sizes against this value (last part excepted).
+     */
+    partSize: integer('part_size'),
+    /**
+     * Total part count the client committed to at init time. `complete`
+     * requires exactly this many ETags. NULL for `protocol='single'`.
+     */
+    expectedParts: integer('expected_parts'),
+    /**
+     * Number of times sweep has attempted `storage.abortMultipart` for this
+     * ticket (Phase 1.6 drain of `status='aborting'`). After
+     * `MAX_ABORT_ATTEMPTS` (20) sweep force-transitions the row to
+     * `expired` with a warn log — operator-visible:
+     * `SELECT … WHERE abort_attempts >= 20`. Always 0 for single-PUT rows.
+     */
+    abortAttempts: integer('abort_attempts').notNull().default(0),
     createdAt: integer('created_at').notNull(),
     completedAt: integer('completed_at'),
   },
@@ -225,6 +292,13 @@ export const uploadTickets = sqliteTable(
     // Hard-stop in SQL even though the Drizzle enum keeps TS honest. Belt and
     // braces for the day a raw SQL write or migration data-fix forgets.
     intentCheck: check('upload_tickets_intent_check', sql`${t.intent} in ('receive', 'send')`),
+    // No SQL CHECK on `protocol`: SQLite cannot `ALTER TABLE ADD CONSTRAINT`,
+    // so adding one forces drizzle-kit into a full table rebuild for 0006.
+    // The rebuild's `INSERT … SELECT` references the new columns from the
+    // OLD upload_tickets table, which fails on any non-empty DB. The
+    // Drizzle TS enum on the `protocol` column is the single source of
+    // truth (same pattern as `status`); if a future migration is already
+    // doing a rebuild for another reason, the CHECK can be added then.
     /**
      * Composite index for the #10 cleanup sweep. The sweep's two hot queries
      * are `WHERE status='pending' AND created_at < ?` (passive expiry) and
@@ -233,6 +307,137 @@ export const uploadTickets = sqliteTable(
      * in terminal states.
      */
     statusCreatedIdx: index('idx_upload_tickets_status_created').on(t.status, t.createdAt),
+  }),
+);
+
+/**
+ * One row per part of a multipart upload. Parts are created lazily by the
+ * part-receive route on first PUT and UPSERTed on retry — at most one row
+ * per `(uploadTicketId, partNumber)` thanks to the composite UNIQUE index.
+ *
+ * `ON DELETE CASCADE` from `uploadTicketId`: when the parent ticket is
+ * deleted (sweep Phase 3 terminal-delete, or admin link delete via the FK
+ * chain), the parts rows vanish automatically. No orphan-enumerate query
+ * is required; abort itself doesn't read this table (S3 abort takes only
+ * `UploadId`; local just `fs.rm`s the session directory).
+ *
+ * `completeMultipart` reads
+ * `WHERE upload_ticket_id=? ORDER BY part_number` — covered directly by
+ * the unique index, no extra index needed.
+ */
+export const uploadTicketParts = sqliteTable(
+  'upload_ticket_parts',
+  {
+    id: text('id').primaryKey(),
+    uploadTicketId: text('upload_ticket_id')
+      .notNull()
+      .references(() => uploadTickets.id, { onDelete: 'cascade' }),
+    /** 1..10000 per the S3 multipart spec. CHECK enforces the range in SQL. */
+    partNumber: integer('part_number').notNull(),
+    /**
+     * ETag returned by the backend on PUT-part.
+     *
+     * For S3 this is the per-part ETag from `UploadPartCommand`'s response.
+     * For the local backend this is the hex-encoded sha256 of the part
+     * bytes, computed during the streaming write. NULL while the part is
+     * in flight; populated on successful PUT.
+     */
+    etag: text('etag'),
+    /** Bytes for this specific part. May be < `upload_tickets.part_size` for the last part. */
+    size: integer('size'),
+    /** Unix seconds, UTC, when the part PUT succeeded. NULL while in flight. */
+    completedAt: integer('completed_at'),
+  },
+  (t) => ({
+    partNumberCheck: check(
+      'upload_ticket_parts_part_number_check',
+      sql`${t.partNumber} >= 1 AND ${t.partNumber} <= 10000`,
+    ),
+    /**
+     * At most one row per (ticket, part). Retries UPSERT onto the same row
+     * instead of accumulating duplicates. Doubles as the access path for
+     * `complete`'s ordered scan.
+     */
+    ticketPartUnique: uniqueIndex('uniq_upload_ticket_parts_ticket_part').on(
+      t.uploadTicketId,
+      t.partNumber,
+    ),
+  }),
+);
+
+/**
+ * Durable queue of multipart sessions that need a backend
+ * `abortMultipart` call. Populated in two places:
+ *
+ *   - `receive-links.remove` / `send-links.remove` enqueue rows BEFORE the
+ *     CASCADE deletes the parent ticket — the CASCADE wipes the ticket
+ *     state, so without this queue the inline best-effort abort would have
+ *     no fallback on failure.
+ *   - `completeMultipart` on storage failure: enqueues with
+ *     `reason='complete_failed'` so sweep retries the abort.
+ *
+ * Sweep Phase 1.7 drains the queue per tick (batch size 100), calling
+ * `storage.abortMultipart` on whatever backend the running process is
+ * wired with — hence no `backend` column. On success the row deletes
+ * itself; on failure `attempts` increments and `last_error` is recorded.
+ * After `MAX_PENDING_ABORT_ATTEMPTS` (20) sweep stops retrying and the
+ * row is left for operator cleanup.
+ *
+ * The `(s3_key, upload_id)` UNIQUE index makes enqueue idempotent —
+ * inline-abort + sweep-drain can both write the same row without dupes.
+ * The `(attempts, enqueued_at)` index is the access path for the batched
+ * drain: oldest, least-tried first.
+ */
+export const pendingAborts = sqliteTable(
+  'pending_aborts',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** Bucket key the multipart session was opened against. */
+    s3Key: text('s3_key').notNull(),
+    /** Storage-side multipart session identifier. Matches `upload_tickets.upload_id` semantics. */
+    uploadId: text('upload_id').notNull(),
+    /**
+     * Why this abort was enqueued. CHECK pins the set of reasons —
+     * extending requires a code change so we can't drift quietly:
+     *
+     *   - `link_delete`: queued by `receive-links.remove` /
+     *     `send-links.remove` before CASCADE.
+     *   - `sweep_drain`: queued by sweep Phase 1.5/1.6 when the inline
+     *     abort path didn't apply (reserved for future expansion).
+     *   - `complete_failed`: queued by `completeMultipart` on storage
+     *     failure so the orphaned session is reaped.
+     */
+    reason: text('reason').notNull(),
+    /** Unix seconds, UTC, when the row was first enqueued. */
+    enqueuedAt: integer('enqueued_at').notNull(),
+    /** Number of sweep drain attempts so far. Capped at `MAX_PENDING_ABORT_ATTEMPTS`. */
+    attempts: integer('attempts').notNull().default(0),
+    /** Unix seconds of the most recent attempt. NULL until first try. */
+    lastAttemptAt: integer('last_attempt_at'),
+    /** Short error string from the most recent failure. NULL on success or before any attempt. */
+    lastError: text('last_error'),
+  },
+  (t) => ({
+    reasonCheck: check(
+      'pending_aborts_reason_check',
+      sql`${t.reason} in ('link_delete', 'sweep_drain', 'complete_failed')`,
+    ),
+    /**
+     * Idempotent enqueue guard: inline-abort and sweep-drain can both try
+     * to enqueue the same `(s3Key, uploadId)` pair. ON CONFLICT DO NOTHING
+     * relies on this unique constraint.
+     */
+    keyUploadUnique: uniqueIndex('uniq_pending_aborts_key_upload').on(t.s3Key, t.uploadId),
+    /**
+     * Access path for sweep Phase 1.7's batched drain. Ordering by
+     * `attempts` first keeps newly-enqueued rows ahead of repeatedly-
+     * failing ones; `enqueued_at` is the secondary key for FIFO within an
+     * attempt count.
+     */
+    attemptsEnqueuedIdx: index('idx_pending_aborts_attempts_enqueued').on(
+      t.attempts,
+      t.enqueuedAt,
+    ),
   }),
 );
 

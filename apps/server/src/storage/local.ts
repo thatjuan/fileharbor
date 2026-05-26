@@ -1,10 +1,40 @@
-import { randomBytes } from 'node:crypto';
-import { promises as fs } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createReadStream, promises as fs } from 'node:fs';
+import { dirname, join, resolve, sep } from 'node:path';
 
 import type { LocalStorageConfig } from '../config.js';
-import type { ObjectInfo, PresignedUrl, StorageProvider } from './index.js';
+import type {
+  CompletedPart,
+  CompleteMultipartResult,
+  InitMultipartOptions,
+  InitMultipartResult,
+  ObjectInfo,
+  PresignedUrl,
+  PresignUploadPartOptions,
+  StorageProvider,
+} from './index.js';
 import { signCanonical, validateKey } from './signing.js';
+
+/**
+ * Strict format for the local backend's multipart `uploadId`: 32 lowercase
+ * hex chars (128 bits of entropy from `randomUUID()` with hyphens stripped).
+ * Exported so the part-receive route can reuse the same validator at the
+ * URL boundary.
+ */
+export const UPLOAD_ID_PATTERN = /^[a-f0-9]{32}$/;
+
+/**
+ * On-disk shape of `${objectsDir}/.multipart/<uploadId>/meta.json`. Written
+ * once at init and read by every subsequent operation on the session.
+ */
+interface MultipartMeta {
+  key: string;
+  contentType: string;
+  partSize: number;
+  sizeHint: number;
+  expectedParts: number;
+  createdAt: number;
+}
 
 /**
  * Local filesystem storage backend. Persists object bytes on the same data
@@ -135,6 +165,285 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
       } catch {
         // Best-effort.
       }
+    },
+
+    async initMultipart(
+      key: string,
+      opts: InitMultipartOptions,
+    ): Promise<InitMultipartResult> {
+      if (!validateKey(key)) {
+        throw new Error(
+          `invalid storage key for local backend: ${JSON.stringify(key)} ` +
+            `(allowed: [A-Za-z0-9._/-], no leading /, no //, no . or .. segments)`,
+        );
+      }
+      if (!Number.isInteger(opts.sizeHint) || opts.sizeHint <= 0) {
+        throw new Error(`initMultipart requires positive integer sizeHint`);
+      }
+      // Same resolution as S3: never below caller's configured floor, and
+      // large enough to keep the part count <= 10_000.
+      const partSize = Math.max(
+        opts.partSizeBytes,
+        Math.ceil(opts.sizeHint / 10_000),
+      );
+      const expectedParts = Math.ceil(opts.sizeHint / partSize);
+      const uploadId = randomUUID().replace(/-/g, '');
+      const sessionDir = join(objectsDir, '.multipart', uploadId);
+      await fs.mkdir(sessionDir, { recursive: true });
+
+      const meta: MultipartMeta = {
+        key,
+        contentType: opts.contentType,
+        partSize,
+        sizeHint: opts.sizeHint,
+        expectedParts,
+        createdAt: Math.floor(Date.now() / 1000),
+      };
+      // Atomic write-then-rename so a crash mid-write doesn't leave a torn
+      // JSON. `fs.writeFile` does NOT fsync — go through an open handle so
+      // the bytes are durable on disk before the rename commits.
+      const metaTmp = join(
+        sessionDir,
+        `meta.json.tmp-${randomBytes(8).toString('hex')}`,
+      );
+      const metaHandle = await fs.open(metaTmp, 'w');
+      try {
+        await metaHandle.writeFile(JSON.stringify(meta));
+        await metaHandle.sync();
+      } finally {
+        await metaHandle.close();
+      }
+      await fs.rename(metaTmp, join(sessionDir, 'meta.json'));
+
+      return { uploadId, partSize, expectedParts };
+    },
+
+    async presignUploadPart(
+      key: string,
+      uploadId: string,
+      partNumber: number,
+      opts?: PresignUploadPartOptions,
+    ): Promise<PresignedUrl> {
+      if (!UPLOAD_ID_PATTERN.test(uploadId)) {
+        throw new Error(
+          `invalid uploadId for local backend: ${JSON.stringify(uploadId)}`,
+        );
+      }
+      if (
+        !Number.isInteger(partNumber) ||
+        partNumber < 1 ||
+        partNumber > 10_000
+      ) {
+        throw new Error(`partNumber out of range: ${partNumber}`);
+      }
+      if (!validateKey(key)) {
+        throw new Error(
+          `invalid storage key for local backend: ${JSON.stringify(key)}`,
+        );
+      }
+
+      const sessionDir = join(objectsDir, '.multipart', uploadId);
+      const metaRaw = await fs.readFile(join(sessionDir, 'meta.json'), 'utf8');
+      const meta = JSON.parse(metaRaw) as MultipartMeta;
+      // Defends against a confused caller that mints a part URL for a
+      // different key than the session was opened for. The route layer also
+      // recovers `key` from meta.json, but binding it into the signature
+      // here means a leaked URL cannot be re-pointed.
+      if (meta.key !== key) {
+        throw new Error(
+          `uploadId ${uploadId} does not belong to key=${JSON.stringify(key)}`,
+        );
+      }
+      if (partNumber > meta.expectedParts) {
+        throw new Error(
+          `partNumber ${partNumber} exceeds expectedParts ${meta.expectedParts}`,
+        );
+      }
+
+      // Per-part Content-Length is server-derived from session state. Every
+      // part except the last is exactly `partSize`; the last is whatever
+      // remains. Off-by-one here silently truncates uploads — verify by
+      // hand: sizeHint=33, partSize=16 → expectedParts=3, last part=33-32=1.
+      const contentLength =
+        partNumber === meta.expectedParts
+          ? meta.sizeHint - (meta.expectedParts - 1) * meta.partSize
+          : meta.partSize;
+
+      const exp = Math.floor(Date.now() / 1000) + ttlFor(opts?.expiresInSeconds);
+      const sig = signCanonical(
+        {
+          method: 'PUT-PART',
+          key,
+          exp,
+          contentLength,
+          uploadId,
+          partNumber,
+        },
+        secret,
+      );
+      const q = new URLSearchParams();
+      q.set('exp', String(exp));
+      q.set('cl', String(contentLength));
+      q.set('sig', sig);
+      // No `ct` query parameter — R3: part PUTs are content-type-blind.
+      const url = `/api/storage/o/multipart/part/${uploadId}/${partNumber}?${q.toString()}`;
+      return { url, expiresAt: new Date(exp * 1000) };
+    },
+
+    async completeMultipart(
+      key: string,
+      uploadId: string,
+      parts: CompletedPart[],
+    ): Promise<CompleteMultipartResult> {
+      if (!UPLOAD_ID_PATTERN.test(uploadId)) {
+        throw new Error(
+          `invalid uploadId for local backend: ${JSON.stringify(uploadId)}`,
+        );
+      }
+      if (!validateKey(key)) {
+        throw new Error(
+          `invalid storage key for local backend: ${JSON.stringify(key)}`,
+        );
+      }
+      if (parts.length === 0) {
+        throw new Error(
+          `local completeMultipart called with empty parts list for key=${JSON.stringify(key)} uploadId=${uploadId}`,
+        );
+      }
+
+      const sessionDir = join(objectsDir, '.multipart', uploadId);
+      const meta = JSON.parse(
+        await fs.readFile(join(sessionDir, 'meta.json'), 'utf8'),
+      ) as MultipartMeta;
+      if (meta.key !== key) {
+        throw new Error(
+          `uploadId ${uploadId} does not belong to key=${JSON.stringify(key)}`,
+        );
+      }
+
+      // Validate the parts list: ascending 1..N, no gaps, exact count.
+      if (parts.length !== meta.expectedParts) {
+        throw new Error(
+          `part count mismatch: got ${parts.length}, expected ${meta.expectedParts}`,
+        );
+      }
+      const sorted = [...parts].sort((a, b) => a.partNumber - b.partNumber);
+      for (let i = 0; i < sorted.length; i++) {
+        if (sorted[i]!.partNumber !== i + 1) {
+          throw new Error(
+            `part list has gap or duplicate at index ${i} (partNumber=${sorted[i]!.partNumber})`,
+          );
+        }
+      }
+
+      // Verify every part file is present before opening the target. Cheap
+      // pre-flight so we don't create a tmp file just to delete it on a
+      // trivially-detectable failure.
+      for (const p of sorted) {
+        const partPath = join(sessionDir, `${p.partNumber}.part`);
+        try {
+          await fs.stat(partPath);
+        } catch (err: unknown) {
+          if (isEnoent(err)) {
+            throw new Error(`missing_part: ${p.partNumber}`);
+          }
+          throw err;
+        }
+      }
+
+      const targetPath = resolveSafe(objectsDir, key);
+      if (targetPath === null) {
+        throw new Error(`invalid key resolution: ${JSON.stringify(key)}`);
+      }
+      await fs.mkdir(dirname(targetPath), { recursive: true });
+      const tmpPath = `${targetPath}.tmp-${randomBytes(8).toString('hex')}`;
+
+      const hash = createHash('sha256');
+      let totalBytes = 0;
+      // Streaming concatenation through a single FileHandle. Reuse the same
+      // anti-deadlock pattern documented at `routes/storage.ts:81-129`:
+      // iterate the readable's chunks ourselves and `handle.write` each one.
+      // Do NOT wrap the handle in a WriteStream or use `Readable.pipeline` /
+      // `Readable.toWeb` — those produce ownership tangles that empirically
+      // deadlock the subsequent `handle.close()`.
+      let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
+      try {
+        handle = await fs.open(tmpPath, 'w');
+        for (const p of sorted) {
+          const partPath = join(sessionDir, `${p.partNumber}.part`);
+          const reader = createReadStream(partPath);
+          for await (const chunk of reader as AsyncIterable<Buffer>) {
+            hash.update(chunk);
+            await handle.write(chunk);
+            totalBytes += chunk.byteLength;
+          }
+        }
+        if (totalBytes !== meta.sizeHint) {
+          throw new Error(
+            `total bytes ${totalBytes} != sizeHint ${meta.sizeHint}`,
+          );
+        }
+        // fsync before rename — a crash between rename and fsync could
+        // otherwise leave a zero-length file at the final path on certain
+        // filesystems.
+        await handle.sync();
+      } catch (err) {
+        if (handle !== null) {
+          await handle.close().catch(() => {});
+          handle = null;
+        }
+        await fs.unlink(tmpPath).catch(() => {});
+        // Do NOT remove the session dir on failure — sweep or an explicit
+        // abort owns that cleanup. Propagating the error is enough.
+        throw err;
+      }
+      // Closed in success path here (the catch handles the failure path).
+      await handle.close();
+
+      // Atomic rename onto the final key. `fs.rename` is atomic on POSIX
+      // when source and target share a filesystem (they always do — both
+      // under objectsDir).
+      await fs.rename(tmpPath, targetPath);
+
+      // Final etag is hex sha256 — same encoding the single-PUT route
+      // writes (routes/storage.ts:135-145), so `headObject` returns a
+      // consistent shape regardless of which path put the bytes there.
+      const etag = hash.digest('hex');
+      const sidecar = {
+        contentType: meta.contentType,
+        etag,
+        size: totalBytes,
+      };
+      try {
+        await fs.writeFile(`${targetPath}.meta.json`, JSON.stringify(sidecar));
+      } catch (err) {
+        console.warn('[storage] multipart meta sidecar write failed', { key, err });
+      }
+
+      // Drop the session dir. Failure here is logged, not fatal — sweep
+      // handles orphaned `.multipart/*` dirs as a backstop.
+      try {
+        await fs.rm(sessionDir, { recursive: true, force: true });
+      } catch (err) {
+        console.warn('[storage] multipart session cleanup failed', { uploadId, err });
+      }
+
+      return { etag };
+    },
+
+    async abortMultipart(_key: string, uploadId: string): Promise<void> {
+      // The interface signature requires `key` for symmetry with S3, but
+      // the local backend identifies the session by `uploadId` alone — the
+      // `.multipart/<uploadId>/` dir holds all state. Ignored here.
+      if (!UPLOAD_ID_PATTERN.test(uploadId)) {
+        throw new Error(
+          `invalid uploadId for local backend: ${JSON.stringify(uploadId)}`,
+        );
+      }
+      const sessionDir = join(objectsDir, '.multipart', uploadId);
+      // `force: true` swallows ENOENT — abort on a non-existent session is
+      // success (idempotent), matching S3's NoSuchUpload semantics.
+      await fs.rm(sessionDir, { recursive: true, force: true });
     },
   };
 }

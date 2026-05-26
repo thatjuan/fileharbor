@@ -1,12 +1,13 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream, promises as fs } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { Hono } from 'hono';
 
 import type { LocalStorageConfig } from '../config.js';
-import { resolveSafe } from '../storage/local.js';
+import { resolveSafe, UPLOAD_ID_PATTERN } from '../storage/local.js';
 import { validateKey, verifySignature, type CanonicalMethod } from '../storage/signing.js';
+import type { UploadTicketsModule } from '../tickets/upload-tickets.js';
 
 /**
  * Public storage routes for the local backend. Mounted at `/api/storage/o`
@@ -23,7 +24,10 @@ import { validateKey, verifySignature, type CanonicalMethod } from '../storage/s
  * property of an S3 SigV4 URL: possession of the URL is the authorization,
  * and a client cannot deviate from what the server promised it would accept.
  */
-export function createLocalStorageRoute(config: LocalStorageConfig): Hono {
+export function createLocalStorageRoute(
+  config: LocalStorageConfig,
+  uploadTicketsModule: UploadTicketsModule,
+): Hono {
   const objectsDir = config.objectsDir;
   const secret = config.signingSecret;
   const route = new Hono();
@@ -263,6 +267,161 @@ export function createLocalStorageRoute(config: LocalStorageConfig): Hono {
     return c.body(null, 204);
   });
 
+  // Multipart part upload. Mirrors the single-PUT atomic-write idiom above
+  // with three deltas:
+  //   - The bound storage key is recovered from `.multipart/<uploadId>/meta.json`
+  //     rather than carried in the URL path.
+  //   - The signature canonical includes `uploadId` and `partNumber`
+  //     positional fields so a part-PUT URL cannot be replayed as a normal
+  //     `PUT /put/<key>` (different `method` line: `PUT-PART` vs `PUT`).
+  //   - The DB is consulted before any write — the ticket row's `status`
+  //     gates the disk-fill DoS surface across the long multipart TTL (R10).
+  route.put('/multipart/part/:uploadId/:partNumber', async (c) => {
+    const uploadId = c.req.param('uploadId');
+    if (!UPLOAD_ID_PATTERN.test(uploadId)) {
+      return c.json({ error: 'invalid_upload_id' }, 400);
+    }
+    const partNumberRaw = c.req.param('partNumber');
+    const partNumber = Number.parseInt(partNumberRaw, 10);
+    if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10_000) {
+      return c.json({ error: 'invalid_part_number' }, 400);
+    }
+
+    // Recover the bound key from the session's meta.json. An ENOENT here
+    // means the session is gone (sweep/abort/complete already cleaned up,
+    // or the upload-id is forged). Deliberately surface as `invalid_signature`
+    // so a probe cannot distinguish "session never existed" from "bad sig".
+    const sessionDir = join(objectsDir, '.multipart', uploadId);
+    let metaKey: string;
+    try {
+      const metaRaw = await fs.readFile(join(sessionDir, 'meta.json'), 'utf8');
+      const meta = JSON.parse(metaRaw) as { key?: unknown };
+      if (typeof meta.key !== 'string' || !validateKey(meta.key)) {
+        return c.json({ error: 'invalid_signature' }, 403);
+      }
+      metaKey = meta.key;
+    } catch (err: unknown) {
+      if (isEnoent(err)) return c.json({ error: 'invalid_signature' }, 403);
+      throw err;
+    }
+
+    const sigCheck = checkSignature(c, 'PUT-PART', metaKey, secret, { uploadId, partNumber });
+    if (!sigCheck.ok) return c.json({ error: sigCheck.error }, sigCheck.status);
+    const { contentLength: signedCl } = sigCheck;
+    if (signedCl === undefined) {
+      // Part PUTs always sign a `cl` — the provider's `presignUploadPart`
+      // computes it from the meta.json. A missing `cl` indicates either a
+      // crafted URL or a regression in the presigner.
+      return c.json({ error: 'invalid_signature' }, 403);
+    }
+
+    // DB gate (R10): the ticket row's status decides whether parts can land.
+    // `pending` only; once the row moves to `aborting`/`completing`/terminal,
+    // the session is closed.
+    const ticket = await uploadTicketsModule.findByUploadId(uploadId);
+    if (!ticket) {
+      // No row for this uploadId — session is fully cleaned up at the DB
+      // layer. Return 410 so the client knows to stop retrying this part.
+      return c.json({ error: 'session_closed' }, 410);
+    }
+    if (ticket.status !== 'pending') {
+      return c.json({ error: 'session_closed' }, 410);
+    }
+    if (partNumber > ticket.expectedParts) {
+      return c.json({ error: 'invalid_part_number' }, 400);
+    }
+
+    // Header parity for Content-Length: mirror single-PUT (lines 52-58).
+    // R3: part PUTs are content-type-blind — no header check on Content-Type.
+    const headerClRaw = c.req.header('content-length');
+    const headerCl = headerClRaw ? Number.parseInt(headerClRaw, 10) : NaN;
+    if (!Number.isInteger(headerCl) || headerCl !== signedCl) {
+      return c.json({ error: 'content_length_mismatch' }, 403);
+    }
+
+    const body = c.req.raw.body;
+    if (!body) {
+      return c.json({ error: 'no_body' }, 400);
+    }
+
+    // Atomic write into the session dir, identical streaming/fsync/rename
+    // shape as the single-PUT route. Re-uploads of the same part number
+    // overwrite cleanly (rename atomically replaces the existing `.part`).
+    const finalPath = join(sessionDir, `${partNumber}.part`);
+    const tmpPath = `${finalPath}.tmp-${randomBytes(8).toString('hex')}`;
+
+    const hash = createHash('sha256');
+    let bytesReceived = 0;
+    let overrun = false;
+
+    let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
+    try {
+      handle = await fs.open(tmpPath, 'w');
+
+      const reader = body as unknown as AsyncIterable<Uint8Array>;
+      for await (const chunk of reader) {
+        const len = chunk.byteLength;
+        bytesReceived += len;
+        // Disk-fill DoS guard mirrors the single-PUT path (lines 99-102).
+        if (bytesReceived > signedCl) {
+          overrun = true;
+          break;
+        }
+        hash.update(chunk);
+        await handle.write(chunk);
+      }
+
+      if (overrun) {
+        await handle.close();
+        handle = null;
+        await fs.unlink(tmpPath).catch(() => {});
+        return c.json({ error: 'length_overrun' }, 400);
+      }
+
+      await handle.sync();
+      await handle.close();
+      handle = null;
+
+      if (bytesReceived !== signedCl) {
+        await fs.unlink(tmpPath).catch(() => {});
+        return c.json({ error: 'length_mismatch' }, 400);
+      }
+
+      await fs.rename(tmpPath, finalPath);
+
+      const etag = hash.digest('hex');
+      const sidecar = { etag, size: bytesReceived };
+      try {
+        await fs.writeFile(`${finalPath}.meta.json`, JSON.stringify(sidecar));
+      } catch (err) {
+        console.warn('[storage] multipart part sidecar write failed', {
+          uploadId,
+          partNumber,
+          err,
+        });
+      }
+
+      // ETag returned as both a response header (so the frontend's
+      // `xhr.getResponseHeader('ETag')` works as a single code path with S3)
+      // and as a JSON body field (fallback when CORS blocks header access).
+      return new Response(JSON.stringify({ etag, size: bytesReceived }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          ETag: `"${etag}"`,
+        },
+      });
+    } catch (err: unknown) {
+      if (handle !== null) {
+        await handle.close().catch(() => {});
+      }
+      await fs.unlink(tmpPath).catch(() => {});
+      console.error('[storage] PUT-PART failed', { uploadId, partNumber, err });
+      const message = err instanceof Error ? err.message : 'unknown';
+      return c.json({ error: 'write_failed', message }, 500);
+    }
+  });
+
   return route;
 }
 
@@ -345,6 +504,7 @@ export function checkSignature(
   method: CanonicalMethod,
   key: string,
   secret: string,
+  extras?: { uploadId?: string; partNumber?: number },
 ): SignatureOk | SignatureFail {
   const url = new URL(c.req.url);
   const expRaw = url.searchParams.get('exp');
@@ -375,7 +535,16 @@ export function checkSignature(
   const responseContentDisposition = cdRaw ?? undefined;
 
   const verified = verifySignature(
-    { method, key, exp, contentType, contentLength, responseContentDisposition },
+    {
+      method,
+      key,
+      exp,
+      contentType,
+      contentLength,
+      responseContentDisposition,
+      uploadId: extras?.uploadId,
+      partNumber: extras?.partNumber,
+    },
     sigRaw,
     secret,
   );

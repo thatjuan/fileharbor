@@ -80,6 +80,27 @@ export type StorageBackend = 'local' | 's3';
  */
 export type StorageConfig = S3StorageConfig | LocalStorageConfig;
 
+/**
+ * Multipart-upload knobs. Shared across both storage backends — the protocol
+ * looks the same to the frontend regardless of where bytes ultimately live.
+ *
+ * Defaults are tuned for a typical self-hosted deploy: 100 MiB threshold
+ * keeps small / medium files on the cheaper single-PUT path; 16 MiB parts
+ * keep RAM bounded on the server-side concatenation loop without producing
+ * too many parts for files up to ~160 GiB. For files above that, the server
+ * auto-bumps the part size to stay under S3's 10 000-part cap.
+ */
+export interface MultipartConfig {
+  /** File size above which the client uses the multipart protocol. Default 100 MiB. */
+  thresholdBytes: number;
+  /** Server-chosen part size (auto-bumped if needed to keep parts <= 10000). Default 16 MiB. */
+  partSizeBytes: number;
+  /** Maximum seconds a multipart session may sit pending before sweep aborts it. Default 7200. */
+  ttlSeconds: number;
+  /** Hard ceiling on single-PUT and multipart object size. Default depends on backend. */
+  maxObjectSizeBytes: number;
+}
+
 export interface S3StorageConfig {
   backend: 's3';
   /**
@@ -109,6 +130,8 @@ export interface S3StorageConfig {
    * Default: 300s (5 minutes).
    */
   presignTtlSeconds: number;
+  /** Multipart-upload knobs. */
+  multipart: MultipartConfig;
 }
 
 export interface LocalStorageConfig {
@@ -129,6 +152,8 @@ export interface LocalStorageConfig {
    * TTL applied to local presigned URLs, in seconds. Default: 300s.
    */
   presignTtlSeconds: number;
+  /** Multipart-upload knobs. */
+  multipart: MultipartConfig;
 }
 
 export interface AuthConfig {
@@ -253,6 +278,7 @@ function resolveS3StorageConfig(env: Env): S3StorageConfig {
     bucket,
     forcePathStyle,
     presignTtlSeconds,
+    multipart: parseMultipartConfig(env, 's3'),
   };
 }
 
@@ -274,7 +300,13 @@ function resolveLocalStorageConfig(
     'STORAGE_PRESIGN_TTL_SECONDS',
   );
 
-  return { backend: 'local', objectsDir, signingSecret, presignTtlSeconds };
+  return {
+    backend: 'local',
+    objectsDir,
+    signingSecret,
+    presignTtlSeconds,
+    multipart: parseMultipartConfig(env, 'local'),
+  };
 }
 
 function requireS3Env(env: Env, key: string): string {
@@ -437,6 +469,102 @@ function parsePositiveIntSeconds(
     );
   }
   return n;
+}
+
+/**
+ * Parse a positive-integer bytes env var with a default and bounds. Mirrors
+ * `parsePositiveIntSeconds` shape — there's no semantic difference, but the
+ * separate function name makes call sites self-documenting and the error
+ * message can name "bytes" instead of "seconds".
+ */
+function parsePositiveIntBytes(
+  raw: string | undefined,
+  fallback: number,
+  varName: string,
+  min: number,
+  max: number,
+): number {
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isInteger(n) || n < min || n > max) {
+    throw new Error(`${varName} must be an integer in [${min}, ${max}] bytes. Got: ${raw}`);
+  }
+  return n;
+}
+
+/**
+ * Resolve the multipart-upload knobs. Shared across both backends; the only
+ * backend-specific default is the hard ceiling on object size — local mode
+ * defaults to 50 GiB (sized for a typical self-hosted volume) while S3 mode
+ * defaults to S3's own 5 TiB per-object limit.
+ *
+ * Boot validation:
+ *   - `maxObjectSizeBytes` must be > `thresholdBytes` (otherwise multipart
+ *     is unreachable: anything large enough to trip the threshold also
+ *     overflows the ceiling).
+ *   - `partSizeBytes * 10_000` must be >= `maxObjectSizeBytes` (S3's
+ *     10 000-part cap must not be reachable as a runtime error — if it
+ *     were, an operator with a 5 TiB ceiling and 16 MiB parts would
+ *     discover the misconfiguration mid-upload).
+ *   - Part size at least 5 MiB (S3 rule: all parts except the last must be
+ *     >= 5 MiB) and at most 5 GiB (S3 rule: a single part is capped at 5 GiB).
+ */
+function parseMultipartConfig(env: Env, backend: StorageBackend): MultipartConfig {
+  const ONE_MIB = 1024 * 1024;
+  const ONE_GIB = 1024 * ONE_MIB;
+  const ONE_TIB = 1024 * ONE_GIB;
+
+  const thresholdBytes = parsePositiveIntBytes(
+    env.STORAGE_MULTIPART_THRESHOLD_BYTES,
+    100 * ONE_MIB,
+    'STORAGE_MULTIPART_THRESHOLD_BYTES',
+    1,
+    Number.MAX_SAFE_INTEGER,
+  );
+  const partSizeBytes = parsePositiveIntBytes(
+    env.STORAGE_MULTIPART_PART_SIZE_BYTES,
+    16 * ONE_MIB,
+    'STORAGE_MULTIPART_PART_SIZE_BYTES',
+    5 * ONE_MIB,
+    5 * ONE_GIB,
+  );
+  const ttlSeconds = parsePositiveIntSeconds(
+    env.STORAGE_MULTIPART_TTL_SECONDS,
+    7200,
+    'STORAGE_MULTIPART_TTL_SECONDS',
+    365 * 24 * 3600,
+  );
+  if (ttlSeconds < 60) {
+    throw new Error(
+      `STORAGE_MULTIPART_TTL_SECONDS must be >= 60. Got: ${env.STORAGE_MULTIPART_TTL_SECONDS}`,
+    );
+  }
+  const defaultMaxObject = backend === 's3' ? 5 * ONE_TIB : 50 * ONE_GIB;
+  const maxObjectSizeBytes = parsePositiveIntBytes(
+    env.STORAGE_MAX_OBJECT_SIZE_BYTES,
+    defaultMaxObject,
+    'STORAGE_MAX_OBJECT_SIZE_BYTES',
+    1,
+    Number.MAX_SAFE_INTEGER,
+  );
+
+  if (maxObjectSizeBytes <= thresholdBytes) {
+    throw new Error(
+      `STORAGE_MAX_OBJECT_SIZE_BYTES (${maxObjectSizeBytes}) must be greater than ` +
+        `STORAGE_MULTIPART_THRESHOLD_BYTES (${thresholdBytes}). Otherwise the multipart ` +
+        `protocol is unreachable: every file large enough to trigger it overflows the ceiling.`,
+    );
+  }
+  if (partSizeBytes * 10_000 < maxObjectSizeBytes) {
+    throw new Error(
+      `STORAGE_MULTIPART_PART_SIZE_BYTES (${partSizeBytes}) * 10000 = ${partSizeBytes * 10_000} ` +
+        `is less than STORAGE_MAX_OBJECT_SIZE_BYTES (${maxObjectSizeBytes}). With this part size, ` +
+        `the maximum object would require more than S3's 10000-part cap. Raise the part size or ` +
+        `lower the max object size.`,
+    );
+  }
+
+  return { thresholdBytes, partSizeBytes, ttlSeconds, maxObjectSizeBytes };
 }
 
 function resolveTicketSweepConfig(env: Env): TicketSweepConfig {
