@@ -53,10 +53,20 @@ async function main(): Promise<void> {
   const db = openDatabase(config.databasePath, migrationsFolder);
 
   const storage = createStorageProvider(config.storage);
-  console.log(
-    `[fileharbor] verifying storage (endpoint=${config.storage.endpoint}, bucket=${config.storage.bucket}, ` +
-      `pathStyle=${config.storage.forcePathStyle}, presignTtl=${config.storage.presignTtlSeconds}s)`,
-  );
+  if (config.storage.backend === 'local') {
+    console.log(
+      `[fileharbor] verifying storage (backend=local, ` +
+        `objectsDir=${config.storage.objectsDir}, ` +
+        `presignTtl=${config.storage.presignTtlSeconds}s)`,
+    );
+  } else {
+    console.log(
+      `[fileharbor] verifying storage (backend=s3, ` +
+        `endpoint=${config.storage.endpoint}, bucket=${config.storage.bucket}, ` +
+        `pathStyle=${config.storage.forcePathStyle}, ` +
+        `presignTtl=${config.storage.presignTtlSeconds}s)`,
+    );
+  }
   await verifyStorage(storage, config.storage);
   console.log('[fileharbor] storage ok');
 
