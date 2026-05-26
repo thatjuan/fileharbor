@@ -283,9 +283,7 @@ export async function listSendLinks(): Promise<SendLink[]> {
   return data.links;
 }
 
-export async function getSendLink(
-  id: string,
-): Promise<{ link: SendLink; files: FileRecord[] }> {
+export async function getSendLink(id: string): Promise<{ link: SendLink; files: FileRecord[] }> {
   const res = await fetch(`/api/send-links/${encodeURIComponent(id)}`, {
     credentials: 'include',
   });
@@ -634,9 +632,9 @@ export async function createMultipartUploadTicket(
  * server caps `to - from + 1` at 100; the dispatcher in `lib/upload.ts`
  * matches that via `URL_FETCH_PAGE`.
  *
- * `password` re-validates the receive-link policy on every page fetch (in
- * case the link's password was rotated mid-upload). Passed via query string
- * to keep the GET cacheable-shape — same trust model as the ticket id.
+ * `password` re-validates the receive-link policy on every page fetch. It is
+ * sent in the JSON body so plaintext passwords never land in URLs, browser
+ * history, reverse-proxy logs, or observability traces.
  */
 export async function fetchMultipartPartUrls(
   ticketId: string,
@@ -644,14 +642,17 @@ export async function fetchMultipartPartUrls(
   to: number,
   password?: string | null,
 ): Promise<FetchMultipartPartUrlsOutcome> {
-  const params = new URLSearchParams();
-  params.set('from', String(from));
-  params.set('to', String(to));
+  const requestBody: Record<string, unknown> = { from, to };
   if (password !== undefined && password !== null && password.length > 0) {
-    params.set('password', password);
+    requestBody.password = password;
   }
   const res = await fetch(
-    `/api/public/upload-tickets/${encodeURIComponent(ticketId)}/upload/multipart/parts?${params.toString()}`,
+    `/api/public/upload-tickets/${encodeURIComponent(ticketId)}/upload/multipart/parts`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    },
   );
   if (res.ok) {
     const value = (await res.json()) as MultipartPartUrlsResponse;
@@ -683,11 +684,7 @@ export async function completeMultipartUploadTicket(
   payload: { parts: PartEtag[]; password?: string | null },
 ): Promise<FinalizeOutcome> {
   const body: Record<string, unknown> = { parts: payload.parts };
-  if (
-    payload.password !== undefined &&
-    payload.password !== null &&
-    payload.password.length > 0
-  ) {
+  if (payload.password !== undefined && payload.password !== null && payload.password.length > 0) {
     body.password = payload.password;
   }
   const res = await fetch(
@@ -758,15 +755,12 @@ export async function createSendMultipartUploadTicket(
   | { kind: 'not_found' }
   | { kind: 'policy_rejected'; reason: 'disabled' }
 > {
-  const res = await fetch(
-    `/api/send-links/${encodeURIComponent(linkId)}/files/multipart/init`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(payload),
-      credentials: 'include',
-    },
-  );
+  const res = await fetch(`/api/send-links/${encodeURIComponent(linkId)}/files/multipart/init`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+    credentials: 'include',
+  });
   if (res.ok) {
     const value = (await res.json()) as MultipartInitResponse;
     return { kind: 'ok', value };

@@ -3,12 +3,9 @@ import { and, eq } from 'drizzle-orm';
 
 import type { MultipartConfig } from '../config.js';
 import type { Db } from '../db/client.js';
-import { pendingAborts, uploadTickets } from '../db/schema.js';
+import { files, pendingAborts, uploadTickets } from '../db/schema.js';
 import type { FilesModule } from '../files/files.js';
-import {
-  evaluateReceiveLink,
-  type ReceiveLinkPolicyResult,
-} from '../links/policy/index.js';
+import { evaluateReceiveLink, type ReceiveLinkPolicyResult } from '../links/policy/index.js';
 import { resolvePasswordCheck } from '../links/policy/password-check.js';
 import type { ReceiveLink, ReceiveLinksModule } from '../links/receive-links.js';
 import type { SendLink, SendLinksModule } from '../links/send-links.js';
@@ -370,13 +367,47 @@ export function createUploadTicketsModule(
     if (!link) return null;
     const now = Math.floor(Date.now() / 1000);
     const uploadsSoFar = await receiveLinksModule.recordUploadCount(link.id);
-    const passwordCheck = await resolvePasswordCheck(
-      link.passwordHash,
-      providedPassword ?? null,
-    );
+    const passwordCheck = await resolvePasswordCheck(link.passwordHash, providedPassword ?? null);
     const policy = evaluateReceiveLink(link, now, uploadsSoFar, passwordCheck);
     if (policy.kind === 'ok') return null;
     return policy;
+  }
+
+  function failCompletingMultipart(ticketId: string, completedAt: number): void {
+    db.update(uploadTickets)
+      .set({ status: 'failed', completedAt })
+      .where(and(eq(uploadTickets.id, ticketId), eq(uploadTickets.status, 'completing')))
+      .run();
+  }
+
+  async function deleteCompletedObjectBestEffort(args: {
+    ticketId: string;
+    key: string;
+    uploadId: string;
+    reason: string;
+    expectedSize?: number | null;
+    actualSize?: number | null;
+    err?: unknown;
+  }): Promise<void> {
+    const logContext = {
+      ticketId: args.ticketId,
+      key: args.key,
+      uploadId: args.uploadId,
+      reason: args.reason,
+      expectedSize: args.expectedSize,
+      actualSize: args.actualSize,
+      maxObjectSizeBytes,
+      err: args.err instanceof Error ? args.err.message : args.err,
+    };
+    try {
+      await storage.deleteObject(args.key);
+      console.warn('[upload-tickets] multipart-complete rejected; object deleted', logContext);
+    } catch (deleteErr) {
+      console.error('[upload-tickets] multipart-complete rejected; object delete failed', {
+        ...logContext,
+        deleteErr,
+      });
+    }
   }
 
   return {
@@ -864,9 +895,7 @@ export function createUploadTicketsModule(
         // Release the CAS so the user can retry with a corrected payload.
         db.update(uploadTickets)
           .set({ status: 'pending' })
-          .where(
-            and(eq(uploadTickets.id, ticketId), eq(uploadTickets.status, 'completing')),
-          )
+          .where(and(eq(uploadTickets.id, ticketId), eq(uploadTickets.status, 'completing')))
           .run();
         return { kind: 'failed', reason: 'invalid_parts' };
       }
@@ -895,9 +924,7 @@ export function createUploadTicketsModule(
           .run();
         db.update(uploadTickets)
           .set({ status: 'failed', completedAt: now })
-          .where(
-            and(eq(uploadTickets.id, ticketId), eq(uploadTickets.status, 'completing')),
-          )
+          .where(and(eq(uploadTickets.id, ticketId), eq(uploadTickets.status, 'completing')))
           .run();
         console.warn('[upload-tickets] multipart-complete-failed', {
           ticketId,
@@ -907,50 +934,91 @@ export function createUploadTicketsModule(
         return { kind: 'failed', reason: 'storage_complete_failed' };
       }
 
-      // Mirror the existing `finalize` HEAD-then-record idiom. Treat a
-      // missing object as `complete_failed` (storage said success but the
-      // object isn't there — should not happen, but defence in depth).
-      const info = await storage.headObject(ticketRow.s3Key);
-      if (!info) {
+      let info: Awaited<ReturnType<typeof storage.headObject>>;
+      try {
+        info = await storage.headObject(ticketRow.s3Key);
+      } catch (err) {
         const now = Math.floor(Date.now() / 1000);
-        db.update(uploadTickets)
-          .set({ status: 'failed', completedAt: now })
-          .where(
-            and(eq(uploadTickets.id, ticketId), eq(uploadTickets.status, 'completing')),
-          )
-          .run();
-        return { kind: 'failed', reason: 'object_not_found' };
-      }
-
-      // Trust the bucket's reported size; log a warn on mismatch but proceed
-      // (mirrors existing `finalize`).
-      if (ticketRow.sizeHint !== null && info.size !== ticketRow.sizeHint) {
-        console.warn('[upload-tickets] multipart-complete size mismatch (trusting bucket)', {
+        failCompletingMultipart(ticketId, now);
+        await deleteCompletedObjectBestEffort({
           ticketId,
           key: ticketRow.s3Key,
-          sizeHint: ticketRow.sizeHint,
-          bucketSize: info.size,
+          uploadId: ticketRow.uploadId,
+          reason: 'head_failed',
+          expectedSize: ticketRow.sizeHint,
+          err,
         });
+        return { kind: 'failed', reason: 'storage_complete_failed' };
       }
+
+      let invalidSizeReason: string | null = null;
+      if (info === null) {
+        invalidSizeReason = 'object_not_found';
+      } else if (ticketRow.sizeHint === null) {
+        invalidSizeReason = 'missing_size_hint';
+      } else if (info.size !== ticketRow.sizeHint) {
+        invalidSizeReason = 'object_size_mismatch';
+      } else if (info.size > maxObjectSizeBytes) {
+        invalidSizeReason = 'object_size_too_large';
+      }
+      if (invalidSizeReason !== null) {
+        const now = Math.floor(Date.now() / 1000);
+        failCompletingMultipart(ticketId, now);
+        await deleteCompletedObjectBestEffort({
+          ticketId,
+          key: ticketRow.s3Key,
+          uploadId: ticketRow.uploadId,
+          reason: invalidSizeReason,
+          expectedSize: ticketRow.sizeHint,
+          actualSize: info?.size ?? null,
+        });
+        return { kind: 'failed', reason: 'storage_complete_failed' };
+      }
+      if (info === null) {
+        return { kind: 'failed', reason: 'storage_complete_failed' };
+      }
+      const objectInfo = info;
 
       const completedAt = Math.floor(Date.now() / 1000);
       const fileId = randomUUID();
-      await filesModule.create({
-        id: fileId,
-        s3Key: ticketRow.s3Key,
-        filename: ticketRow.filename,
-        contentType: info.contentType ?? ticketRow.contentType,
-        size: info.size,
-        receiveLinkId: ticketRow.receiveLinkId,
-        sendLinkId: ticketRow.sendLinkId,
-      });
+      try {
+        db.transaction((tx) => {
+          tx.insert(files)
+            .values({
+              id: fileId,
+              s3Key: ticketRow.s3Key,
+              filename: ticketRow.filename,
+              contentType: objectInfo.contentType ?? ticketRow.contentType,
+              size: objectInfo.size,
+              createdAt: completedAt,
+              receiveLinkId: ticketRow.receiveLinkId,
+              sendLinkId: ticketRow.sendLinkId,
+            })
+            .run();
 
-      db.update(uploadTickets)
-        .set({ status: 'completed', completedAt })
-        .where(
-          and(eq(uploadTickets.id, ticketId), eq(uploadTickets.status, 'completing')),
-        )
-        .run();
+          const done = tx
+            .update(uploadTickets)
+            .set({ status: 'completed', completedAt })
+            .where(and(eq(uploadTickets.id, ticketId), eq(uploadTickets.status, 'completing')))
+            .run();
+          if (Number(done.changes) === 0) {
+            throw new Error('multipart_complete_lost_completing_state');
+          }
+        });
+      } catch (err) {
+        const now = Math.floor(Date.now() / 1000);
+        failCompletingMultipart(ticketId, now);
+        await deleteCompletedObjectBestEffort({
+          ticketId,
+          key: ticketRow.s3Key,
+          uploadId: ticketRow.uploadId,
+          reason: 'publish_failed',
+          expectedSize: ticketRow.sizeHint,
+          actualSize: objectInfo.size,
+          err,
+        });
+        return { kind: 'failed', reason: 'storage_complete_failed' };
+      }
 
       // Notification (receive intent only). Same try/catch shape as
       // `finalize` — a notification failure cannot fail the upload.
@@ -962,7 +1030,7 @@ export function createUploadTicketsModule(
             receiveLinkLabel: link?.label ?? 'unknown',
             fileId,
             filename: ticketRow.filename,
-            size: info.size,
+            size: objectInfo.size,
           });
         } catch (err) {
           console.error('[upload-tickets] notification record failed', {
@@ -1006,9 +1074,7 @@ export function createUploadTicketsModule(
       const cas = db
         .update(uploadTickets)
         .set({ status: 'aborting' })
-        .where(
-          and(eq(uploadTickets.id, ticketId), eq(uploadTickets.status, 'pending')),
-        )
+        .where(and(eq(uploadTickets.id, ticketId), eq(uploadTickets.status, 'pending')))
         .run();
       if (Number(cas.changes) === 0) {
         // Lost race — re-query and translate.
@@ -1029,9 +1095,7 @@ export function createUploadTicketsModule(
         const now = Math.floor(Date.now() / 1000);
         db.update(uploadTickets)
           .set({ status: 'expired', completedAt: now })
-          .where(
-            and(eq(uploadTickets.id, ticketId), eq(uploadTickets.status, 'aborting')),
-          )
+          .where(and(eq(uploadTickets.id, ticketId), eq(uploadTickets.status, 'aborting')))
           .run();
       } catch (err) {
         console.warn('[upload-tickets] multipart-abort storage call failed; sweep will retry', {
@@ -1055,12 +1119,7 @@ export function createUploadTicketsModule(
           s3Key: uploadTickets.s3Key,
         })
         .from(uploadTickets)
-        .where(
-          and(
-            eq(uploadTickets.uploadId, uploadId),
-            eq(uploadTickets.protocol, 'multipart'),
-          ),
-        )
+        .where(and(eq(uploadTickets.uploadId, uploadId), eq(uploadTickets.protocol, 'multipart')))
         .get();
       if (!row) return Promise.resolve(null);
       // Defensive null-check: schema permits NULL but the WHERE excludes it

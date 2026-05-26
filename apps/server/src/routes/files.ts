@@ -86,11 +86,9 @@ export function createFilesRoute(
     } catch (err) {
       // S3 delete failed. Leave the DB row alone — admin retries land in the
       // same code path; manual investigation is possible because the row is
-      // still visible. Return 500 with a short message; the precise SDK error
-      // can be diagnosed from the server logs.
+      // still visible. The precise SDK error can be diagnosed from server logs.
       console.error('[files] deleteObject failed', { id, s3Key: file.s3Key, err });
-      const message = err instanceof Error ? err.message : 'unknown';
-      return c.json({ error: 'storage_delete_failed', message }, 500);
+      return c.json({ error: 'storage_delete_failed' }, 500);
     }
 
     await filesModule.deleteById(id);

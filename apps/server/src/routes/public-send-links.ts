@@ -1,7 +1,10 @@
 import { Hono } from 'hono';
 
+import type { SecurityConfig } from '../config.js';
 import type { FilesModule } from '../files/files.js';
 import type { SendLinksModule } from '../links/send-links.js';
+import { clientIpFor } from '../security/client-ip.js';
+import { enforceRateLimit, type FixedWindowRateLimiter } from '../security/rate-limit.js';
 import type { DownloadTicketsModule } from '../tickets/download-tickets.js';
 
 interface DownloadTicketBody {
@@ -36,6 +39,8 @@ export function createPublicSendLinksRoute(
   sendLinksModule: SendLinksModule,
   filesModule: FilesModule,
   downloadTicketsModule: DownloadTicketsModule,
+  security: SecurityConfig,
+  limiter: FixedWindowRateLimiter,
 ): Hono {
   const route = new Hono();
 
@@ -72,6 +77,12 @@ export function createPublicSendLinksRoute(
 
   route.post('/:code/download-tickets', async (c) => {
     const code = c.req.param('code');
+    const ip = clientIpFor(c, security);
+    const limited = enforceRateLimit(c, security, limiter, [
+      { key: `public-link:${ip}:${code}`, limit: security.rateLimit.publicLink },
+      { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
+    ]);
+    if (limited) return limited;
 
     let body: DownloadTicketBody;
     try {

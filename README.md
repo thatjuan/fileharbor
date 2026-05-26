@@ -78,17 +78,35 @@ Files above 100 MiB (configurable via `STORAGE_MULTIPART_THRESHOLD_BYTES`) auto-
 
 Every value is env-driven. Authoritative list: [`apps/server/src/config.ts`](./apps/server/src/config.ts). Mirror with comments: [`.env.example`](./.env.example). Key vars:
 
-| Variable                            | Purpose                                                                |
-| ----------------------------------- | ---------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`                | Signs session cookies. Required in production.                         |
-| `BETTER_AUTH_URL`                   | Public base URL. Used for cookies + CORS origin.                       |
-| `STORAGE_BACKEND`                   | `local` (default) or `s3`.                                             |
-| `STORAGE_SIGNING_SECRET`            | HMAC for local presigned URLs. Required in production, local mode.     |
-| `DATA_DIR`                          | SQLite + (local mode) bytes. Default `/data` in the image.             |
-| `S3_*`                              | Endpoint, keys, bucket. Required when `STORAGE_BACKEND=s3`.            |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Headless admin seed. Both or neither.                                  |
-| `STORAGE_MULTIPART_THRESHOLD_BYTES` | Multipart cut-over. Default 100 MiB.                                   |
-| `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_TUNNEL_DOMAIN` | Tunnel mode. Both or neither.                          |
+| Variable                                            | Purpose                                                                |
+| --------------------------------------------------- | ---------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                                | Signs session cookies. Required in production.                         |
+| `BETTER_AUTH_URL`                                   | Public base URL. Used for cookies + CORS origin.                       |
+| `STORAGE_BACKEND`                                   | `local` (default) or `s3`.                                             |
+| `STORAGE_SIGNING_SECRET`                            | HMAC for local presigned URLs. Required in production, local mode.     |
+| `DATA_DIR`                                          | SQLite + (local mode) bytes. Default `/data` in the image.             |
+| `S3_*`                                              | Endpoint, keys, bucket. Required when `STORAGE_BACKEND=s3`.            |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD`                 | Headless admin seed. Both or neither.                                  |
+| `STORAGE_MULTIPART_THRESHOLD_BYTES`                 | Multipart cut-over. Default 100 MiB.                                   |
+| `RATE_LIMIT_*`                                      | In-memory abuse limits for auth/setup/public ticket surfaces.          |
+| `SECURITY_HEADERS_*`                                | Production security headers and HSTS controls.                         |
+| `SECURITY_TRUST_PROXY_HEADERS`                      | Trust forwarded IP headers only behind a trusted proxy. Default false. |
+| `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_TUNNEL_DOMAIN` | Tunnel mode. Both or neither.                                          |
+
+## Security notes
+
+Production responses include baseline CSP, nosniff, referrer, and frame-deny
+headers. HSTS is enabled automatically for HTTPS `BETTER_AUTH_URL` deployments
+and can be disabled for unusual proxy setups.
+
+Rate limits are in-memory and process-local, which matches the single-container
+v1 deployment model. Multi-replica deployments should add shared rate limiting
+at the reverse proxy or a future shared backend.
+
+`npm audit` may continue to report a moderate Better Auth peer-tooling chain
+through `drizzle-kit -> @esbuild-kit -> esbuild`. File Harbor does not execute
+Drizzle Kit in the production server path; it is retained for schema generation
+and Better Auth peer compatibility until upstream publishes a clean peer tree.
 
 ## Persistence
 
