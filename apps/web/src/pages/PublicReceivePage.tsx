@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { LanguageSwitcher, Trans, mapUploadErrorMessage, useT } from '../i18n/index.js';
@@ -395,7 +395,7 @@ export function PublicReceivePage(): JSX.Element {
   // Visually-hide the native file input while keeping it focusable for
   // keyboard users. Pairs with the styled `<label className="btn-secondary-pill">`
   // wrapper so the picker reads as a designed pill button.
-  const srOnlyFileInputStyle: React.CSSProperties = {
+  const srOnlyFileInputStyle: CSSProperties = {
     position: 'absolute',
     width: 1,
     height: 1,

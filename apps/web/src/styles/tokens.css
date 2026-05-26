@@ -46,11 +46,11 @@
 
   /* ===== Typography ladder ===== */
   --font-family-display:
-    system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Display',
-    'Inter Variable', 'Inter', sans-serif;
+    system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter Variable', 'Inter',
+    sans-serif;
   --font-family-text:
-    system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text',
-    'Inter Variable', 'Inter', sans-serif;
+    system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter Variable', 'Inter',
+    sans-serif;
   --font-family-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --font-weight-light: 300;
