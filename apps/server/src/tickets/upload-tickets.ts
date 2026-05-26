@@ -384,25 +384,24 @@ export function createUploadTicketsModule(
 }
 
 /**
- * Sanitise a user-supplied filename for inclusion in a bucket key. The key is
- * not the source of truth for the display name (that's the DB row), but
- * including a recognisable name makes the bucket browser human-friendly.
+ * Sanitise a user-supplied filename for inclusion in a storage key. The key
+ * is not the source of truth for the display name (that's the DB row), but
+ * including a recognisable name makes the bucket browser / on-disk tree
+ * human-friendly.
  *
- * Strips: path separators, NULs, ASCII control chars. Collapses whitespace
- * but preserves single spaces. Caps length so a pathological filename can't
- * blow the key length limit. Falls back to `file` if the result is empty.
+ * Allowed chars: `[A-Za-z0-9._-]`. Anything else (spaces, accents, slashes,
+ * control chars, ...) collapses to `_`. This matches the key character
+ * class enforced by the local storage backend (`storage/signing.ts`), so
+ * the same key string is acceptable to either backend with no re-encoding.
  *
- * The control-char range is built via `RegExp` at runtime so this source
- * file stays free of literal control bytes (clean diffs, no editor surprises).
+ * Caps length at 200 chars so a pathological filename can't blow the key
+ * length limit. Falls back to `file` if the result is empty.
  */
 function sanitizeFilename(raw: string): string {
-  // eslint-disable-next-line no-control-regex
-  const stripControls = new RegExp('[\\u0000-\\u001f\\u007f]', 'g');
   const cleaned = raw
-    .replace(stripControls, '')
-    .replace(/[\\/]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^[._]+/, '')
     .slice(0, 200);
   return cleaned.length > 0 ? cleaned : 'file';
 }
