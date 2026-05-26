@@ -525,6 +525,338 @@ export async function finalizeUploadTicket(
   return { kind: 'error', message: errBody.message ?? errBody.error ?? `${res.status}` };
 }
 
+// ---------- Public: multipart upload -------------------------------------
+
+/**
+ * One presigned PUT URL for a single part of a multipart upload. `partNumber`
+ * is 1-based to match the S3 / R2 / MinIO convention; the server signs into
+ * that exact numbering.
+ */
+export interface PartUrl {
+  partNumber: number;
+  url: string;
+}
+
+/**
+ * A successfully-uploaded part's (partNumber, etag) pair as required by the
+ * `CompleteMultipartUpload` call. The server validates the etag matches what
+ * storage actually recorded.
+ */
+export interface PartEtag {
+  partNumber: number;
+  etag: string;
+}
+
+/**
+ * Response payload from the multipart-init endpoints (`POST .../multipart/init`).
+ * Mirrors the wire shape returned by both the public and admin routes.
+ *
+ * `initialUrls` is the first batch the server returns inline (capped at 100);
+ * `paginated` indicates more part URLs must be fetched via
+ * `fetchMultipartPartUrls` / `fetchSendMultipartPartUrls`.
+ */
+export interface MultipartInitResponse {
+  ticketId: string;
+  uploadId: string;
+  partSize: number;
+  expectedParts: number;
+  initialUrls: PartUrl[];
+  paginated: boolean;
+  /** ISO 8601 expiry of the multipart session. */
+  expiresAt: string;
+}
+
+/**
+ * Response payload from the part-URL pagination endpoint
+ * (`GET .../multipart/parts?from=&to=`).
+ */
+export interface MultipartPartUrlsResponse {
+  urls: PartUrl[];
+  /** ISO 8601 expiry of the presigned URLs in this batch. */
+  expiresAt: string;
+}
+
+export type CreateMultipartUploadTicketOutcome =
+  | { kind: 'ok'; value: MultipartInitResponse }
+  | { kind: 'policy_rejected'; reason: PolicyRejection }
+  | { kind: 'not_found' }
+  | { kind: 'error'; message: string };
+
+/**
+ * Fetch-part-URLs outcome. The ticket already passed policy gates at init time,
+ * so no `policy_rejected` branch surfaces here.
+ *
+ * `wrong_state` (409) — session is closed (completed / aborted / expired).
+ * `invalid_range` (400) — `to - from + 1 > 100`, or `from`/`to` non-positive,
+ *                       or `not_multipart`.
+ */
+export type FetchMultipartPartUrlsOutcome =
+  | { kind: 'ok'; value: MultipartPartUrlsResponse }
+  | { kind: 'wrong_state' }
+  | { kind: 'not_found' }
+  | { kind: 'invalid_range' }
+  | { kind: 'error'; message: string };
+
+/**
+ * Mint a multipart upload session for a public receive link. Returns the
+ * ticket id, the storage-side `uploadId`, the agreed part size + part count,
+ * and the first inline batch of presigned PUT-PART URLs.
+ *
+ * On rejection: 404 → `not_found`, 403 with a policy code → `policy_rejected`,
+ * any other error → `error` (the server's `message` is surfaced for the
+ * `invalid_input` cases — `size_too_large`, `invalid_filename`, etc.).
+ */
+export async function createMultipartUploadTicket(
+  code: string,
+  payload: { filename: string; contentType: string; size: number; password?: string | null },
+): Promise<CreateMultipartUploadTicketOutcome> {
+  const res = await fetch(
+    `/api/public/receive-links/${encodeURIComponent(code)}/upload/multipart/init`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (res.ok) {
+    const value = (await res.json()) as MultipartInitResponse;
+    return { kind: 'ok', value };
+  }
+  const body = await readErrorBody(res);
+  if (res.status === 404) return { kind: 'not_found' };
+  const rejection = asPolicyRejection(body.error);
+  if (rejection) return { kind: 'policy_rejected', reason: rejection };
+  return { kind: 'error', message: body.message ?? body.error ?? `${res.status}` };
+}
+
+/**
+ * Fetch a window of presigned PUT-PART URLs for a multipart session. The
+ * server caps `to - from + 1` at 100; the dispatcher in `lib/upload.ts`
+ * matches that via `URL_FETCH_PAGE`.
+ *
+ * `password` re-validates the receive-link policy on every page fetch (in
+ * case the link's password was rotated mid-upload). Passed via query string
+ * to keep the GET cacheable-shape — same trust model as the ticket id.
+ */
+export async function fetchMultipartPartUrls(
+  ticketId: string,
+  from: number,
+  to: number,
+  password?: string | null,
+): Promise<FetchMultipartPartUrlsOutcome> {
+  const params = new URLSearchParams();
+  params.set('from', String(from));
+  params.set('to', String(to));
+  if (password !== undefined && password !== null && password.length > 0) {
+    params.set('password', password);
+  }
+  const res = await fetch(
+    `/api/public/upload-tickets/${encodeURIComponent(ticketId)}/upload/multipart/parts?${params.toString()}`,
+  );
+  if (res.ok) {
+    const value = (await res.json()) as MultipartPartUrlsResponse;
+    return { kind: 'ok', value };
+  }
+  const body = await readErrorBody(res);
+  if (res.status === 404) return { kind: 'not_found' };
+  if (res.status === 409 || body.error === 'wrong_state') return { kind: 'wrong_state' };
+  if (body.error === 'invalid_range' || body.error === 'not_multipart') {
+    return { kind: 'invalid_range' };
+  }
+  return { kind: 'error', message: body.message ?? body.error ?? `${res.status}` };
+}
+
+/**
+ * Finalize a multipart upload by submitting the completed parts manifest.
+ * Reuses the single-PUT `FinalizeOutcome` shape so call sites have one branch
+ * for both protocols.
+ *
+ * Server response mapping:
+ *  - 200 `{ status: 'completed' }`     → `{ kind: 'ok', value: { status: 'completed' } }`
+ *  - 200 `{ status: 'failed', reason }`→ `{ kind: 'ok', value: { status: 'failed', reason } }`
+ *  - 409 `{ error: 'wrong_state' }`    → `{ kind: 'error', message: 'wrong_state' }`
+ *  - 404 `{ error: 'not_found' }`      → `{ kind: 'not_found' }`
+ *  - 403 `{ error: '<policy>' }`       → `{ kind: 'policy_rejected', reason }`
+ */
+export async function completeMultipartUploadTicket(
+  ticketId: string,
+  payload: { parts: PartEtag[]; password?: string | null },
+): Promise<FinalizeOutcome> {
+  const body: Record<string, unknown> = { parts: payload.parts };
+  if (
+    payload.password !== undefined &&
+    payload.password !== null &&
+    payload.password.length > 0
+  ) {
+    body.password = payload.password;
+  }
+  const res = await fetch(
+    `/api/public/upload-tickets/${encodeURIComponent(ticketId)}/upload/multipart/complete`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  if (res.ok) {
+    const value = (await res.json()) as FinalizeResponse;
+    return { kind: 'ok', value };
+  }
+  const errBody = await readErrorBody(res);
+  if (res.status === 404) return { kind: 'not_found' };
+  if (res.status === 409 || errBody.error === 'wrong_state') {
+    return { kind: 'error', message: 'wrong_state' };
+  }
+  const rejection = asPolicyRejection(errBody.error);
+  if (rejection) return { kind: 'policy_rejected', reason: rejection };
+  return { kind: 'error', message: errBody.message ?? errBody.error ?? `${res.status}` };
+}
+
+/**
+ * Fire-and-forget abort of a multipart session. Same `keepalive: true`
+ * pattern as `confirmDownloadTicket`: callers invoke on cancel / unload and
+ * never `await` the result on the critical path. Errors are swallowed — the
+ * server-side TTL sweep is the durable safety net for any orphan session.
+ */
+export async function abortMultipartUploadTicket(
+  ticketId: string,
+  password?: string | null,
+): Promise<void> {
+  const body: Record<string, unknown> = {};
+  if (password !== undefined && password !== null && password.length > 0) {
+    body.password = password;
+  }
+  try {
+    await fetch(
+      `/api/public/upload-tickets/${encodeURIComponent(ticketId)}/upload/multipart/abort`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        keepalive: true,
+      },
+    );
+  } catch {
+    // Swallow — the sweep cleans up any orphan session.
+  }
+}
+
+// ---------- Admin: multipart upload (send-link variants) -----------------
+
+/**
+ * Admin variant of `createMultipartUploadTicket`, bound to a send-link.
+ * No password (admin auth IS the policy gate). The only policy rejection
+ * that can fire is `disabled` (admin-bypass elides the rest); kept as a
+ * narrow union to mirror the single-PUT `addFileToSendLink` shape.
+ */
+export async function createSendMultipartUploadTicket(
+  linkId: string,
+  payload: { filename: string; contentType: string; size: number },
+): Promise<
+  | { kind: 'ok'; value: MultipartInitResponse }
+  | { kind: 'error'; message: string }
+  | { kind: 'not_found' }
+  | { kind: 'policy_rejected'; reason: 'disabled' }
+> {
+  const res = await fetch(
+    `/api/send-links/${encodeURIComponent(linkId)}/files/multipart/init`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+      credentials: 'include',
+    },
+  );
+  if (res.ok) {
+    const value = (await res.json()) as MultipartInitResponse;
+    return { kind: 'ok', value };
+  }
+  const body = await readErrorBody(res);
+  if (res.status === 404) return { kind: 'not_found' };
+  if (body.error === 'disabled') return { kind: 'policy_rejected', reason: 'disabled' };
+  return { kind: 'error', message: body.message ?? body.error ?? `${res.status}` };
+}
+
+/** Admin variant of `fetchMultipartPartUrls`. No password; admin auth covers it. */
+export async function fetchSendMultipartPartUrls(
+  linkId: string,
+  ticketId: string,
+  from: number,
+  to: number,
+): Promise<FetchMultipartPartUrlsOutcome> {
+  const params = new URLSearchParams();
+  params.set('from', String(from));
+  params.set('to', String(to));
+  const res = await fetch(
+    `/api/send-links/${encodeURIComponent(linkId)}/files/multipart/${encodeURIComponent(ticketId)}/parts?${params.toString()}`,
+    { credentials: 'include' },
+  );
+  if (res.ok) {
+    const value = (await res.json()) as MultipartPartUrlsResponse;
+    return { kind: 'ok', value };
+  }
+  const body = await readErrorBody(res);
+  if (res.status === 404) return { kind: 'not_found' };
+  if (res.status === 409 || body.error === 'wrong_state') return { kind: 'wrong_state' };
+  if (body.error === 'invalid_range' || body.error === 'not_multipart') {
+    return { kind: 'invalid_range' };
+  }
+  return { kind: 'error', message: body.message ?? body.error ?? `${res.status}` };
+}
+
+/** Admin variant of `completeMultipartUploadTicket`. */
+export async function completeSendMultipartUploadTicket(
+  linkId: string,
+  ticketId: string,
+  payload: { parts: PartEtag[] },
+): Promise<FinalizeOutcome> {
+  const res = await fetch(
+    `/api/send-links/${encodeURIComponent(linkId)}/files/multipart/${encodeURIComponent(ticketId)}/complete`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ parts: payload.parts }),
+      credentials: 'include',
+    },
+  );
+  if (res.ok) {
+    const value = (await res.json()) as FinalizeResponse;
+    return { kind: 'ok', value };
+  }
+  const errBody = await readErrorBody(res);
+  if (res.status === 404) return { kind: 'not_found' };
+  if (res.status === 409 || errBody.error === 'wrong_state') {
+    return { kind: 'error', message: 'wrong_state' };
+  }
+  const rejection = asPolicyRejection(errBody.error);
+  if (rejection) return { kind: 'policy_rejected', reason: rejection };
+  return { kind: 'error', message: errBody.message ?? errBody.error ?? `${res.status}` };
+}
+
+/**
+ * Admin variant of `abortMultipartUploadTicket`. Fire-and-forget with
+ * `keepalive: true` and `credentials: 'include'`.
+ */
+export async function abortSendMultipartUploadTicket(
+  linkId: string,
+  ticketId: string,
+): Promise<void> {
+  try {
+    await fetch(
+      `/api/send-links/${encodeURIComponent(linkId)}/files/multipart/${encodeURIComponent(ticketId)}/abort`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+        credentials: 'include',
+        keepalive: true,
+      },
+    );
+  } catch {
+    // Swallow — the sweep cleans up any orphan session.
+  }
+}
+
 // ---------- Public: send links -------------------------------------------
 
 export async function getPublicSendLink(code: string): Promise<PublicSendLink> {
