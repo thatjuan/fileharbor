@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
 import { AdminShell } from './components/AdminShell.js';
+import { LocaleProvider } from './i18n/index.js';
 import { DashboardPage } from './pages/DashboardPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { NewReceiveLinkPage } from './pages/NewReceiveLinkPage.js';
@@ -68,9 +69,26 @@ export function App(): JSX.Element {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Public routes — always available regardless of admin setup state. */}
-        <Route path="/r/:code" element={<PublicReceivePage />} />
-        <Route path="/s/:code" element={<PublicSendPage />} />
+        {/* Public routes — always available regardless of admin setup state.
+            Wrapped in <LocaleProvider> so visitor-facing copy adapts to the
+            browser/visitor locale. Admin routes intentionally stay outside
+            the provider; they remain English-only. */}
+        <Route
+          path="/r/:code"
+          element={
+            <LocaleProvider>
+              <PublicReceivePage />
+            </LocaleProvider>
+          }
+        />
+        <Route
+          path="/s/:code"
+          element={
+            <LocaleProvider>
+              <PublicSendPage />
+            </LocaleProvider>
+          }
+        />
 
         {setup.status === 'needs-setup' ? (
           <>
