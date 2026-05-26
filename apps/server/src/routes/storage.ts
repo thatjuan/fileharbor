@@ -1,8 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream, promises as fs } from 'node:fs';
 import { dirname } from 'node:path';
-import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
+import { Readable } from 'node:stream';
 import { Hono } from 'hono';
 
 import type { LocalStorageConfig } from '../config.js';
@@ -75,35 +74,42 @@ export function createLocalStorageRoute(config: LocalStorageConfig): Hono {
     let bytesReceived = 0;
     let overrun = false;
 
-    const counter = new Transform({
-      transform(chunk: Buffer, _enc, cb) {
-        bytesReceived += chunk.length;
-        // Disk-fill DoS guard: if the request body exceeds the signed length,
-        // cancel the stream, unlink the temp file, and respond 400. The
-        // server NEVER trusts a client to honour the length it signed —
-        // counting bytes is the actual enforcement.
-        if (signedCl !== undefined && bytesReceived > signedCl) {
-          overrun = true;
-          cb(new Error('length_overrun'));
-          return;
-        }
-        hash.update(chunk);
-        cb(null, chunk);
-      },
-    });
-
     let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
     try {
       handle = await fs.open(tmpPath, 'w');
-      const writeStream = handle.createWriteStream({ autoClose: false });
-      // `Readable.fromWeb` converts the Web ReadableStream that Hono's Node
-      // adapter exposes via `c.req.raw.body` into a Node Readable so we can
-      // run it through `pipeline()` for backpressure + error propagation.
-      // The cast goes through `unknown` because the TS lib types for
-      // `Readable.fromWeb` and the global `ReadableStream` come from
-      // different upstreams.
-      const nodeBody = Readable.fromWeb(body as unknown as Parameters<typeof Readable.fromWeb>[0]);
-      await pipeline(nodeBody, counter, writeStream);
+
+      // Iterate the Web ReadableStream Hono exposes via `c.req.raw.body`. It
+      // is async-iterable in Node 18+ and yields `Uint8Array` chunks. We
+      // write each chunk directly through the FileHandle (`handle.write`)
+      // instead of going through a Node WriteStream — wrapping a FileHandle
+      // in a WriteStream creates an ownership tangle that empirically can
+      // deadlock the subsequent `handle.close()`.
+      //
+      // We do not use `Readable.fromWeb` + `pipeline()` either: the
+      // @hono/node-server adapter does not reliably surface the EOF of the
+      // wrapped IncomingMessage to `Readable.fromWeb`, which can leave the
+      // pipeline waiting on an end event that never arrives.
+      const reader = body as unknown as AsyncIterable<Uint8Array>;
+      for await (const chunk of reader) {
+        const len = chunk.byteLength;
+        bytesReceived += len;
+        // Disk-fill DoS guard: cancel as soon as the body exceeds what was
+        // signed. The server NEVER trusts a client to honour its declared
+        // length — counting bytes is the enforcement.
+        if (signedCl !== undefined && bytesReceived > signedCl) {
+          overrun = true;
+          break;
+        }
+        hash.update(chunk);
+        await handle.write(chunk);
+      }
+
+      if (overrun) {
+        await handle.close();
+        handle = null;
+        await fs.unlink(tmpPath).catch(() => {});
+        return c.json({ error: 'length_overrun' }, 400);
+      }
 
       // fsync the data before rename — a crash between rename and fsync
       // could otherwise leave a zero-length file at the final path on
@@ -144,7 +150,6 @@ export function createLocalStorageRoute(config: LocalStorageConfig): Hono {
         await handle.close().catch(() => {});
       }
       await fs.unlink(tmpPath).catch(() => {});
-      if (overrun) return c.json({ error: 'length_overrun' }, 400);
       console.error('[storage] PUT failed', { key, err });
       const message = err instanceof Error ? err.message : 'unknown';
       return c.json({ error: 'write_failed', message }, 500);
