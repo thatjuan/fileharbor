@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { SubNav } from '../components/SubNav.js';
 import {
   isUploadReceivedPayload,
   listNotifications,
@@ -15,7 +16,8 @@ import {
  *
  * Read state is managed in two affordances:
  *   - per-row "Mark read" on each unread item
- *   - top-level "Mark all read" bulk button
+ *   - top-level "Mark all read" bulk button (in SubNav actions, only when
+ *     there are unread items — per DESIGN.md affordance density rules).
  *
  * Both call the server and use the response's `unreadCount` to update the
  * local state — no need to recount client-side.
@@ -70,7 +72,9 @@ export function NotificationsPage(): JSX.Element {
     try {
       await markNotificationsRead({ all: true });
       const now = Math.floor(Date.now() / 1000);
-      setItems((prev) => (prev === null ? prev : prev.map((n) => (n.readAt ? n : { ...n, readAt: now }))));
+      setItems((prev) =>
+        prev === null ? prev : prev.map((n) => (n.readAt ? n : { ...n, readAt: now })),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to mark all read.');
     } finally {
@@ -79,36 +83,51 @@ export function NotificationsPage(): JSX.Element {
   };
 
   const unreadCount = items ? items.filter((n) => n.readAt === null).length : 0;
+  const hasUnread = unreadCount > 0;
 
   return (
-    <main className="page wide">
-      <header className="row between">
-        <h1>Notifications</h1>
-        <button type="button" onClick={onMarkAll} disabled={busy || unreadCount === 0}>
-          Mark all read
-        </button>
-      </header>
+    <>
+      <SubNav
+        title="Notifications"
+        actions={
+          hasUnread ? (
+            <button
+              type="button"
+              className="btn-secondary-pill"
+              onClick={onMarkAll}
+              disabled={busy}
+            >
+              Mark all read
+            </button>
+          ) : undefined
+        }
+      />
+      <section className="container-narrow stack">
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
 
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+        {items === null && !error && <p className="muted">Loading…</p>}
 
-      {items === null && !error && <p className="muted">Loading…</p>}
+        {items !== null && items.length === 0 && (
+          <div className="store-card" style={{ alignItems: 'center', textAlign: 'center' }}>
+            <p className="lead-airy">You&apos;re all caught up.</p>
+          </div>
+        )}
 
-      {items !== null && items.length === 0 && (
-        <p className="muted">No notifications yet. Inbound uploads will appear here.</p>
-      )}
-
-      {items !== null && items.length > 0 && (
-        <ul className="list-reset stack">
-          {items.map((n) => (
-            <NotificationItem key={n.id} item={n} onMarkRead={onMarkOne} disabled={busy} />
-          ))}
-        </ul>
-      )}
-    </main>
+        {items !== null && items.length > 0 && (
+          <ul className="list-reset stack">
+            {items.map((n) => (
+              <li key={n.id}>
+                <NotificationItem item={n} onMarkRead={onMarkOne} disabled={busy} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
   );
 }
 
@@ -125,40 +144,52 @@ function NotificationItem({
   // Discriminate on `kind` so future kinds (e.g. `link_expired`) can land
   // here without an exhaustive rewrite — the default arm prints the kind +
   // raw payload as a fallback rather than crashing.
-  let body: JSX.Element;
+  let title: JSX.Element;
+  let body: JSX.Element | null;
   if (item.kind === 'upload_received' && isUploadReceivedPayload(item.payload)) {
     const p = item.payload;
+    title = (
+      <span>
+        Uploaded {p.filename} ({formatSize(p.size)})
+      </span>
+    );
     body = (
       <div>
-        <div>
-          Uploaded <strong>{p.filename}</strong> ({formatSize(p.size)}) to{' '}
-          <Link to={`/links/receive/${p.receiveLinkId}`}>{p.receiveLinkLabel}</Link>
-        </div>
-        <div className="muted small">
-          <a href={`/api/files/${encodeURIComponent(p.fileId)}/download`}>Download file</a>
-        </div>
+        to{' '}
+        <Link to={`/links/receive/${p.receiveLinkId}`} className="text-link">
+          {p.receiveLinkLabel}
+        </Link>
+        {' · '}
+        <a href={`/api/files/${encodeURIComponent(p.fileId)}/download`} className="text-link">
+          Download file
+        </a>
       </div>
     );
   } else {
-    body = (
-      <div>
-        <div>{item.kind}</div>
-      </div>
-    );
+    title = <span>{item.kind}</span>;
+    body = null;
   }
 
   return (
-    <li className={`card row between${isUnread ? ' unread' : ''}`}>
-      <div className="stack">
-        {body}
-        <div className="muted small">{new Date(item.createdAt * 1000).toLocaleString()}</div>
+    <div className={`store-card${isUnread ? ' unread' : ''}`}>
+      <div className="row between" style={{ alignItems: 'flex-start', gap: 'var(--space-lg)' }}>
+        <div className="stack-tight" style={{ flex: 1, minWidth: 0 }}>
+          <div className={isUnread ? 'body-strong' : undefined}>{title}</div>
+          {body}
+          <div className="small muted">{new Date(item.createdAt * 1000).toLocaleString()}</div>
+        </div>
+        {isUnread && (
+          <button
+            type="button"
+            className="btn-secondary-pill"
+            onClick={() => onMarkRead(item.id)}
+            disabled={disabled}
+          >
+            Mark read
+          </button>
+        )}
       </div>
-      {isUnread && (
-        <button type="button" onClick={() => onMarkRead(item.id)} disabled={disabled}>
-          Mark read
-        </button>
-      )}
-    </li>
+    </div>
   );
 }
 

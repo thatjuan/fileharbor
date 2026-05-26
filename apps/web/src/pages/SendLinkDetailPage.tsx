@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { StatusBadge } from '../components/StatusBadge.js';
+import { SubNav } from '../components/SubNav.js';
 import {
   deleteSendLink,
   getSendLink,
@@ -95,118 +96,141 @@ export function SendLinkDetailPage(): JSX.Element {
     }
   };
 
+  const title = data ? data.link.label : 'Send link';
+  const remainingDownloads =
+    data && data.link.maxDownloads !== null
+      ? Math.max(0, data.link.maxDownloads - data.link.downloadCount)
+      : null;
+
   return (
-    <main className="page wide">
-      <header className="row between">
-        <h1>Send link</h1>
-        <Link to="/">Back</Link>
-      </header>
+    <>
+      <SubNav
+        title={title}
+        actions={
+          <Link to="/" className="text-link">
+            Back to dashboard
+          </Link>
+        }
+      />
+      <div className="container-narrow stack-airy">
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
 
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
+        {!data && !error && <p className="muted">Loading…</p>}
 
-      {!data && !error && <p className="muted">Loading…</p>}
+        {data && (
+          <>
+            <section className="stack-airy">
+              <h1>{data.link.label}</h1>
 
-      {data && (
-        <>
-          <section className="stack">
-            <div>
-              <div className="muted small">Label</div>
-              <div>
-                <strong>{data.link.label}</strong>
-              </div>
-            </div>
-            <div>
-              <div className="muted small">Shareable URL</div>
               <div className="row">
-                <input
-                  type="text"
-                  readOnly
-                  value={shareableUrl}
-                  onFocus={(e) => e.currentTarget.select()}
-                  style={{ flex: 1 }}
-                />
-                <button type="button" onClick={onCopy}>
-                  {copied ? 'Copied' : 'Copy'}
+                <code>{shareableUrl}</code>
+                <button
+                  type="button"
+                  className="btn-icon-circular"
+                  aria-label={copied ? 'Copied' : 'Copy URL'}
+                  onClick={() => void onCopy()}
+                >
+                  <CopyIcon />
                 </button>
               </div>
-            </div>
-            <div>
-              <div className="muted small">Status</div>
+
               <div className="row">
                 <StatusBadge status={data.link.displayStatus} />
+                <span className="small muted">
+                  {data.link.maxDownloads !== null
+                    ? `${data.link.downloadCount} of ${data.link.maxDownloads} downloads used${
+                        remainingDownloads !== null ? ` · ${remainingDownloads} remaining` : ''
+                      }`
+                    : `${data.link.downloadCount} downloads · unlimited`}
+                </span>
+                <span className="small muted">
+                  {data.link.passwordProtected ? 'Password protected' : 'No password'}
+                </span>
+                <span className="small">Expires {formatExpiry(data.link.expiresAt)}</span>
               </div>
-            </div>
-            <div>
-              <div className="muted small">Password</div>
-              <div>{data.link.passwordProtected ? 'Protected' : 'None'}</div>
-            </div>
-            <div>
-              <div className="muted small">Downloads</div>
-              <div>
-                {data.link.downloadCount}
-                {data.link.maxDownloads !== null
-                  ? ` used / ${data.link.maxDownloads} max`
-                  : ' (unlimited)'}
+
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn-secondary-pill"
+                  onClick={() => void onToggleStatus()}
+                  disabled={busy}
+                >
+                  {data.link.status === 'active' ? 'Disable' : 'Re-enable'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary-pill"
+                  onClick={() => void onDeleteLink()}
+                  disabled={busy}
+                >
+                  Revoke
+                </button>
               </div>
-            </div>
-            <div>
-              <div className="muted small">Expires</div>
-              <div>{formatExpiry(data.link.expiresAt)}</div>
-            </div>
 
-            <div className="row">
-              <button type="button" onClick={onToggleStatus} disabled={busy}>
-                {data.link.status === 'active' ? 'Disable link' : 'Re-enable link'}
-              </button>
-              <button
-                type="button"
-                onClick={onDeleteLink}
-                disabled={busy}
-                className="button-danger"
-              >
-                Delete link
-              </button>
-            </div>
-            {actionError && (
-              <p role="alert" className="error">
-                {actionError}
-              </p>
-            )}
-          </section>
+              {actionError && (
+                <p role="alert" className="error">
+                  {actionError}
+                </p>
+              )}
+            </section>
 
-          <section className="stack">
-            <h2>Files</h2>
-            {data.files.length === 0 && (
-              // The link is created the moment the admin POSTs `/api/send-links`,
-              // but the file row only appears after the finalize call returns.
-              // If the user navigates here mid-upload (or the upload failed),
-              // they'll see this — and the Delete-link button above is the
-              // recovery path.
-              <p className="muted">No files yet. The upload may still be finalizing.</p>
-            )}
-            {data.files.length > 0 && (
-              <ul className="list-reset stack">
-                {data.files.map((file) => (
-                  <li key={file.id} className="card">
-                    <div>
-                      <strong>{file.filename}</strong>
-                    </div>
-                    <div className="muted small">
-                      {formatBytes(file.size)} · {file.contentType} ·{' '}
-                      {new Date(file.createdAt * 1000).toLocaleString()}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </>
-      )}
-    </main>
+            <section className="stack">
+              <h2>Files</h2>
+              {data.files.length === 0 && (
+                // The link is created the moment the admin POSTs `/api/send-links`,
+                // but the file row only appears after the finalize call returns.
+                // If the user navigates here mid-upload (or the upload failed),
+                // they'll see this — and Revoke above is the recovery path.
+                <p className="muted">No files yet. The upload may still be finalizing.</p>
+              )}
+              {data.files.length > 0 && (
+                <ul className="list-reset stack">
+                  {data.files.map((file) => (
+                    <li key={file.id} className="store-card-row">
+                      <div className="stack-tight">
+                        <span className="body-strong">{file.filename}</span>
+                        <span className="muted small">
+                          {file.contentType} · {formatBytes(file.size)}
+                        </span>
+                        <span className="small">
+                          Added {new Date(file.createdAt * 1000).toLocaleString()}
+                        </span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+function CopyIcon(): JSX.Element {
+  // 18×18 outline copy glyph; inherits `currentColor` from the parent
+  // `.btn-icon-circular` (ink in light mode, white in dark via tokens).
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+    </svg>
   );
 }
 
@@ -222,7 +246,7 @@ function formatBytes(bytes: number): string {
  * and an "expired" suffix when the timestamp is in the past.
  */
 function formatExpiry(epochSeconds: number | null): string {
-  if (epochSeconds === null) return 'Never';
+  if (epochSeconds === null) return 'never';
   const date = new Date(epochSeconds * 1000);
   const tz =
     Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
