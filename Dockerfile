@@ -41,7 +41,7 @@ ENV NODE_ENV=production \
     DATA_DIR=/data \
     WEB_DIST_DIR=/app/web
 
-ARG CFTUNN_VERSION=v0.4.0
+ARG CFTUNN_VERSION=v0.5.0
 ARG TARGETARCH
 
 # Install runtime tunnel tooling in a single layer:
