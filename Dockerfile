@@ -10,13 +10,11 @@ WORKDIR /app
 # C toolchain is required at install time. If a future native dep needs one,
 # add `python3 make g++` here.
 
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY apps/server/package.json apps/server/package.json
 COPY apps/web/package.json apps/web/package.json
 
-# `npm install` (not `ci`) is intentional pre-lockfile-commit. Once a
-# `package-lock.json` is committed, switch to `npm ci` for reproducible builds.
-RUN --mount=type=cache,target=/root/.npm npm install --workspaces --include-workspace-root
+RUN --mount=type=cache,target=/root/.npm npm ci --workspaces --include-workspace-root
 
 # ---------------------------------------------------------------------------
 # Stage 2: build the frontend (Vite) and the server (tsc).
@@ -79,11 +77,12 @@ RUN set -eux; \
 # Better-sqlite3 ships a prebuilt binary for node 22 on common platforms, so
 # the runtime image doesn't need a compiler.
 
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY apps/server/package.json apps/server/package.json
+COPY apps/web/package.json apps/web/package.json
 
 RUN --mount=type=cache,target=/root/.npm \
-    npm install --omit=dev --workspace @fileharbor/server --include-workspace-root
+    npm ci --omit=dev --workspace @fileharbor/server --include-workspace-root
 
 # Built server output, drizzle migrations metadata, and the built frontend.
 COPY --from=build /app/apps/server/dist ./dist

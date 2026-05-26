@@ -25,8 +25,42 @@ export interface AppConfig {
   storage: StorageConfig;
   /** Ticket-cleanup background sweep (issue #10). */
   ticketSweep: TicketSweepConfig;
+  /** HTTP boundary hardening: rate limits, proxy trust, and response headers. */
+  security: SecurityConfig;
   /** Cloudflare Tunnel publication settings (issue #33). */
   tunnel: TunnelConfig;
+}
+
+export interface WindowLimitConfig {
+  max: number;
+  windowSeconds: number;
+}
+
+export interface RateLimitConfig {
+  enabled: boolean;
+  maxTrackedKeys: number;
+  auth: WindowLimitConfig;
+  setup: WindowLimitConfig;
+  publicLink: WindowLimitConfig;
+  publicTicket: WindowLimitConfig;
+  publicPartUrls: WindowLimitConfig;
+  publicConfirm: WindowLimitConfig;
+}
+
+export interface SecurityHeadersConfig {
+  enabled: boolean;
+  hstsEnabled: boolean;
+  hstsMaxAgeSeconds: number;
+  hstsIncludeSubDomains: boolean;
+  hstsPreload: boolean;
+  cspExtraConnectSrc: string[];
+}
+
+export interface SecurityConfig {
+  /** Whether to trust forwarded client-IP headers. Keep false unless behind a trusted proxy. */
+  trustProxyHeaders: boolean;
+  rateLimit: RateLimitConfig;
+  headers: SecurityHeadersConfig;
 }
 
 /**
@@ -327,17 +361,12 @@ function parsePresignTtl(raw: string | undefined, varName: string): number {
     presignTtlSeconds <= 0 ||
     presignTtlSeconds > 7 * 24 * 3600
   ) {
-    throw new Error(
-      `${varName} must be a positive integer <= 604800 (7 days). Got: ${raw}`,
-    );
+    throw new Error(`${varName} must be a positive integer <= 604800 (7 days). Got: ${raw}`);
   }
   return presignTtlSeconds;
 }
 
-function resolveSigningSecret(
-  raw: string | undefined,
-  nodeEnv: AppConfig['nodeEnv'],
-): string {
+function resolveSigningSecret(raw: string | undefined, nodeEnv: AppConfig['nodeEnv']): string {
   if (raw && raw.trim().length > 0) return raw.trim();
   if (nodeEnv === 'production') {
     throw new Error(
@@ -435,6 +464,7 @@ export function loadConfig(env: Env = process.env as Env): AppConfig {
 
   const storage = resolveStorageConfig(env, nodeEnv, dataDir);
   const ticketSweep = resolveTicketSweepConfig(env);
+  const security = resolveSecurityConfig(env, nodeEnv, baseUrl);
 
   return Object.freeze({
     port,
@@ -445,6 +475,7 @@ export function loadConfig(env: Env = process.env as Env): AppConfig {
     auth,
     storage,
     ticketSweep,
+    security,
     tunnel,
   });
 }
@@ -464,9 +495,7 @@ function parsePositiveIntSeconds(
   if (raw === undefined || raw === '') return fallback;
   const n = Number.parseInt(raw, 10);
   if (!Number.isInteger(n) || n <= 0 || n > max) {
-    throw new Error(
-      `${varName} must be a positive integer <= ${max}. Got: ${raw}`,
-    );
+    throw new Error(`${varName} must be a positive integer <= ${max}. Got: ${raw}`);
   }
   return n;
 }
@@ -593,4 +622,102 @@ function resolveTicketSweepConfig(env: Env): TicketSweepConfig {
   );
 
   return { intervalSeconds, pendingGraceSeconds, retentionSeconds };
+}
+
+function parseLimit(
+  env: Env,
+  maxVar: string,
+  windowVar: string,
+  fallbackMax: number,
+  fallbackWindowSeconds: number,
+): WindowLimitConfig {
+  return {
+    max: parsePositiveIntSeconds(env[maxVar], fallbackMax, maxVar, 1_000_000),
+    windowSeconds: parsePositiveIntSeconds(
+      env[windowVar],
+      fallbackWindowSeconds,
+      windowVar,
+      365 * 24 * 3600,
+    ),
+  };
+}
+
+function parseSourceList(raw: string | undefined): string[] {
+  if (!raw || raw.trim().length === 0) return [];
+  return raw
+    .split(/[,\s]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+function resolveSecurityConfig(
+  env: Env,
+  nodeEnv: AppConfig['nodeEnv'],
+  baseUrl: string,
+): SecurityConfig {
+  let baseUrlIsHttps = false;
+  try {
+    baseUrlIsHttps = new URL(baseUrl).protocol === 'https:';
+  } catch {
+    baseUrlIsHttps = false;
+  }
+
+  const headersEnabled = parseBool(env.SECURITY_HEADERS_ENABLED, nodeEnv === 'production');
+  const hstsDefault = nodeEnv === 'production' && baseUrlIsHttps;
+
+  return {
+    trustProxyHeaders: parseBool(env.SECURITY_TRUST_PROXY_HEADERS, false),
+    rateLimit: {
+      enabled: parseBool(env.RATE_LIMIT_ENABLED, true),
+      maxTrackedKeys: parsePositiveIntSeconds(
+        env.RATE_LIMIT_MAX_TRACKED_KEYS,
+        20_000,
+        'RATE_LIMIT_MAX_TRACKED_KEYS',
+        1_000_000,
+      ),
+      auth: parseLimit(env, 'RATE_LIMIT_AUTH_MAX', 'RATE_LIMIT_AUTH_WINDOW_SECONDS', 10, 300),
+      setup: parseLimit(env, 'RATE_LIMIT_SETUP_MAX', 'RATE_LIMIT_SETUP_WINDOW_SECONDS', 5, 900),
+      publicLink: parseLimit(
+        env,
+        'RATE_LIMIT_PUBLIC_LINK_MAX',
+        'RATE_LIMIT_PUBLIC_LINK_WINDOW_SECONDS',
+        8,
+        300,
+      ),
+      publicTicket: parseLimit(
+        env,
+        'RATE_LIMIT_PUBLIC_TICKET_MAX',
+        'RATE_LIMIT_PUBLIC_TICKET_WINDOW_SECONDS',
+        60,
+        60,
+      ),
+      publicPartUrls: parseLimit(
+        env,
+        'RATE_LIMIT_PUBLIC_PART_URL_MAX',
+        'RATE_LIMIT_PUBLIC_PART_URL_WINDOW_SECONDS',
+        120,
+        60,
+      ),
+      publicConfirm: parseLimit(
+        env,
+        'RATE_LIMIT_PUBLIC_CONFIRM_MAX',
+        'RATE_LIMIT_PUBLIC_CONFIRM_WINDOW_SECONDS',
+        120,
+        60,
+      ),
+    },
+    headers: {
+      enabled: headersEnabled,
+      hstsEnabled: parseBool(env.SECURITY_HSTS_ENABLED, hstsDefault),
+      hstsMaxAgeSeconds: parsePositiveIntSeconds(
+        env.SECURITY_HSTS_MAX_AGE_SECONDS,
+        15552000,
+        'SECURITY_HSTS_MAX_AGE_SECONDS',
+        2 * 365 * 24 * 3600,
+      ),
+      hstsIncludeSubDomains: parseBool(env.SECURITY_HSTS_INCLUDE_SUBDOMAINS, false),
+      hstsPreload: parseBool(env.SECURITY_HSTS_PRELOAD, false),
+      cspExtraConnectSrc: parseSourceList(env.SECURITY_CSP_EXTRA_CONNECT_SRC),
+    },
+  };
 }

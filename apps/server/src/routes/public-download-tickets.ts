@@ -1,5 +1,8 @@
 import { Hono } from 'hono';
 
+import type { SecurityConfig } from '../config.js';
+import { clientIpFor } from '../security/client-ip.js';
+import { enforceRateLimit, type FixedWindowRateLimiter } from '../security/rate-limit.js';
 import type { DownloadTicketsModule } from '../tickets/download-tickets.js';
 
 interface ConfirmBody {
@@ -32,11 +35,19 @@ interface ConfirmBody {
  */
 export function createPublicDownloadTicketsRoute(
   downloadTicketsModule: DownloadTicketsModule,
+  security: SecurityConfig,
+  limiter: FixedWindowRateLimiter,
 ): Hono {
   const route = new Hono();
 
   route.post('/:ticketId/confirm', async (c) => {
     const ticketId = c.req.param('ticketId');
+    const ip = clientIpFor(c, security);
+    const limited = enforceRateLimit(c, security, limiter, [
+      { key: `public-confirm:${ip}`, limit: security.rateLimit.publicConfirm },
+      { key: `public-confirm:${ip}:${ticketId}`, limit: security.rateLimit.publicConfirm },
+    ]);
+    if (limited) return limited;
 
     // Accept an empty body — many clients will send `Content-Length: 0` with
     // no JSON. Only `outcome === 'failed'` changes behaviour; everything else
