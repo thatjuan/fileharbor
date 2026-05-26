@@ -43,6 +43,13 @@
       "when": 1779748505477,
       "tag": "0005_rare_jimmy_woo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1779808750742,
+      "tag": "0006_pretty_black_tom",
+      "breakpoints": true
     }
   ]
 }

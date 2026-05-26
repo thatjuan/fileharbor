@@ -13,7 +13,7 @@
 
 Self-hosted file send/receive service — one container, one volume, no external bucket required.
 
-[Overview](#overview) • [Quick start](#quick-start) • [Storage backends](#storage-backends) • [Cloudflare Tunnel](#cloudflare-tunnel) • [Configuration](#configuration) • [Troubleshooting](#troubleshooting) • [Local development](#local-development)
+[Overview](#overview) • [Quick start](#quick-start) • [Storage backends](#storage-backends) • [Cloudflare Tunnel](#cloudflare-tunnel) • [Large file uploads](#large-file-uploads) • [Configuration](#configuration) • [Troubleshooting](#troubleshooting) • [Local development](#local-development)
 
 </div>
 
@@ -337,6 +337,7 @@ docker run -d \
 - **No silent fallback.** If `cftunn` fails to start (bad token, missing zone, wrong scopes), the container exits non-zero so Docker's restart policy can act and the operator sees the failure. File Harbor never falls back to running without a tunnel when one was requested.
 - **Clean shutdown.** On `SIGTERM` (e.g. `docker stop`) the entrypoint stops both the Node server and `cftunn`. No orphan `cloudflared` processes are left behind.
 - **Image size.** Bundling `cloudflared` plus `cftunn` adds roughly ~50 MB to the runtime image (approximate; the exact delta is recorded in the PR description for this change).
+- **100 MB Free-plan body cap is lifted for large uploads.** Cloudflare's Free plan rejects request bodies above 100 MB. File Harbor's multipart upload protocol splits files larger than `STORAGE_MULTIPART_THRESHOLD_BYTES` (default 100 MiB) into 16 MiB parts, each below the cap. With default settings no operator action is required — 2 GiB+ uploads work over a Free-plan tunnel. See [Large file uploads](#large-file-uploads).
 
 > [!IMPORTANT]
 > The tunnel mode is opt-in. If both Cloudflare vars are unset, the container behaves exactly as before — publish File Harbor on a host port with `-p 3000:3000` and front it with whatever reverse proxy you prefer.
@@ -357,6 +358,47 @@ If a CNAME (or A record) for `CLOUDFLARE_TUNNEL_DOMAIN` already exists and point
 #### Quick tunnels (`*.trycloudflare.com`) are not supported
 
 Quick tunnels are anonymous tunnels that don't require an API token. `cftunn` only manages named tunnels backed by a real zone, so a `trycloudflare.com` hostname is not a valid `CLOUDFLARE_TUNNEL_DOMAIN`. Use a hostname inside a zone you own.
+
+## Large file uploads
+
+Files above a configurable threshold are uploaded with a chunked multipart protocol instead of a single `PUT`. Parts go up in parallel with per-part retry, progress aggregates monotonically across all in-flight parts, and the user can cancel mid-upload. Both storage backends (`local` and `s3`) implement the same protocol; the frontend dispatches on file size automatically.
+
+| Variable                            | Required | Default                                | Purpose                                                                                              |
+| ----------------------------------- | -------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `STORAGE_MULTIPART_THRESHOLD_BYTES` | no       | `104857600` (100 MiB)                  | Files at or below this stay on the single-`PUT` path; files above use the multipart protocol.        |
+| `STORAGE_MULTIPART_PART_SIZE_BYTES` | no       | `16777216` (16 MiB)                    | Server-chosen part size. Auto-bumped for very large objects (see below). Min 5 MiB, max 5 GiB.       |
+| `STORAGE_MULTIPART_TTL_SECONDS`     | no       | `7200` (2 h)                           | Maximum time an in-flight multipart session may sit pending before the sweep aborts it. Min 60.      |
+| `STORAGE_MAX_OBJECT_SIZE_BYTES`     | no       | local: `53687091200` (50 GiB); S3: `5497558138880` (5 TiB) | Hard ceiling on any single file (single-PUT or multipart). Init is rejected above this.              |
+
+### Behaviour
+
+- **Threshold dispatch.** A 50 MiB file uses a single presigned `PUT` (unchanged from v1). A 500 MiB file is split into ~32 parts of 16 MiB and uploaded in parallel.
+- **Auto-bumped part size.** S3's 10 000-part cap forces a minimum part size for very large objects. The server computes `partSize = max(STORAGE_MULTIPART_PART_SIZE_BYTES, ceil(totalSize / 10000))` per upload, so a 5 TiB file with the default 16 MiB part size silently bumps to ~512 MiB parts. Boot validation guarantees this stays in bounds for the configured ceiling.
+- **Per-part retry.** Transient network errors and 5xx/408/429 responses are retried up to 3 times with exponential backoff (1s/2s/4s, with jitter). Permanent 4xx responses fail the upload immediately.
+- **User cancel.** The Cancel button on the upload page aborts the session within ~1 s: the frontend stops issuing new part PUTs, sends `POST .../abort`, and the storage backend releases the bytes (S3: `AbortMultipartUpload`; local: `rm -rf` of the parts dir).
+- **Failed-past-retries.** When a part exhausts its retries, the entire upload fails and the session is aborted with the same path as a user cancel.
+- **Sweep-abort of abandoned sessions.** A multipart session that goes silent (browser closed, network lost) is held for `STORAGE_MULTIPART_TTL_SECONDS` and then aborted by the background sweep on its next tick. No orphan sessions accumulate.
+- **Link delete mid-upload.** Deleting the parent receive or send link from the admin dashboard aborts any in-flight multipart sessions for that link immediately, both inline (best-effort) and via a durable `pending_aborts` queue that the sweep drains on failure.
+
+### Cloudflare Tunnel: 100 MB cap is automatic
+
+The Cloudflare Free-plan 100 MB request-body cap is lifted automatically for files above `STORAGE_MULTIPART_THRESHOLD_BYTES`, because each individual part PUT is below the cap. With default settings no operator action is required to push 2 GiB+ files over a Free-plan tunnel.
+
+### S3 operators
+
+> [!IMPORTANT]
+> S3 bucket CORS **must** include `ETag` in the exposed headers. Without it the browser cannot read the per-part `ETag` response header, the multipart `complete` step has no part identities to send, and every multipart upload fails silently. The recipes in [CORS recipes](#cors-recipes-s3-mode-only) already include `ExposeHeaders: ["ETag"]`.
+
+> [!TIP]
+> Belt-and-braces: enable the S3 lifecycle rule **`AbortIncompleteMultipartUpload`** with a 7-day default on your bucket. File Harbor already aborts abandoned sessions via the sweep and link-delete hooks, but the bucket-side rule guarantees no part bytes accumulate even if File Harbor's DB is wiped or rolled back mid-flight. Configure in the AWS console at _S3 → your bucket → Management → Lifecycle rules_, or via `aws s3api put-bucket-lifecycle-configuration`.
+
+### Frontend tuning
+
+| Variable                    | Required | Default | Purpose                                                                                          |
+| --------------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------ |
+| `VITE_MULTIPART_CONCURRENCY` | no       | `4`     | Number of part PUTs the browser issues in parallel. Build-time only — rebuild the web app to change. |
+
+The threshold, part size, TTL, and ceiling are server-side knobs (envs above). The frontend reads them at page load from `/api/config/upload`, so changing them in the operator's `.env` and restarting the container is enough — no rebuild required. The single frontend build-time knob is the parallelism, because it bakes into the chunked-upload worker pool.
 
 ## Configuration
 
@@ -389,23 +431,31 @@ Every config value is env-var-driven. The authoritative list lives in [`apps/ser
 
 ### Storage — local mode (only when `STORAGE_BACKEND=local`)
 
-| Variable                      | Required            | Default                     | Purpose                                                                                                               |
-| ----------------------------- | ------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `LOCAL_OBJECTS_DIR`           | no                  | `${DATA_DIR}/objects`       | Directory holding object bytes. Created if missing; write-and-unlink probe runs at boot.                              |
-| `STORAGE_SIGNING_SECRET`      | yes (in production) | ephemeral per-process (dev) | HMAC secret signing local presigned URLs. Not shared with `BETTER_AUTH_SECRET`. Generate with `openssl rand -hex 32`. |
-| `STORAGE_PRESIGN_TTL_SECONDS` | no                  | `300`                       | TTL for local presigned URLs, in seconds. Max 604800 (7 days). Keep short.                                            |
+| Variable                            | Required            | Default                     | Purpose                                                                                                               |
+| ----------------------------------- | ------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `LOCAL_OBJECTS_DIR`                 | no                  | `${DATA_DIR}/objects`       | Directory holding object bytes. Created if missing; write-and-unlink probe runs at boot.                              |
+| `STORAGE_SIGNING_SECRET`            | yes (in production) | ephemeral per-process (dev) | HMAC secret signing local presigned URLs. Not shared with `BETTER_AUTH_SECRET`. Generate with `openssl rand -hex 32`. |
+| `STORAGE_PRESIGN_TTL_SECONDS`       | no                  | `300`                       | TTL for local presigned URLs, in seconds. Max 604800 (7 days). Keep short.                                            |
+| `STORAGE_MULTIPART_THRESHOLD_BYTES` | no                  | `104857600` (100 MiB)       | Files above this use the multipart protocol; at or below stays single-`PUT`. See [Large file uploads](#large-file-uploads).         |
+| `STORAGE_MULTIPART_PART_SIZE_BYTES` | no                  | `16777216` (16 MiB)         | Server-chosen part size for multipart uploads. Min 5 MiB, max 5 GiB. Auto-bumped for very large files.                |
+| `STORAGE_MULTIPART_TTL_SECONDS`     | no                  | `7200` (2 h)                | Max seconds a multipart session may sit pending before the sweep aborts it. Min 60.                                   |
+| `STORAGE_MAX_OBJECT_SIZE_BYTES`     | no                  | `53687091200` (50 GiB)      | Hard ceiling per object (single-PUT and multipart both). Init is rejected above this.                                 |
 
 ### Storage — S3 mode (only when `STORAGE_BACKEND=s3`)
 
-| Variable                 | Required | Default | Purpose                                                                                                            |
-| ------------------------ | -------- | ------- | ------------------------------------------------------------------------------------------------------------------ |
-| `S3_ENDPOINT`            | yes      | —       | Endpoint URL of the bucket service. Validated as a URL at boot.                                                    |
-| `S3_REGION`              | no       | `auto`  | Required by the AWS SDK; `auto` is fine for R2 / MinIO. Set to your AWS region (e.g. `us-east-1`) for AWS S3.      |
-| `S3_ACCESS_KEY_ID`       | yes      | —       | Access key.                                                                                                        |
-| `S3_SECRET_ACCESS_KEY`   | yes      | —       | Secret key.                                                                                                        |
-| `S3_BUCKET`              | yes      | —       | Bucket name. Must already exist; `HeadBucket` runs at boot and aborts startup on failure.                          |
-| `S3_FORCE_PATH_STYLE`    | no       | `false` | `true` for MinIO and R2 setups that need path-style addressing. AWS S3 supports either; virtual-hosted is default. |
-| `S3_PRESIGN_TTL_SECONDS` | no       | `300`   | TTL for presigned URLs. Max 604800 (7 days, SigV4 ceiling). Keep short — short URL lifetimes limit leak blast.     |
+| Variable                            | Required | Default                | Purpose                                                                                                            |
+| ----------------------------------- | -------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `S3_ENDPOINT`                       | yes      | —                      | Endpoint URL of the bucket service. Validated as a URL at boot.                                                    |
+| `S3_REGION`                         | no       | `auto`                 | Required by the AWS SDK; `auto` is fine for R2 / MinIO. Set to your AWS region (e.g. `us-east-1`) for AWS S3.      |
+| `S3_ACCESS_KEY_ID`                  | yes      | —                      | Access key.                                                                                                        |
+| `S3_SECRET_ACCESS_KEY`              | yes      | —                      | Secret key.                                                                                                        |
+| `S3_BUCKET`                         | yes      | —                      | Bucket name. Must already exist; `HeadBucket` runs at boot and aborts startup on failure.                          |
+| `S3_FORCE_PATH_STYLE`               | no       | `false`                | `true` for MinIO and R2 setups that need path-style addressing. AWS S3 supports either; virtual-hosted is default. |
+| `S3_PRESIGN_TTL_SECONDS`            | no       | `300`                  | TTL for presigned URLs. Max 604800 (7 days, SigV4 ceiling). Keep short — short URL lifetimes limit leak blast.     |
+| `STORAGE_MULTIPART_THRESHOLD_BYTES` | no       | `104857600` (100 MiB)  | Files above this use the multipart protocol; at or below stays single-`PUT`. See [Large file uploads](#large-file-uploads).         |
+| `STORAGE_MULTIPART_PART_SIZE_BYTES` | no       | `16777216` (16 MiB)    | Server-chosen part size for multipart uploads. Min 5 MiB, max 5 GiB. Auto-bumped for very large files.             |
+| `STORAGE_MULTIPART_TTL_SECONDS`     | no       | `7200` (2 h)           | Max seconds a multipart session may sit pending before the sweep aborts it. Min 60.                                |
+| `STORAGE_MAX_OBJECT_SIZE_BYTES`     | no       | `5497558138880` (5 TiB) | Hard ceiling per object (single-PUT and multipart both). Init is rejected above this.                              |
 
 ### Ticket cleanup sweep
 
@@ -460,7 +510,7 @@ There is no separate migration command to run by hand. The migrator records appl
 >
 > - **Multi-user.** One admin only. No teams, no shared management, no roles.
 > - **Public signup.** Disabled at the API level; `/setup` seals after the first user exists.
-> - **Resumable / chunked uploads.** A single presigned `PUT` per file. Multipart is a likely v2.
+> - **Resumable uploads across browser restarts.** Multipart parts upload in parallel with per-part retry within a session, but closing the tab forfeits the in-flight session.
 > - **Multi-host scaling in local mode.** A multi-instance deploy in local mode would need shared storage (NFS/EFS) and shared HMAC secrets; that is a separate, opt-in deployment model. Use S3 mode for multi-host.
 > - **End-to-end encryption.** Files are stored as-is in whichever backend you chose. Encryption-at-rest is your filesystem's job (local mode) or your bucket's job (S3 mode).
 > - **Virus scanning, content moderation, file previews, thumbnails.**
