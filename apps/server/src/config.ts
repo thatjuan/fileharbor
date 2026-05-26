@@ -25,6 +25,21 @@ export interface AppConfig {
   storage: StorageConfig;
   /** Ticket-cleanup background sweep (issue #10). */
   ticketSweep: TicketSweepConfig;
+  /** Cloudflare Tunnel publication settings (issue #33). */
+  tunnel: TunnelConfig;
+}
+
+/**
+ * Cloudflare Tunnel publication settings. When `enabled`, the container also
+ * runs `cftunn` alongside the Node server to publish the service on `domain`
+ * via a named Cloudflare Tunnel. The Node process itself does not consume the
+ * API token — it's read by the `cftunn` subprocess from the same env — so the
+ * token is intentionally absent from this config object.
+ */
+export interface TunnelConfig {
+  enabled: boolean;
+  /** Custom domain, e.g. `files.example.com`. Null when disabled. */
+  domain: string | null;
 }
 
 /**
@@ -306,6 +321,35 @@ function resolveSigningSecret(
   return generated;
 }
 
+/**
+ * Resolve Cloudflare Tunnel settings. Paired-env validation mirrors
+ * `resolveAdminSeed`: both vars unset is the disabled-by-default case, both
+ * set enables the tunnel, exactly one set is an operator error and aborts
+ * boot rather than silently disabling the feature.
+ *
+ * Validation rules:
+ *   - Neither var set → disabled (`enabled: false`, `domain: null`).
+ *   - Exactly one set → throw, naming the missing var.
+ *   - Both set → domain must look like a hostname (one or more labels of
+ *     alphanumerics + internal hyphens, separated by dots). Full validation
+ *     happens downstream in `cftunn` / Cloudflare; this catches obvious typos.
+ */
+function resolveTunnelConfig(env: Env): TunnelConfig {
+  const token = env.CLOUDFLARE_API_TOKEN?.trim();
+  const domain = env.CLOUDFLARE_TUNNEL_DOMAIN?.trim();
+  if (!token && !domain) return { enabled: false, domain: null };
+  if (!token || !domain) {
+    throw new Error(
+      'CLOUDFLARE_API_TOKEN and CLOUDFLARE_TUNNEL_DOMAIN must be set together (or neither). ' +
+        `Missing: ${!token ? 'CLOUDFLARE_API_TOKEN' : 'CLOUDFLARE_TUNNEL_DOMAIN'}.`,
+    );
+  }
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(domain)) {
+    throw new Error(`CLOUDFLARE_TUNNEL_DOMAIN is not a valid hostname: ${domain}`);
+  }
+  return { enabled: true, domain };
+}
+
 function resolveAdminSeed(env: Env): AdminSeed | null {
   const username = env.ADMIN_USERNAME?.trim();
   const password = env.ADMIN_PASSWORD;
@@ -335,9 +379,25 @@ export function loadConfig(env: Env = process.env as Env): AppConfig {
   // In dev we don't serve static assets from disk — Vite handles that.
   const webDistDir = env.WEB_DIST_DIR ? resolve(env.WEB_DIST_DIR) : resolve('./web');
 
+  const tunnel = resolveTunnelConfig(env);
+
+  // baseUrl precedence: explicit env wins, tunnel-derived next, localhost
+  // last. The tunnel-derived case is logged once at boot so an operator who
+  // forgot to set BETTER_AUTH_URL can see what cookie host the server pinned.
+  const explicitBaseUrl = env.BETTER_AUTH_URL?.trim();
+  let baseUrl: string;
+  if (explicitBaseUrl) {
+    baseUrl = explicitBaseUrl;
+  } else if (tunnel.enabled && tunnel.domain) {
+    baseUrl = `https://${tunnel.domain}`;
+    console.log(`[fileharbor] BETTER_AUTH_URL derived from CLOUDFLARE_TUNNEL_DOMAIN: ${baseUrl}`);
+  } else {
+    baseUrl = `http://localhost:${port}`;
+  }
+
   const auth: AuthConfig = {
     secret: resolveAuthSecret(env.BETTER_AUTH_SECRET, nodeEnv),
-    baseUrl: env.BETTER_AUTH_URL?.trim() || `http://localhost:${port}`,
+    baseUrl,
     adminSeed: resolveAdminSeed(env),
   };
 
@@ -353,6 +413,7 @@ export function loadConfig(env: Env = process.env as Env): AppConfig {
     auth,
     storage,
     ticketSweep,
+    tunnel,
   });
 }
 

@@ -41,6 +41,41 @@ ENV NODE_ENV=production \
     DATA_DIR=/data \
     WEB_DIST_DIR=/app/web
 
+ARG CFTUNN_VERSION=v0.4.0
+ARG TARGETARCH
+
+# Install runtime tunnel tooling in a single layer:
+#   - cloudflared (from Cloudflare's apt repo)
+#   - cftunn (release tarball from github.com/thatjuan/cftunn, sha256-verified)
+#   - tini   (PID 1 reaper for the entrypoint)
+# curl and gnupg are purged at the end of the layer to keep the image lean.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl gnupg tini; \
+    mkdir -p /usr/share/keyrings; \
+    curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+        | gpg --dearmor -o /usr/share/keyrings/cloudflare-main.gpg; \
+    echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared bookworm main" \
+        > /etc/apt/sources.list.d/cloudflared.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends cloudflared; \
+    case "${TARGETARCH}" in \
+        amd64) CFTUNN_ARCH=x86_64 ;; \
+        arm64) CFTUNN_ARCH=arm64 ;; \
+        *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    cd /tmp; \
+    curl -fsSL -o "cftunn_Linux_${CFTUNN_ARCH}.tar.gz" \
+        "https://github.com/thatjuan/cftunn/releases/download/${CFTUNN_VERSION}/cftunn_Linux_${CFTUNN_ARCH}.tar.gz"; \
+    curl -fsSL -o checksums.txt \
+        "https://github.com/thatjuan/cftunn/releases/download/${CFTUNN_VERSION}/checksums.txt"; \
+    grep " cftunn_Linux_${CFTUNN_ARCH}.tar.gz\$" checksums.txt | sha256sum -c -; \
+    tar -xzf "cftunn_Linux_${CFTUNN_ARCH}.tar.gz"; \
+    install -o root -g root -m 0755 cftunn /usr/local/bin/cftunn; \
+    rm -f cftunn "cftunn_Linux_${CFTUNN_ARCH}.tar.gz" checksums.txt LICENSE README.md; \
+    apt-get purge -y --auto-remove curl gnupg; \
+    rm -rf /var/lib/apt/lists/*
+
 # Better-sqlite3 ships a prebuilt binary for node 22 on common platforms, so
 # the runtime image doesn't need a compiler.
 
@@ -55,10 +90,13 @@ COPY --from=build /app/apps/server/dist ./dist
 COPY --from=build /app/apps/server/drizzle ./drizzle
 COPY --from=build /app/apps/web/dist ./web
 
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Persist SQLite + future state on a mountable volume.
 RUN mkdir -p /data && chown -R node:node /app /data
 VOLUME ["/data"]
 USER node
 
 EXPOSE 3000
-CMD ["node", "dist/index.js"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
