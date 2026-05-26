@@ -1,0 +1,61 @@
+import type { Catalog } from './en.js';
+
+export const ES_CATALOG: Catalog = {
+  common: {
+    loading: 'Cargando…',
+    cancel: 'Cancelar',
+    tryAgain: 'Volver a intentar',
+  },
+  receive: {
+    title: 'Subir un archivo',
+    invitedTo: 'Se te ha invitado a subir a: {label}',
+    password: 'Contraseña',
+    pickFile: 'Elige un archivo',
+    preparing: 'Preparando subida…',
+    confirming: 'Confirmando con el servidor…',
+    cancelling: 'Cancelando…',
+    cancelled: 'Subida cancelada.',
+    cancelUpload: 'Cancelar subida',
+    uploadComplete: 'Subida completada: {name}',
+    uploadAnother: 'Subir otro archivo',
+    lockedDefault: 'Este enlace ya no acepta subidas.',
+    notAvailable:
+      'Este enlace de subida no está disponible. Puede ser incorrecto, estar deshabilitado o haber expirado.',
+  },
+  send: {
+    title: 'Descargar',
+    sentYou: 'Se te ha enviado: {label}',
+    remaining_one: 'Queda {n} descarga{ofMax}.',
+    remaining_other: 'Quedan {n} descargas{ofMax}.',
+    ofMax: ' (de {max})',
+    unlock: 'Desbloquear',
+    download: 'Descargar',
+    preparing: 'Preparando…',
+    noFilesYet: 'Todavía no hay archivos disponibles. Vuelve a intentarlo en un momento.',
+    notAvailable:
+      'Este enlace de descarga no está disponible. Puede ser incorrecto, estar deshabilitado o haber expirado.',
+    downloadUnavailable: 'Esta descarga ya no está disponible.',
+  },
+  errors: {
+    passwordRequiredReceive: 'Se requiere una contraseña para subir a este enlace.',
+    passwordRequiredSend: 'Se requiere una contraseña para descargar desde este enlace.',
+    passwordWrong: 'Contraseña incorrecta. Vuelve a intentarlo.',
+    quotaExhaustedReceive: 'Este enlace ha alcanzado su límite de subidas y ya no acepta archivos.',
+    quotaExhaustedSend: 'Este enlace ha alcanzado su límite de descargas.',
+    expired: 'Este enlace ha expirado.',
+    disabled: 'Este enlace está deshabilitado.',
+    uploadCancelled: 'Subida cancelada.',
+    uploadFailedGeneric: 'La subida falló.',
+    uploadFailedFinalize: 'La subida falló durante la finalización.',
+    uploadFailedReason: 'Subida fallida: {reason}',
+    uploadRejectedReason: 'Subida rechazada: {reason}',
+    uploadObjectNotFound: 'El servidor no pudo verificar tu subida. Vuelve a intentarlo.',
+    downloadStartFailed: 'No se pudo iniciar la descarga.',
+  },
+  switcher: {
+    label: 'Idioma',
+    en: 'English',
+    es: 'Español',
+    fr: 'Français',
+  },
+};
