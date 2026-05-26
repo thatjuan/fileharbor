@@ -13,7 +13,7 @@
 
 Self-hosted file send/receive service — one container, one volume, no external bucket required.
 
-[Overview](#overview) • [Quick start](#quick-start) • [Storage backends](#storage-backends) • [Configuration](#configuration) • [Troubleshooting](#troubleshooting) • [Local development](#local-development)
+[Overview](#overview) • [Quick start](#quick-start) • [Storage backends](#storage-backends) • [Cloudflare Tunnel](#cloudflare-tunnel) • [Configuration](#configuration) • [Troubleshooting](#troubleshooting) • [Local development](#local-development)
 
 </div>
 
@@ -46,7 +46,7 @@ By design, v1 ships with one admin user, no public signup, and no team support.
 
 - **Docker** (or any OCI-compatible runtime).
 - **A persistent data volume** (or host directory) to mount at `/data`. SQLite, uploaded bytes, and any future durable state live there.
-- *(Optional, S3 mode only)* an S3-compatible bucket with `PutObject` / `GetObject` / `DeleteObject` / `HeadObject` credentials, CORS configured for your instance origin. See [Storage backends → S3 mode](#s3-mode).
+- _(Optional, S3 mode only)_ an S3-compatible bucket with `PutObject` / `GetObject` / `DeleteObject` / `HeadObject` credentials, CORS configured for your instance origin. See [Storage backends → S3 mode](#s3-mode).
 
 ## Quick start
 
@@ -100,24 +100,24 @@ There is one admin user, created one of two ways:
 
 Open `https://files.example.com/`, log in, then:
 
-- **Receive a file from someone.** Create a *receive link* from the dashboard. Optionally set a label, password, max-uploads quota, and expiry. Copy the `https://files.example.com/r/<code>` URL and send it. The recipient opens it and uploads directly via a presigned `PUT`. You see the file appear in your dashboard.
-- **Send a file to someone.** Create a *send link*, upload one or more files from your dashboard (also direct via presigned `PUT`), then copy the `https://files.example.com/s/<code>` URL. The recipient opens it and downloads directly via a presigned `GET`.
+- **Receive a file from someone.** Create a _receive link_ from the dashboard. Optionally set a label, password, max-uploads quota, and expiry. Copy the `https://files.example.com/r/<code>` URL and send it. The recipient opens it and uploads directly via a presigned `PUT`. You see the file appear in your dashboard.
+- **Send a file to someone.** Create a _send link_, upload one or more files from your dashboard (also direct via presigned `PUT`), then copy the `https://files.example.com/s/<code>` URL. The recipient opens it and downloads directly via a presigned `GET`.
 
 ## Storage backends
 
 File Harbor picks a storage backend at boot via `STORAGE_BACKEND`. The choice is global, not per-link.
 
-| Aspect | `local` (default) | `s3` |
-| --- | --- | --- |
-| Where bytes live | On the data volume, alongside SQLite | In your S3-compatible bucket |
-| External dependencies | None | A bucket + credentials |
-| CORS | Not applicable | Required on the bucket |
-| Operational complexity | Low — one container, one volume | Higher — two systems to monitor |
-| Disk planning | Sized on your host | Offloaded to the bucket |
-| Multi-host scaling | Not supported in v2 | Supported (multiple instances against one bucket) |
-| Encryption-at-rest | Filesystem-level (LUKS, ZFS, ...) | Whatever the bucket provides |
-| Object download via `Range` | Supported | Supported |
-| Boot probe | Write-and-unlink in `LOCAL_OBJECTS_DIR` | `HeadBucket` against the configured bucket |
+| Aspect                      | `local` (default)                       | `s3`                                              |
+| --------------------------- | --------------------------------------- | ------------------------------------------------- |
+| Where bytes live            | On the data volume, alongside SQLite    | In your S3-compatible bucket                      |
+| External dependencies       | None                                    | A bucket + credentials                            |
+| CORS                        | Not applicable                          | Required on the bucket                            |
+| Operational complexity      | Low — one container, one volume         | Higher — two systems to monitor                   |
+| Disk planning               | Sized on your host                      | Offloaded to the bucket                           |
+| Multi-host scaling          | Not supported in v2                     | Supported (multiple instances against one bucket) |
+| Encryption-at-rest          | Filesystem-level (LUKS, ZFS, ...)       | Whatever the bucket provides                      |
+| Object download via `Range` | Supported                               | Supported                                         |
+| Boot probe                  | Write-and-unlink in `LOCAL_OBJECTS_DIR` | `HeadBucket` against the configured bucket        |
 
 You can switch backends, but bytes do not migrate themselves — a switch is effectively a fresh start for storage. The SQLite DB still carries the old metadata; uploaded files that lived in the old backend will return 404 from the new one until you re-upload them.
 
@@ -219,7 +219,7 @@ aws s3api put-bucket-cors \
   }'
 ```
 
-You can also paste the JSON in the dashboard at *R2 → your bucket → Settings → CORS Policy*.
+You can also paste the JSON in the dashboard at _R2 → your bucket → Settings → CORS Policy_.
 
 ##### MinIO
 
@@ -288,7 +288,75 @@ Verify:
 aws s3api get-bucket-cors --bucket fileharbor
 ```
 
-You can also paste this in the AWS console at *S3 → your bucket → Permissions → Cross-origin resource sharing (CORS)*.
+You can also paste this in the AWS console at _S3 → your bucket → Permissions → Cross-origin resource sharing (CORS)_.
+
+## Cloudflare Tunnel
+
+File Harbor can publish itself on a custom domain via a Cloudflare Tunnel, with no inbound port on the host and no `-p` flag on the container. When both Cloudflare env vars are set, the container starts [`cftunn`](https://github.com/thatjuan/cftunn) alongside the Node server; `cftunn` provisions (or reuses) a named tunnel, points a DNS record at it, and proxies the public hostname to the local server. The host machine never accepts inbound traffic on File Harbor's port.
+
+| Variable                   | Required | Default | Purpose                                                                         |
+| -------------------------- | -------- | ------- | ------------------------------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`     | Pair     | unset   | Cloudflare API token used by `cftunn` to manage the tunnel and its DNS record.  |
+| `CLOUDFLARE_TUNNEL_DOMAIN` | Pair     | unset   | Fully-qualified hostname File Harbor is published on, e.g. `files.example.com`. |
+
+"Pair" means: set both, or neither. Setting only one of the two aborts startup with a clear error.
+
+### Token permissions
+
+The API token must include both of these scopes:
+
+- `Zone:DNS:Edit` — to create/update the CNAME pointing the hostname at the tunnel.
+- `Account:Cloudflare Tunnel:Edit` — to create the named tunnel and fetch its credentials.
+
+The zone for `CLOUDFLARE_TUNNEL_DOMAIN` must already exist in the same Cloudflare account that owns the token. `cftunn` does not register domains and does not add zones.
+
+### `BETTER_AUTH_URL` auto-derivation
+
+When `CLOUDFLARE_TUNNEL_DOMAIN` is set and `BETTER_AUTH_URL` is unset, File Harbor derives `BETTER_AUTH_URL` as `https://<CLOUDFLARE_TUNNEL_DOMAIN>`. An explicit `BETTER_AUTH_URL` in the environment always wins. The derived value is logged at boot so it is obvious which URL the auth layer is pinned to.
+
+### Example
+
+Generate the auth secret inline and run the container with no `-p` flag — inbound traffic arrives via the tunnel, not via a published port:
+
+```bash
+docker run -d \
+  --name fileharbor \
+  -v fileharbor-data:/data \
+  -e BETTER_AUTH_SECRET="$(openssl rand -hex 32)" \
+  -e CLOUDFLARE_API_TOKEN="..." \
+  -e CLOUDFLARE_TUNNEL_DOMAIN="files.example.com" \
+  fileharbor
+```
+
+> [!NOTE]
+> `BETTER_AUTH_URL` is omitted here on purpose — it's auto-derived to `https://files.example.com` from `CLOUDFLARE_TUNNEL_DOMAIN`. In production you still need a stable `BETTER_AUTH_SECRET` and (in local storage mode) `STORAGE_SIGNING_SECRET`; generate and persist them as in [Quick start](#quick-start).
+
+### Behavior notes
+
+- **Pair-or-nothing.** Setting only `CLOUDFLARE_API_TOKEN` or only `CLOUDFLARE_TUNNEL_DOMAIN` aborts boot with a clear error. Configure both, or neither.
+- **No silent fallback.** If `cftunn` fails to start (bad token, missing zone, wrong scopes), the container exits non-zero so Docker's restart policy can act and the operator sees the failure. File Harbor never falls back to running without a tunnel when one was requested.
+- **Clean shutdown.** On `SIGTERM` (e.g. `docker stop`) the entrypoint stops both the Node server and `cftunn`. No orphan `cloudflared` processes are left behind.
+- **Image size.** Bundling `cloudflared` plus `cftunn` adds roughly ~50 MB to the runtime image (approximate; the exact delta is recorded in the PR description for this change).
+
+> [!IMPORTANT]
+> The tunnel mode is opt-in. If both Cloudflare vars are unset, the container behaves exactly as before — publish File Harbor on a host port with `-p 3000:3000` and front it with whatever reverse proxy you prefer.
+
+### Troubleshooting
+
+#### Boot fails with `zone not in account` (or similar)
+
+`cftunn` could not find the zone for `CLOUDFLARE_TUNNEL_DOMAIN` in the account the token belongs to. Add the zone via the Cloudflare dashboard first (or move the token to the account that owns the zone), then restart the container.
+
+#### Boot fails on a conflicting DNS record
+
+If a CNAME (or A record) for `CLOUDFLARE_TUNNEL_DOMAIN` already exists and points somewhere else, `cftunn` prompts interactively before overwriting it. Containers have no TTY, so the prompt fails and the container exits. Two ways out:
+
+- Delete the conflicting record in the Cloudflare dashboard, then restart the container. `cftunn` will recreate the CNAME pointing at the tunnel.
+- Run `cftunn` once on a machine with a TTY to seize ownership of the record interactively. Subsequent container restarts then reuse the existing tunnel and DNS cleanly without prompting.
+
+#### Quick tunnels (`*.trycloudflare.com`) are not supported
+
+Quick tunnels are anonymous tunnels that don't require an API token. `cftunn` only manages named tunnels backed by a real zone, so a `trycloudflare.com` hostname is not a valid `CLOUDFLARE_TUNNEL_DOMAIN`. Use a hostname inside a zone you own.
 
 ## Configuration
 
@@ -296,36 +364,36 @@ Every config value is env-var-driven. The authoritative list lives in [`apps/ser
 
 ### Core runtime
 
-| Variable       | Required | Default                                    | Purpose                                                                                                            |
-| -------------- | -------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `PORT`         | no       | `3000`                                     | HTTP port the Node process binds to.                                                                               |
-| `NODE_ENV`     | no       | `development` (Docker image: `production`) | When `production`, the server also serves the built frontend.                                                      |
-| `DATA_DIR`     | no       | `./data` (Docker image: `/data`)           | Directory for SQLite + (in local mode) object bytes + future durable state. Mount a volume here.                   |
-| `DATABASE_URL` | no       | `${DATA_DIR}/fileharbor.db`                | Override the DB path. Accepts a raw path or a `file:` URL.                                                         |
-| `WEB_DIST_DIR` | no       | `./web` (Docker image: `/app/web`)         | Absolute path to the built frontend the server serves in production. You normally don't need to set this.          |
+| Variable       | Required | Default                                    | Purpose                                                                                                   |
+| -------------- | -------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `PORT`         | no       | `3000`                                     | HTTP port the Node process binds to.                                                                      |
+| `NODE_ENV`     | no       | `development` (Docker image: `production`) | When `production`, the server also serves the built frontend.                                             |
+| `DATA_DIR`     | no       | `./data` (Docker image: `/data`)           | Directory for SQLite + (in local mode) object bytes + future durable state. Mount a volume here.          |
+| `DATABASE_URL` | no       | `${DATA_DIR}/fileharbor.db`                | Override the DB path. Accepts a raw path or a `file:` URL.                                                |
+| `WEB_DIST_DIR` | no       | `./web` (Docker image: `/app/web`)         | Absolute path to the built frontend the server serves in production. You normally don't need to set this. |
 
 ### Auth
 
-| Variable             | Required            | Default                    | Purpose                                                                                                                                   |
-| -------------------- | ------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET` | yes (in production) | ephemeral per-process (dev) | Signs session cookies. Generate with `openssl rand -hex 32`. In dev, an ephemeral secret is auto-generated and sessions reset on restart. |
-| `BETTER_AUTH_URL`    | recommended in prod | `http://localhost:${PORT}` | Public-facing base URL. Used for cookie host pinning and callback URLs. In S3 mode, its origin is what you grant in your bucket's CORS rules. |
-| `ADMIN_USERNAME`     | no                  | unset                      | With `ADMIN_PASSWORD`, headless-seeds the admin on first boot. Setting only one of the two aborts startup.                                |
-| `ADMIN_PASSWORD`     | no                  | unset                      | Pairs with `ADMIN_USERNAME`. Ignored once the admin user exists.                                                                          |
+| Variable             | Required            | Default                     | Purpose                                                                                                                                                                                                                                                                                  |
+| -------------------- | ------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET` | yes (in production) | ephemeral per-process (dev) | Signs session cookies. Generate with `openssl rand -hex 32`. In dev, an ephemeral secret is auto-generated and sessions reset on restart.                                                                                                                                                |
+| `BETTER_AUTH_URL`    | recommended in prod | `http://localhost:${PORT}`  | Public-facing base URL. Used for cookie host pinning and callback URLs. In S3 mode, its origin is what you grant in your bucket's CORS rules. Auto-derived to `https://<CLOUDFLARE_TUNNEL_DOMAIN>` when unset and the tunnel vars are set — see [Cloudflare Tunnel](#cloudflare-tunnel). |
+| `ADMIN_USERNAME`     | no                  | unset                       | With `ADMIN_PASSWORD`, headless-seeds the admin on first boot. Setting only one of the two aborts startup.                                                                                                                                                                               |
+| `ADMIN_PASSWORD`     | no                  | unset                       | Pairs with `ADMIN_USERNAME`. Ignored once the admin user exists.                                                                                                                                                                                                                         |
 
 ### Storage — backend selector
 
-| Variable           | Required | Default | Purpose                                                                              |
-| ------------------ | -------- | ------- | ------------------------------------------------------------------------------------ |
-| `STORAGE_BACKEND`  | no       | `local` | `local` (default) stores bytes on the data volume. `s3` uses an external S3 bucket.  |
+| Variable          | Required | Default | Purpose                                                                             |
+| ----------------- | -------- | ------- | ----------------------------------------------------------------------------------- |
+| `STORAGE_BACKEND` | no       | `local` | `local` (default) stores bytes on the data volume. `s3` uses an external S3 bucket. |
 
 ### Storage — local mode (only when `STORAGE_BACKEND=local`)
 
-| Variable                       | Required            | Default                | Purpose                                                                                                       |
-| ------------------------------ | ------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `LOCAL_OBJECTS_DIR`            | no                  | `${DATA_DIR}/objects`  | Directory holding object bytes. Created if missing; write-and-unlink probe runs at boot.                      |
-| `STORAGE_SIGNING_SECRET`       | yes (in production) | ephemeral per-process (dev) | HMAC secret signing local presigned URLs. Not shared with `BETTER_AUTH_SECRET`. Generate with `openssl rand -hex 32`. |
-| `STORAGE_PRESIGN_TTL_SECONDS`  | no                  | `300`                  | TTL for local presigned URLs, in seconds. Max 604800 (7 days). Keep short.                                    |
+| Variable                      | Required            | Default                     | Purpose                                                                                                               |
+| ----------------------------- | ------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `LOCAL_OBJECTS_DIR`           | no                  | `${DATA_DIR}/objects`       | Directory holding object bytes. Created if missing; write-and-unlink probe runs at boot.                              |
+| `STORAGE_SIGNING_SECRET`      | yes (in production) | ephemeral per-process (dev) | HMAC secret signing local presigned URLs. Not shared with `BETTER_AUTH_SECRET`. Generate with `openssl rand -hex 32`. |
+| `STORAGE_PRESIGN_TTL_SECONDS` | no                  | `300`                       | TTL for local presigned URLs, in seconds. Max 604800 (7 days). Keep short.                                            |
 
 ### Storage — S3 mode (only when `STORAGE_BACKEND=s3`)
 
@@ -343,11 +411,20 @@ Every config value is env-var-driven. The authoritative list lives in [`apps/ser
 
 A background job inside the Node process sweeps stale upload/download tickets.
 
-| Variable                        | Required | Default            | Purpose                                                                |
-| ------------------------------- | -------- | ------------------ | ---------------------------------------------------------------------- |
-| `TICKET_SWEEP_INTERVAL_SECONDS` | no       | `60`               | How often the sweep wakes up.                                          |
-| `TICKET_PENDING_GRACE_SECONDS`  | no       | `60`               | Buffer past presign TTL before a pending ticket is considered expired. |
-| `TICKET_RETENTION_SECONDS`      | no       | `604800` (7 days)  | How long terminal tickets are kept before deletion.                    |
+| Variable                        | Required | Default           | Purpose                                                                |
+| ------------------------------- | -------- | ----------------- | ---------------------------------------------------------------------- |
+| `TICKET_SWEEP_INTERVAL_SECONDS` | no       | `60`              | How often the sweep wakes up.                                          |
+| `TICKET_PENDING_GRACE_SECONDS`  | no       | `60`              | Buffer past presign TTL before a pending ticket is considered expired. |
+| `TICKET_RETENTION_SECONDS`      | no       | `604800` (7 days) | How long terminal tickets are kept before deletion.                    |
+
+### Cloudflare Tunnel
+
+See the [Cloudflare Tunnel](#cloudflare-tunnel) section above for the full behavior, token scopes, and troubleshooting.
+
+| Variable                   | Required | Default | Purpose                                                                                                |
+| -------------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| `CLOUDFLARE_API_TOKEN`     | pair     | unset   | Cloudflare API token with `Zone:DNS:Edit` and `Account:Cloudflare Tunnel:Edit`. Pairs with the domain. |
+| `CLOUDFLARE_TUNNEL_DOMAIN` | pair     | unset   | Hostname File Harbor is published on via the tunnel, e.g. `files.example.com`. Pairs with the token.   |
 
 ## Persistence
 
@@ -393,7 +470,7 @@ There is no separate migration command to run by hand. The migrator records appl
 > - **Audit log / detailed access history.**
 > - **Bytes-migration tooling between backends.** Switching `STORAGE_BACKEND` is a fresh start for storage.
 
-See the PRD's *Out of Scope* section in the GitHub issues for the complete list.
+See the PRD's _Out of Scope_ section in the GitHub issues for the complete list.
 
 ## Troubleshooting
 
@@ -465,11 +542,11 @@ The two workspaces share a root `package.json` (npm workspaces) and a shared `ts
 
 ### Useful scripts
 
-| Command           | What it does                                              |
-| ----------------- | --------------------------------------------------------- |
-| `npm run dev`     | Run server and web in parallel (watch mode).              |
-| `npm run build`   | Build the web app, then the server.                       |
-| `npm start`       | Start the production server (expects `npm run build` first). |
-| `npm run lint`    | ESLint over the whole repo.                               |
-| `npm run format`  | Prettier write.                                           |
-| `npm run db:generate` | Generate a new Drizzle migration from the schema diff. |
+| Command               | What it does                                                 |
+| --------------------- | ------------------------------------------------------------ |
+| `npm run dev`         | Run server and web in parallel (watch mode).                 |
+| `npm run build`       | Build the web app, then the server.                          |
+| `npm start`           | Start the production server (expects `npm run build` first). |
+| `npm run lint`        | ESLint over the whole repo.                                  |
+| `npm run format`      | Prettier write.                                              |
+| `npm run db:generate` | Generate a new Drizzle migration from the schema diff.       |
