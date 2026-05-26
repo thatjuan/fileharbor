@@ -37,6 +37,12 @@
       "skillPath": "implement-issue/SKILL.md",
       "computedHash": "fa05c1d71bd1a9590206dfae94783a891931ff3dfb0d077a02c82a9a51a13a70"
     },
+    "security-review": {
+      "source": "affaan-m/everything-claude-code",
+      "sourceType": "github",
+      "skillPath": "skills/security-review/SKILL.md",
+      "computedHash": "997a20d294003157511b86c72487c6193c524fb2977677f245e89ccdfc7202be"
+    },
     "setup-matt-pocock-skills": {
       "source": "mattpocock/skills",
       "sourceType": "github",
