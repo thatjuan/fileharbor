@@ -10,3 +10,4 @@ build/
 data/
 *.sqlite
 *.sqlite-journal
+.claude/scheduled_tasks.lock
