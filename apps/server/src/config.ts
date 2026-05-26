@@ -16,7 +16,12 @@ export interface AppConfig {
   webDistDir: string;
   /** Auth-related settings. */
   auth: AuthConfig;
-  /** S3-compatible storage settings. */
+  /**
+   * Storage backend settings. Discriminated on `backend`:
+   *   - `s3`    — external S3-compatible bucket (v1 behaviour).
+   *   - `local` — bytes on the same data volume as the SQLite DB. Presigned
+   *               URLs point at File Harbor's own routes and are HMAC-signed.
+   */
   storage: StorageConfig;
   /** Ticket-cleanup background sweep (issue #10). */
   ticketSweep: TicketSweepConfig;
@@ -49,7 +54,19 @@ export interface TicketSweepConfig {
   retentionSeconds: number;
 }
 
-export interface StorageConfig {
+export type StorageBackend = 'local' | 's3';
+
+/**
+ * Storage configuration. Discriminated union; branch on `backend`.
+ *
+ * Only the fields relevant to the selected backend are read at boot — an
+ * operator running in `local` mode does not need to set any `S3_*` var, and
+ * an operator running in `s3` mode does not need to set the local vars.
+ */
+export type StorageConfig = S3StorageConfig | LocalStorageConfig;
+
+export interface S3StorageConfig {
+  backend: 's3';
   /**
    * Endpoint URL for the S3-compatible service. Required.
    * Examples:
@@ -75,6 +92,26 @@ export interface StorageConfig {
    * TTL applied to presigned PUT / GET / DELETE URLs, in seconds. Kept short
    * (minutes, not hours) per PRD: a leaked URL should not be useful for long.
    * Default: 300s (5 minutes).
+   */
+  presignTtlSeconds: number;
+}
+
+export interface LocalStorageConfig {
+  backend: 'local';
+  /**
+   * Filesystem directory holding object bytes. Default: `${DATA_DIR}/objects`.
+   * Created on boot if missing; an unwritable directory aborts startup.
+   */
+  objectsDir: string;
+  /**
+   * HMAC secret used to sign local-mode presigned URLs. Required in production;
+   * auto-generated with a one-time warning in development (same pattern as
+   * `BETTER_AUTH_SECRET`). NOT shared with the auth secret on purpose —
+   * rotating one should not invalidate the other.
+   */
+  signingSecret: string;
+  /**
+   * TTL applied to local presigned URLs, in seconds. Default: 300s.
    */
   presignTtlSeconds: number;
 }
@@ -157,16 +194,25 @@ function parseBool(raw: string | undefined, fallback: boolean): boolean {
   throw new Error(`Invalid boolean value: ${raw}`);
 }
 
-function requireEnv(env: Env, key: string): string {
-  const raw = env[key];
-  if (!raw || raw.trim() === '') {
-    throw new Error(`${key} is required.`);
+function resolveStorageConfig(
+  env: Env,
+  nodeEnv: AppConfig['nodeEnv'],
+  dataDir: string,
+): StorageConfig {
+  // Slice 1 default: `s3`. Slice 4 (issue #30) flips the default to `local`.
+  const backendRaw = (env.STORAGE_BACKEND ?? 's3').trim().toLowerCase();
+  if (backendRaw !== 's3' && backendRaw !== 'local') {
+    throw new Error(
+      `STORAGE_BACKEND must be 'local' or 's3'. Got: ${JSON.stringify(env.STORAGE_BACKEND)}`,
+    );
   }
-  return raw.trim();
+  const backend: StorageBackend = backendRaw;
+  if (backend === 'local') return resolveLocalStorageConfig(env, nodeEnv, dataDir);
+  return resolveS3StorageConfig(env);
 }
 
-function resolveStorageConfig(env: Env): StorageConfig {
-  const endpoint = requireEnv(env, 'S3_ENDPOINT');
+function resolveS3StorageConfig(env: Env): S3StorageConfig {
+  const endpoint = requireS3Env(env, 'S3_ENDPOINT');
   // Validate it parses as a URL — catches obvious typos early.
   try {
     void new URL(endpoint);
@@ -175,24 +221,14 @@ function resolveStorageConfig(env: Env): StorageConfig {
   }
 
   const region = env.S3_REGION?.trim() || 'auto';
-  const accessKeyId = requireEnv(env, 'S3_ACCESS_KEY_ID');
-  const secretAccessKey = requireEnv(env, 'S3_SECRET_ACCESS_KEY');
-  const bucket = requireEnv(env, 'S3_BUCKET');
+  const accessKeyId = requireS3Env(env, 'S3_ACCESS_KEY_ID');
+  const secretAccessKey = requireS3Env(env, 'S3_SECRET_ACCESS_KEY');
+  const bucket = requireS3Env(env, 'S3_BUCKET');
   const forcePathStyle = parseBool(env.S3_FORCE_PATH_STYLE, false);
-
-  const ttlRaw = env.S3_PRESIGN_TTL_SECONDS;
-  const presignTtlSeconds = ttlRaw ? Number.parseInt(ttlRaw, 10) : 300;
-  if (
-    !Number.isInteger(presignTtlSeconds) ||
-    presignTtlSeconds <= 0 ||
-    presignTtlSeconds > 7 * 24 * 3600
-  ) {
-    throw new Error(
-      `S3_PRESIGN_TTL_SECONDS must be a positive integer <= 604800 (7 days, the SigV4 maximum). Got: ${ttlRaw}`,
-    );
-  }
+  const presignTtlSeconds = parsePresignTtl(env.S3_PRESIGN_TTL_SECONDS, 'S3_PRESIGN_TTL_SECONDS');
 
   return {
+    backend: 's3',
     endpoint,
     region,
     accessKeyId,
@@ -201,6 +237,71 @@ function resolveStorageConfig(env: Env): StorageConfig {
     forcePathStyle,
     presignTtlSeconds,
   };
+}
+
+function resolveLocalStorageConfig(
+  env: Env,
+  nodeEnv: AppConfig['nodeEnv'],
+  dataDir: string,
+): LocalStorageConfig {
+  const objectsDirRaw = env.LOCAL_OBJECTS_DIR?.trim();
+  const objectsDir = objectsDirRaw
+    ? isAbsolute(objectsDirRaw)
+      ? objectsDirRaw
+      : resolve(objectsDirRaw)
+    : resolve(dataDir, 'objects');
+
+  const signingSecret = resolveSigningSecret(env.STORAGE_SIGNING_SECRET, nodeEnv);
+  const presignTtlSeconds = parsePresignTtl(
+    env.STORAGE_PRESIGN_TTL_SECONDS ?? env.S3_PRESIGN_TTL_SECONDS,
+    'STORAGE_PRESIGN_TTL_SECONDS',
+  );
+
+  return { backend: 'local', objectsDir, signingSecret, presignTtlSeconds };
+}
+
+function requireS3Env(env: Env, key: string): string {
+  const raw = env[key];
+  if (!raw || raw.trim() === '') {
+    throw new Error(
+      `${key} is required when STORAGE_BACKEND=s3. ` +
+        `(Tip: STORAGE_BACKEND=local stores bytes on the data volume and needs no S3_* vars.)`,
+    );
+  }
+  return raw.trim();
+}
+
+function parsePresignTtl(raw: string | undefined, varName: string): number {
+  const presignTtlSeconds = raw ? Number.parseInt(raw, 10) : 300;
+  if (
+    !Number.isInteger(presignTtlSeconds) ||
+    presignTtlSeconds <= 0 ||
+    presignTtlSeconds > 7 * 24 * 3600
+  ) {
+    throw new Error(
+      `${varName} must be a positive integer <= 604800 (7 days). Got: ${raw}`,
+    );
+  }
+  return presignTtlSeconds;
+}
+
+function resolveSigningSecret(
+  raw: string | undefined,
+  nodeEnv: AppConfig['nodeEnv'],
+): string {
+  if (raw && raw.trim().length > 0) return raw.trim();
+  if (nodeEnv === 'production') {
+    throw new Error(
+      'STORAGE_SIGNING_SECRET is required in production when STORAGE_BACKEND=local. ' +
+        'Generate one with `openssl rand -hex 32`.',
+    );
+  }
+  const generated = randomBytes(32).toString('hex');
+  console.warn(
+    '[fileharbor] STORAGE_SIGNING_SECRET unset; generated an ephemeral secret for this process. ' +
+      'Presigned URLs will not survive a restart. Set STORAGE_SIGNING_SECRET in `.env` to make them stable.',
+  );
+  return generated;
 }
 
 function resolveAdminSeed(env: Env): AdminSeed | null {
@@ -238,7 +339,7 @@ export function loadConfig(env: Env = process.env as Env): AppConfig {
     adminSeed: resolveAdminSeed(env),
   };
 
-  const storage = resolveStorageConfig(env);
+  const storage = resolveStorageConfig(env, nodeEnv, dataDir);
   const ticketSweep = resolveTicketSweepConfig(env);
 
   return Object.freeze({

@@ -18,6 +18,7 @@ import { createPublicUploadTicketsRoute } from './routes/public-upload-tickets.j
 import { createReceiveLinksRoute } from './routes/receive-links.js';
 import { createSendLinksRoute } from './routes/send-links.js';
 import { createSetupRoute } from './routes/setup.js';
+import { createLocalStorageRoute } from './routes/storage.js';
 import type { StorageProvider } from './storage/index.js';
 import type { DownloadTicketsModule } from './tickets/download-tickets.js';
 import type { UploadTicketsModule } from './tickets/upload-tickets.js';
@@ -117,6 +118,13 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
   api.route('/public', publicApi);
 
   app.route('/api', api);
+
+  // Local storage backend routes. Mounted only when the operator chose the
+  // local backend; in S3 mode these routes are not registered so a
+  // misconfigured deploy cannot accidentally serve bytes from a directory.
+  if (config.storage.backend === 'local') {
+    app.route('/api/storage/o', createLocalStorageRoute(config.storage));
+  }
 
   if (config.nodeEnv === 'production') {
     const webRoot = resolve(config.webDistDir);
