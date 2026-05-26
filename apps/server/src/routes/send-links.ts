@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import type { AuthModule } from '../auth/index.js';
 import { requireAdmin, type AdminContext } from '../auth/middleware.js';
 import type { FilesModule } from '../files/files.js';
+import { logServerError, messageFromAllowedError } from '../http/errors.js';
 import { evaluateSendLink } from '../links/policy/index.js';
 import type { SendLink, SendLinksModule } from '../links/send-links.js';
 import type { CompletedPart, UploadTicketsModule } from '../tickets/upload-tickets.js';
@@ -38,6 +39,13 @@ interface MultipartCompleteBody {
 interface UpdateBody {
   status?: unknown;
 }
+
+const SEND_LINK_VALIDATION_ERRORS = [
+  'label_required',
+  'label_too_long',
+  'invalid_max_downloads',
+  'invalid_expires_at',
+] as const;
 
 /**
  * Validate a `parts` payload from a multipart-complete request body. Same
@@ -185,7 +193,8 @@ export function createSendLinksRoute(
       const link = await sendLinksModule.create({ label, password, maxDownloads, expiresAt });
       return c.json({ link: toResponse(link) });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'unknown_error';
+      const message = messageFromAllowedError(err, SEND_LINK_VALIDATION_ERRORS, 'invalid_input');
+      if (message === 'invalid_input') logServerError('send_links.create_failed', err);
       // Thrown shapes: `label_required`, `label_too_long`,
       // `invalid_max_downloads`, `invalid_expires_at`. All user-fixable 400s.
       return c.json({ error: 'invalid_input', message }, 400);
@@ -222,8 +231,8 @@ export function createSendLinksRoute(
         sizeHint: size,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'unknown_error';
-      return c.json({ error: 'mint_failed', message }, 500);
+      logServerError('send_links.mint_upload_failed', err, { sendLinkId: link.id });
+      return c.json({ error: 'mint_failed', message: 'Could not prepare file upload.' }, 500);
     }
 
     if (ticketOutcome.kind !== 'ok') {
@@ -427,7 +436,8 @@ export function createSendLinksRoute(
     try {
       updated = await sendLinksModule.update(id, { status });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'unknown_error';
+      const message = messageFromAllowedError(err, SEND_LINK_VALIDATION_ERRORS, 'invalid_input');
+      if (message === 'invalid_input') logServerError('send_links.update_failed', err, { id });
       return c.json({ error: 'invalid_input', message }, 400);
     }
     if (!updated) return c.json({ error: 'not_found' }, 404);

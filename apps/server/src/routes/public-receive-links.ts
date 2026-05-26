@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
 
+import type { SecurityConfig } from '../config.js';
 import type { ReceiveLinksModule } from '../links/receive-links.js';
+import { clientIpFor } from '../security/client-ip.js';
+import { enforceRateLimit, type FixedWindowRateLimiter } from '../security/rate-limit.js';
 import type { UploadTicketsModule } from '../tickets/upload-tickets.js';
 
 interface UploadTicketBody {
@@ -37,6 +40,8 @@ interface MultipartInitBody {
 export function createPublicReceiveLinksRoute(
   receiveLinksModule: ReceiveLinksModule,
   uploadTicketsModule: UploadTicketsModule,
+  security: SecurityConfig,
+  limiter: FixedWindowRateLimiter,
 ): Hono {
   const route = new Hono();
 
@@ -57,6 +62,12 @@ export function createPublicReceiveLinksRoute(
 
   route.post('/:code/upload-tickets', async (c) => {
     const code = c.req.param('code');
+    const ip = clientIpFor(c, security);
+    const limited = enforceRateLimit(c, security, limiter, [
+      { key: `public-link:${ip}:${code}`, limit: security.rateLimit.publicLink },
+      { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
+    ]);
+    if (limited) return limited;
 
     let body: UploadTicketBody;
     try {
@@ -99,6 +110,12 @@ export function createPublicReceiveLinksRoute(
 
   route.post('/:code/upload/multipart/init', async (c) => {
     const code = c.req.param('code');
+    const ip = clientIpFor(c, security);
+    const limited = enforceRateLimit(c, security, limiter, [
+      { key: `public-link:${ip}:${code}`, limit: security.rateLimit.publicLink },
+      { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
+    ]);
+    if (limited) return limited;
 
     let body: MultipartInitBody;
     try {

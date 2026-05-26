@@ -1,6 +1,10 @@
 import { Hono } from 'hono';
 
+import type { SecurityConfig } from '../config.js';
 import type { AuthModule } from '../auth/index.js';
+import { logServerError } from '../http/errors.js';
+import { clientIpFor } from '../security/client-ip.js';
+import { enforceRateLimit, type FixedWindowRateLimiter } from '../security/rate-limit.js';
 
 interface SetupBody {
   username?: unknown;
@@ -22,7 +26,11 @@ interface SetupBody {
  * Once a user exists, both ways the route is "sealed": the GET still answers
  * but reports `{ needsSetup: false }`, and the POST 403s.
  */
-export function createSetupRoute(authModule: AuthModule): Hono {
+export function createSetupRoute(
+  authModule: AuthModule,
+  security: SecurityConfig,
+  limiter: FixedWindowRateLimiter,
+): Hono {
   const route = new Hono();
 
   route.get('/', (c) => {
@@ -30,6 +38,12 @@ export function createSetupRoute(authModule: AuthModule): Hono {
   });
 
   route.post('/', async (c) => {
+    const ip = clientIpFor(c, security);
+    const limited = enforceRateLimit(c, security, limiter, [
+      { key: `setup:${ip}`, limit: security.rateLimit.setup },
+    ]);
+    if (limited) return limited;
+
     if (authModule.hasAnyUser()) {
       // Already set up. 403 (not 404) communicates "this route exists but is
       // closed", which makes the failure mode obvious during ops triage.
@@ -72,8 +86,8 @@ export function createSetupRoute(authModule: AuthModule): Hono {
       if (authModule.hasAnyUser()) {
         return c.json({ error: 'setup_already_complete' }, 403);
       }
-      const message = err instanceof Error ? err.message : 'unknown_error';
-      return c.json({ error: 'signup_failed', message }, 400);
+      logServerError('setup.create_admin_failed', err, { username });
+      return c.json({ error: 'signup_failed', message: 'Could not complete setup.' }, 400);
     }
 
     return c.json({ ok: true });

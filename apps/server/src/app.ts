@@ -20,6 +20,10 @@ import { createReceiveLinksRoute } from './routes/receive-links.js';
 import { createSendLinksRoute } from './routes/send-links.js';
 import { createSetupRoute } from './routes/setup.js';
 import { createLocalStorageRoute } from './routes/storage.js';
+import { jsonError, logServerError } from './http/errors.js';
+import { createSecurityHeadersMiddleware } from './http/security-headers.js';
+import { createAdminOriginGuard } from './security/origin.js';
+import { createRateLimitMiddleware, FixedWindowRateLimiter } from './security/rate-limit.js';
 import type { StorageProvider } from './storage/index.js';
 import type { DownloadTicketsModule } from './tickets/download-tickets.js';
 import type { UploadTicketsModule } from './tickets/upload-tickets.js';
@@ -81,6 +85,24 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
     storage,
   } = modules;
   const app = new Hono();
+  const limiter = new FixedWindowRateLimiter(config.security.rateLimit.maxTrackedKeys);
+
+  app.use('*', createSecurityHeadersMiddleware(config));
+  app.onError((err, c) => {
+    logServerError('http.unhandled', err, {
+      method: c.req.method,
+      path: c.req.path,
+    });
+    return jsonError(c, 500, 'internal_error');
+  });
+
+  app.use(
+    '/api/auth/sign-in/*',
+    createRateLimitMiddleware(config.security, limiter, (c, ip) => {
+      if (c.req.method.toUpperCase() !== 'POST') return [];
+      return [{ key: `auth:${ip}`, limit: config.security.rateLimit.auth }];
+    }),
+  );
 
   // Better Auth exposes its own fetch handler at /api/auth/*. It is not a
   // Hono router — it's a single fetch handler — so we wire it via `app.all`
@@ -93,9 +115,14 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
   const api = new Hono();
   api.route('/health', healthRoute);
   api.route('/config', createConfigRoute(config.storage));
-  api.route('/setup', createSetupRoute(authModule));
+  api.route('/setup', createSetupRoute(authModule, config.security, limiter));
 
   // Admin (authed) surfaces.
+  const adminOriginGuard = createAdminOriginGuard(config);
+  for (const prefix of ['/receive-links', '/send-links', '/files', '/notifications']) {
+    api.use(prefix, adminOriginGuard);
+    api.use(`${prefix}/*`, adminOriginGuard);
+  }
   api.route('/receive-links', createReceiveLinksRoute(authModule, receiveLinksModule, filesModule));
   api.route(
     '/send-links',
@@ -109,14 +136,31 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
   const publicApi = new Hono();
   publicApi.route(
     '/receive-links',
-    createPublicReceiveLinksRoute(receiveLinksModule, uploadTicketsModule),
+    createPublicReceiveLinksRoute(
+      receiveLinksModule,
+      uploadTicketsModule,
+      config.security,
+      limiter,
+    ),
   );
   publicApi.route(
     '/send-links',
-    createPublicSendLinksRoute(sendLinksModule, filesModule, downloadTicketsModule),
+    createPublicSendLinksRoute(
+      sendLinksModule,
+      filesModule,
+      downloadTicketsModule,
+      config.security,
+      limiter,
+    ),
   );
-  publicApi.route('/upload-tickets', createPublicUploadTicketsRoute(uploadTicketsModule));
-  publicApi.route('/download-tickets', createPublicDownloadTicketsRoute(downloadTicketsModule));
+  publicApi.route(
+    '/upload-tickets',
+    createPublicUploadTicketsRoute(uploadTicketsModule, config.security, limiter),
+  );
+  publicApi.route(
+    '/download-tickets',
+    createPublicDownloadTicketsRoute(downloadTicketsModule, config.security, limiter),
+  );
   api.route('/public', publicApi);
 
   app.route('/api', api);

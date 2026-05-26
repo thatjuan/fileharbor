@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import type { AuthModule } from '../auth/index.js';
 import { requireAdmin, type AdminContext } from '../auth/middleware.js';
 import type { FilesModule } from '../files/files.js';
+import { logServerError, messageFromAllowedError } from '../http/errors.js';
 import { evaluateReceiveLink } from '../links/policy/index.js';
 import type { ReceiveLink, ReceiveLinksModule } from '../links/receive-links.js';
 
@@ -16,6 +17,13 @@ interface CreateBody {
 interface UpdateBody {
   status?: unknown;
 }
+
+const RECEIVE_LINK_VALIDATION_ERRORS = [
+  'label_required',
+  'label_too_long',
+  'invalid_max_uploads',
+  'invalid_expires_at',
+] as const;
 
 /**
  * The four display statuses surfaced to the admin UI. Distinct from the row's
@@ -142,7 +150,8 @@ export function createReceiveLinksRoute(
       // Newly created link has zero uploads — short-circuit the count query.
       return c.json({ link: toResponse(link, 0) });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'unknown_error';
+      const message = messageFromAllowedError(err, RECEIVE_LINK_VALIDATION_ERRORS, 'invalid_input');
+      if (message === 'invalid_input') logServerError('receive_links.create_failed', err);
       // Thrown shapes: `label_required`, `label_too_long`,
       // `invalid_max_uploads`, `invalid_expires_at`. All user-fixable 400s.
       return c.json({ error: 'invalid_input', message }, 400);
@@ -190,7 +199,8 @@ export function createReceiveLinksRoute(
     try {
       updated = await receiveLinksModule.update(id, { status });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'unknown_error';
+      const message = messageFromAllowedError(err, RECEIVE_LINK_VALIDATION_ERRORS, 'invalid_input');
+      if (message === 'invalid_input') logServerError('receive_links.update_failed', err, { id });
       return c.json({ error: 'invalid_input', message }, 400);
     }
     if (!updated) return c.json({ error: 'not_found' }, 404);

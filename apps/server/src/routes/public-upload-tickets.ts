@@ -1,5 +1,8 @@
 import { Hono } from 'hono';
 
+import type { SecurityConfig } from '../config.js';
+import { clientIpFor } from '../security/client-ip.js';
+import { enforceRateLimit, type FixedWindowRateLimiter } from '../security/rate-limit.js';
 import type { CompletedPart, UploadTicketsModule } from '../tickets/upload-tickets.js';
 
 interface CompletePartBodyEntry {
@@ -13,6 +16,12 @@ interface CompleteBody {
 }
 
 interface AbortBody {
+  password?: unknown;
+}
+
+interface PartUrlsBody {
+  from?: unknown;
+  to?: unknown;
   password?: unknown;
 }
 
@@ -37,6 +46,18 @@ function parsePartsPayload(value: unknown): CompletedPart[] | null {
   return out;
 }
 
+function parsePositiveRange(
+  fromValue: unknown,
+  toValue: unknown,
+): { from: number; to: number } | null {
+  const from = typeof fromValue === 'number' ? fromValue : Number(fromValue);
+  const to = typeof toValue === 'number' ? toValue : Number(toValue);
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < 1) {
+    return null;
+  }
+  return { from, to };
+}
+
 /**
  * Public upload-ticket endpoints. Mounted at `/api/public/upload-tickets`.
  *
@@ -57,11 +78,21 @@ function parsePartsPayload(value: unknown): CompletedPart[] | null {
  * for this specific upload session and only the uploader has it. The password
  * field re-validates link policy where applicable.
  */
-export function createPublicUploadTicketsRoute(uploadTicketsModule: UploadTicketsModule): Hono {
+export function createPublicUploadTicketsRoute(
+  uploadTicketsModule: UploadTicketsModule,
+  security: SecurityConfig,
+  limiter: FixedWindowRateLimiter,
+): Hono {
   const route = new Hono();
 
   route.post('/:ticketId/finalize', async (c) => {
     const ticketId = c.req.param('ticketId');
+    const ip = clientIpFor(c, security);
+    const limited = enforceRateLimit(c, security, limiter, [
+      { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
+      { key: `public-ticket:${ip}:${ticketId}`, limit: security.rateLimit.publicTicket },
+    ]);
+    if (limited) return limited;
 
     // Accept an empty body — many clients will send `Content-Length: 0` with
     // no JSON. We try to parse `password` if a body is provided (forward-compat
@@ -93,6 +124,12 @@ export function createPublicUploadTicketsRoute(uploadTicketsModule: UploadTicket
 
   route.post('/:ticketId/upload/multipart/complete', async (c) => {
     const ticketId = c.req.param('ticketId');
+    const ip = clientIpFor(c, security);
+    const limited = enforceRateLimit(c, security, limiter, [
+      { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
+      { key: `public-ticket:${ip}:${ticketId}`, limit: security.rateLimit.publicTicket },
+    ]);
+    if (limited) return limited;
 
     let body: CompleteBody;
     try {
@@ -134,6 +171,12 @@ export function createPublicUploadTicketsRoute(uploadTicketsModule: UploadTicket
 
   route.post('/:ticketId/upload/multipart/abort', async (c) => {
     const ticketId = c.req.param('ticketId');
+    const ip = clientIpFor(c, security);
+    const limited = enforceRateLimit(c, security, limiter, [
+      { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
+      { key: `public-ticket:${ip}:${ticketId}`, limit: security.rateLimit.publicTicket },
+    ]);
+    if (limited) return limited;
 
     // Abort body is optional — many callers will fire-and-forget via
     // `fetch({ keepalive: true })` or `navigator.sendBeacon` on tab close,
@@ -165,25 +208,33 @@ export function createPublicUploadTicketsRoute(uploadTicketsModule: UploadTicket
     }
   });
 
-  route.get('/:ticketId/upload/multipart/parts', async (c) => {
+  route.post('/:ticketId/upload/multipart/parts', async (c) => {
     const ticketId = c.req.param('ticketId');
-    const fromRaw = c.req.query('from');
-    const toRaw = c.req.query('to');
-    const from = fromRaw !== undefined ? Number(fromRaw) : NaN;
-    const to = toRaw !== undefined ? Number(toRaw) : NaN;
-    if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < 1) {
+    const ip = clientIpFor(c, security);
+    const limited = enforceRateLimit(c, security, limiter, [
+      { key: `public-part-urls:${ip}`, limit: security.rateLimit.publicPartUrls },
+      { key: `public-part-urls:${ip}:${ticketId}`, limit: security.rateLimit.publicPartUrls },
+    ]);
+    if (limited) return limited;
+
+    let body: PartUrlsBody;
+    try {
+      body = (await c.req.json()) as PartUrlsBody;
+    } catch {
+      return c.json({ error: 'invalid_json' }, 400);
+    }
+
+    const range = parsePositiveRange(body.from, body.to);
+    if (range === null) {
       return c.json({ error: 'invalid_range' }, 400);
     }
 
-    // Password via query param keeps the GET cacheable-shape consistent (no
-    // request body) and avoids inventing a new custom header for the public
-    // surface. Same trust model as the ticket id: the URL IS the credential.
-    const providedPassword = c.req.query('password') ?? null;
+    const providedPassword = typeof body.password === 'string' ? body.password : null;
 
     const outcome = await uploadTicketsModule.getMultipartPartUrls(
       ticketId,
-      from,
-      to,
+      range.from,
+      range.to,
       providedPassword,
     );
 
@@ -193,6 +244,47 @@ export function createPublicUploadTicketsRoute(uploadTicketsModule: UploadTicket
       case 'invalid_input':
         // The module's only `invalid_input` reason today is `'invalid_range'`;
         // forward it verbatim so the client gets a stable error code.
+        return c.json({ error: outcome.reason }, 400);
+      case 'wrong_state':
+        return c.json({ error: 'wrong_state' }, 409);
+      case 'not_multipart':
+        return c.json({ error: 'not_multipart' }, 400);
+      case 'ticket_not_found':
+        return c.json({ error: 'not_found' }, 404);
+      case 'policy_rejected':
+        return c.json({ error: outcome.policy.kind }, 403);
+    }
+  });
+
+  route.get('/:ticketId/upload/multipart/parts', async (c) => {
+    const ticketId = c.req.param('ticketId');
+    if (c.req.query('password') !== undefined) {
+      return c.json({ error: 'password_in_query_not_allowed' }, 400);
+    }
+
+    const ip = clientIpFor(c, security);
+    const limited = enforceRateLimit(c, security, limiter, [
+      { key: `public-part-urls:${ip}`, limit: security.rateLimit.publicPartUrls },
+      { key: `public-part-urls:${ip}:${ticketId}`, limit: security.rateLimit.publicPartUrls },
+    ]);
+    if (limited) return limited;
+
+    const range = parsePositiveRange(c.req.query('from'), c.req.query('to'));
+    if (range === null) {
+      return c.json({ error: 'invalid_range' }, 400);
+    }
+
+    const outcome = await uploadTicketsModule.getMultipartPartUrls(
+      ticketId,
+      range.from,
+      range.to,
+      null,
+    );
+
+    switch (outcome.kind) {
+      case 'ok':
+        return c.json({ urls: outcome.value.urls, expiresAt: outcome.value.expiresAt });
+      case 'invalid_input':
         return c.json({ error: outcome.reason }, 400);
       case 'wrong_state':
         return c.json({ error: 'wrong_state' }, 409);

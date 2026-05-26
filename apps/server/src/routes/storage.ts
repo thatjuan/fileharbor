@@ -155,8 +155,7 @@ export function createLocalStorageRoute(
       }
       await fs.unlink(tmpPath).catch(() => {});
       console.error('[storage] PUT failed', { key, err });
-      const message = err instanceof Error ? err.message : 'unknown';
-      return c.json({ error: 'write_failed', message }, 500);
+      return c.json({ error: 'write_failed' }, 500);
     }
   });
 
@@ -257,8 +256,7 @@ export function createLocalStorageRoute(
     } catch (err: unknown) {
       if (!isEnoent(err)) {
         console.error('[storage] DELETE failed', { key, err });
-        const message = err instanceof Error ? err.message : 'unknown';
-        return c.json({ error: 'delete_failed', message }, 500);
+        return c.json({ error: 'delete_failed' }, 500);
       }
     }
     // Best-effort sidecar cleanup; missing sidecar is not an error.
@@ -417,8 +415,7 @@ export function createLocalStorageRoute(
       }
       await fs.unlink(tmpPath).catch(() => {});
       console.error('[storage] PUT-PART failed', { uploadId, partNumber, err });
-      const message = err instanceof Error ? err.message : 'unknown';
-      return c.json({ error: 'write_failed', message }, 500);
+      return c.json({ error: 'write_failed' }, 500);
     }
   });
 
