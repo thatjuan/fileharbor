@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
+import { LanguageSwitcher, Trans, selectPlural, useLocaleContext, useT } from '../i18n/index.js';
 import {
   confirmDownloadTicket,
   createDownloadTicket,
@@ -35,6 +36,8 @@ import {
 export function PublicSendPage(): JSX.Element {
   const params = useParams<{ code: string }>();
   const code = params.code ?? '';
+  const t = useT();
+  const { locale } = useLocaleContext();
 
   const [meta, setMeta] = useState<PublicSendLink | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
@@ -59,7 +62,7 @@ export function PublicSendPage(): JSX.Element {
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setMetaError(err instanceof Error ? err.message : 'Link not found or disabled.');
+          setMetaError(err instanceof Error ? err.message : t('send.notAvailable'));
         }
       });
     return () => {
@@ -89,7 +92,7 @@ export function PublicSendPage(): JSX.Element {
       }
       handleRejection(outcome);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start download.');
+      setError(err instanceof Error ? err.message : t('errors.downloadStartFailed'));
     } finally {
       setBusyFileId(null);
     }
@@ -102,7 +105,7 @@ export function PublicSendPage(): JSX.Element {
       | { kind: 'error'; message: string },
   ): void => {
     if (outcome.kind === 'not_found') {
-      setError('This download is no longer available.');
+      setError(t('send.downloadUnavailable'));
       return;
     }
     if (outcome.kind === 'error') {
@@ -114,21 +117,21 @@ export function PublicSendPage(): JSX.Element {
         // Server says we need a password but the input was empty. Don't blow
         // away `unlockedPassword` here — the user may just have skipped
         // typing it.
-        setError('A password is required to download from this link.');
+        setError(t('errors.passwordRequiredSend'));
         setUnlockedPassword(null);
         break;
       case 'password_wrong':
-        setError('Incorrect password. Please try again.');
+        setError(t('errors.passwordWrong'));
         setUnlockedPassword(null);
         break;
       case 'quota_exhausted':
-        setError('This link has reached its download limit.');
+        setError(t('errors.quotaExhaustedSend'));
         break;
       case 'expired':
-        setError('This link has expired.');
+        setError(t('errors.expired'));
         break;
       case 'disabled':
-        setError('This link is currently disabled.');
+        setError(t('errors.disabled'));
         break;
     }
   };
@@ -136,9 +139,10 @@ export function PublicSendPage(): JSX.Element {
   if (metaError) {
     return (
       <main className="page">
+        <LanguageSwitcher />
         <h1>File Harbor</h1>
         <p role="alert" className="error">
-          This download link is not available. It may be incorrect, disabled, or expired.
+          {t('send.notAvailable')}
         </p>
       </main>
     );
@@ -147,26 +151,31 @@ export function PublicSendPage(): JSX.Element {
   if (!meta) {
     return (
       <main className="page">
-        <p className="muted">Loading…</p>
+        <LanguageSwitcher />
+        <p className="muted">{t('common.loading')}</p>
       </main>
     );
   }
 
   const passwordGate = meta.passwordRequired && unlockedPassword === null;
 
+  const remainingLine = ((): string | null => {
+    if (meta.remainingDownloads === null) return null;
+    const n = meta.remainingDownloads;
+    const ofMax = meta.maxDownloads !== null ? t('send.ofMax', { max: meta.maxDownloads }) : '';
+    const key = `send.remaining_${selectPlural(locale, n)}`;
+    return t(key, { n, ofMax });
+  })();
+
   return (
     <main className="page">
-      <h1>Download</h1>
+      <LanguageSwitcher />
+      <h1>{t('send.title')}</h1>
       <p>
-        You&apos;ve been sent: <strong>{meta.label}</strong>
+        <Trans k="send.sentYou" components={{ label: <strong>{meta.label}</strong> }} />
       </p>
 
-      {meta.remainingDownloads !== null && (
-        <p className="muted small">
-          {meta.remainingDownloads} download{meta.remainingDownloads === 1 ? '' : 's'} remaining
-          {meta.maxDownloads !== null ? ` (of ${meta.maxDownloads})` : ''}.
-        </p>
-      )}
+      {remainingLine !== null && <p className="muted small">{remainingLine}</p>}
 
       {passwordGate ? (
         <form
@@ -180,7 +189,7 @@ export function PublicSendPage(): JSX.Element {
           }}
         >
           <label>
-            Password
+            {t('receive.password')}
             <input
               type="password"
               value={password}
@@ -195,13 +204,13 @@ export function PublicSendPage(): JSX.Element {
             </p>
           )}
           <button type="submit" disabled={password.length === 0}>
-            Unlock
+            {t('send.unlock')}
           </button>
         </form>
       ) : meta.files.length === 0 ? (
         // The link exists but the admin's upload hasn't finalized yet. Render
         // a soft state rather than a hard error — the recipient can refresh.
-        <p className="muted">No files available yet. Try again in a moment.</p>
+        <p className="muted">{t('send.noFilesYet')}</p>
       ) : (
         <ul className="list-reset stack">
           {meta.files.map((file) => (
@@ -219,7 +228,7 @@ export function PublicSendPage(): JSX.Element {
                 onClick={() => void onDownload(file.id)}
                 disabled={busyFileId !== null}
               >
-                {busyFileId === file.id ? 'Preparing…' : 'Download'}
+                {busyFileId === file.id ? t('send.preparing') : t('send.download')}
               </button>
             </li>
           ))}
