@@ -5,7 +5,7 @@ import { requireAdmin, type AdminContext } from '../auth/middleware.js';
 import type { FilesModule } from '../files/files.js';
 import { evaluateSendLink } from '../links/policy/index.js';
 import type { SendLink, SendLinksModule } from '../links/send-links.js';
-import type { UploadTicketsModule } from '../tickets/upload-tickets.js';
+import type { CompletedPart, UploadTicketsModule } from '../tickets/upload-tickets.js';
 
 interface CreateBody {
   label?: unknown;
@@ -20,8 +20,42 @@ interface AddFileBody {
   size?: unknown;
 }
 
+interface MultipartInitBody {
+  filename?: unknown;
+  contentType?: unknown;
+  size?: unknown;
+}
+
+interface MultipartCompletePartBodyEntry {
+  partNumber?: unknown;
+  etag?: unknown;
+}
+
+interface MultipartCompleteBody {
+  parts?: unknown;
+}
+
 interface UpdateBody {
   status?: unknown;
+}
+
+/**
+ * Validate a `parts` payload from a multipart-complete request body. Same
+ * shape as the public route's validator; duplicated here so the admin
+ * surface doesn't import from `public-upload-tickets.ts`.
+ */
+function parsePartsPayload(value: unknown): CompletedPart[] | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  const out: CompletedPart[] = [];
+  for (const raw of value) {
+    if (typeof raw !== 'object' || raw === null) return null;
+    const entry = raw as MultipartCompletePartBodyEntry;
+    if (!Number.isInteger(entry.partNumber)) return null;
+    const partNumber = entry.partNumber as number;
+    if (typeof entry.etag !== 'string' || entry.etag.length === 0) return null;
+    out.push({ partNumber, etag: entry.etag });
+  }
+  return out;
 }
 
 /**
@@ -93,6 +127,15 @@ function toResponse(link: SendLink): SendLinkResponse {
  *                              `{ ticket: { ticketId, presignedPutUrl,
  *                              expiresAt } }`. Admin PUTs to the URL and calls
  *                              the public finalize endpoint.
+ *  - `POST   /:linkId/files/multipart/init`                   — admin variant
+ *                              of the public multipart init. Body
+ *                              `{ filename, contentType, size }`.
+ *  - `POST   /:linkId/files/multipart/:ticketId/complete`     — admin variant
+ *                              of multipart complete. Body `{ parts }`.
+ *  - `POST   /:linkId/files/multipart/:ticketId/abort`        — admin variant
+ *                              of multipart abort.
+ *  - `GET    /:linkId/files/multipart/:ticketId/parts?from=&to=` — admin
+ *                              variant of paged PUT-PART URL fetch.
  *  - `GET    /`             — list links (newest first) with `displayStatus`.
  *  - `GET    /:id`          — link detail + bundled files.
  *  - `PATCH  /:id`          — update link status (`active` | `disabled`).
@@ -203,6 +246,148 @@ export function createSendLinksRoute(
         expiresAt: ticketOutcome.value.expiresAt.toISOString(),
       },
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Admin multipart variants.
+  //
+  // The `:linkId` URL segment is a UX/grouping hint so admin tooling and logs
+  // tie the multipart session back to the visible send-link page. The
+  // upload-tickets module identifies the session by `:ticketId` alone — the
+  // ticket row carries the link binding internally, so no admin path needs to
+  // re-validate the `linkId` against the ticket. Mirrors the existing
+  // single-PUT split: `POST /:id/files` mints the ticket but downstream
+  // finalize is keyed off `ticketId` over in `public-upload-tickets`.
+  //
+  // All four inherit the `requireAdmin` middleware from the route's `use`.
+  // No password — admin auth IS the policy gate.
+  // -------------------------------------------------------------------------
+
+  route.post('/:linkId/files/multipart/init', async (c) => {
+    const linkId = c.req.param('linkId');
+
+    let body: MultipartInitBody;
+    try {
+      body = (await c.req.json()) as MultipartInitBody;
+    } catch {
+      return c.json({ error: 'invalid_json' }, 400);
+    }
+
+    const filename = typeof body.filename === 'string' ? body.filename : '';
+    const contentType =
+      typeof body.contentType === 'string' && body.contentType.trim().length > 0
+        ? body.contentType
+        : 'application/octet-stream';
+    const size = typeof body.size === 'number' ? body.size : NaN;
+
+    const outcome = await uploadTicketsModule.initMultipartForSendLink({
+      sendLinkId: linkId,
+      filename,
+      contentType,
+      size,
+    });
+
+    switch (outcome.kind) {
+      case 'ok':
+        return c.json({
+          ticketId: outcome.value.ticketId,
+          uploadId: outcome.value.uploadId,
+          partSize: outcome.value.partSize,
+          expectedParts: outcome.value.expectedParts,
+          initialUrls: outcome.value.initialUrls,
+          paginated: outcome.value.paginated,
+          expiresAt: outcome.value.expiresAt,
+        });
+      case 'link_not_found':
+        return c.json({ error: 'not_found' }, 404);
+      case 'invalid_input':
+        return c.json({ error: 'invalid_input', message: outcome.reason }, 400);
+      case 'policy_rejected':
+        // Admin-bypass means only `disabled` can fire; preserve the
+        // discriminator-as-error-code convention used by single-PUT.
+        return c.json({ error: outcome.policy.kind }, 403);
+    }
+  });
+
+  route.post('/:linkId/files/multipart/:ticketId/complete', async (c) => {
+    const ticketId = c.req.param('ticketId');
+
+    let body: MultipartCompleteBody;
+    try {
+      body = (await c.req.json()) as MultipartCompleteBody;
+    } catch {
+      return c.json({ error: 'invalid_json' }, 400);
+    }
+
+    const parts = parsePartsPayload(body.parts);
+    if (parts === null) {
+      return c.json({ error: 'invalid_input', message: 'invalid_parts' }, 400);
+    }
+
+    const outcome = await uploadTicketsModule.completeMultipart(ticketId, { parts });
+
+    switch (outcome.kind) {
+      case 'completed':
+        return c.json({ status: 'completed' as const });
+      case 'failed':
+        if (outcome.reason === 'wrong_state') {
+          return c.json({ error: 'wrong_state' }, 409);
+        }
+        return c.json({ status: 'failed' as const, reason: outcome.reason });
+      case 'ticket_not_found':
+        return c.json({ error: 'not_found' }, 404);
+      case 'policy_rejected':
+        // Admin-bypass in the module means only the send-link `disabled`
+        // branch fires here in practice; surface uniformly with public.
+        return c.json({ error: outcome.policy.kind }, 403);
+    }
+  });
+
+  route.post('/:linkId/files/multipart/:ticketId/abort', async (c) => {
+    const ticketId = c.req.param('ticketId');
+
+    const outcome = await uploadTicketsModule.abortMultipart(ticketId, {});
+
+    switch (outcome.kind) {
+      case 'aborted':
+        return c.json({ status: 'aborted' as const });
+      case 'already_completed':
+        return c.json({ status: 'already_completed' as const });
+      case 'already_aborted':
+        return c.json({ status: 'already_aborted' as const });
+      case 'ticket_not_found':
+        return c.json({ error: 'not_found' }, 404);
+    }
+  });
+
+  route.get('/:linkId/files/multipart/:ticketId/parts', async (c) => {
+    const ticketId = c.req.param('ticketId');
+    const fromRaw = c.req.query('from');
+    const toRaw = c.req.query('to');
+    const from = fromRaw !== undefined ? Number(fromRaw) : NaN;
+    const to = toRaw !== undefined ? Number(toRaw) : NaN;
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < 1) {
+      return c.json({ error: 'invalid_range' }, 400);
+    }
+
+    const outcome = await uploadTicketsModule.getMultipartPartUrls(ticketId, from, to, null);
+
+    switch (outcome.kind) {
+      case 'ok':
+        return c.json({ urls: outcome.value.urls, expiresAt: outcome.value.expiresAt });
+      case 'invalid_input':
+        return c.json({ error: outcome.reason }, 400);
+      case 'wrong_state':
+        return c.json({ error: 'wrong_state' }, 409);
+      case 'not_multipart':
+        return c.json({ error: 'not_multipart' }, 400);
+      case 'ticket_not_found':
+        return c.json({ error: 'not_found' }, 404);
+      case 'policy_rejected':
+        // Send-side flow does not re-run receive-side policy, but the module's
+        // outcome union still includes this kind — handle for exhaustiveness.
+        return c.json({ error: outcome.policy.kind }, 403);
+    }
   });
 
   route.get('/', async (c) => {
