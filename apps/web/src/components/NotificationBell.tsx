@@ -15,6 +15,10 @@ import { fetchUnreadNotificationCount } from '../lib/api.js';
  * The bell itself is a router `<Link>` to `/notifications` rather than a
  * dropdown. Simpler, doesn't need outside-click handling, and the page can
  * own its own data lifecycle.
+ *
+ * DESIGN.md grammar: a 44×44 `btn-icon-circular` rendered in the global-nav
+ * right-cluster. Unread state is signalled by a small Action Blue dot at the
+ * top-right corner — the system has no count chip and no second accent.
  */
 const POLL_INTERVAL_MS = 30_000;
 
@@ -46,14 +50,40 @@ export function NotificationBell(): JSX.Element {
     };
   }, []);
 
+  const label =
+    unread === 0 ? 'Notifications' : `Notifications (${unread} unread)`;
+
   return (
-    <Link to="/notifications" className="bell" aria-label={`Notifications (${unread} unread)`}>
-      <span aria-hidden>Notifications</span>
-      {unread > 0 && (
-        <span className="badge" aria-hidden>
-          {unread > 99 ? '99+' : unread}
-        </span>
-      )}
+    <Link
+      to="/notifications"
+      className="btn-icon-circular notification-bell"
+      aria-label={label}
+      style={{ position: 'relative' }}
+    >
+      <BellIcon />
+      {unread > 0 && <span className="unread-dot" aria-hidden />}
     </Link>
+  );
+}
+
+function BellIcon(): JSX.Element {
+  // 18×18 outline glyph; near-black ink in light mode, white in dark via
+  // currentColor (the parent .btn-icon-circular sets color: var(--color-ink)
+  // which inverts to white via the dark-mode token block).
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+    </svg>
   );
 }
