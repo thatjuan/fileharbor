@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { createReadStream, promises as fs } from 'node:fs';
 import { dirname } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -151,7 +151,138 @@ export function createLocalStorageRoute(config: LocalStorageConfig): Hono {
     }
   });
 
+  route.get('/get/:key{.+}', async (c) => {
+    const key = c.req.param('key');
+    if (!validateKey(key)) {
+      return c.json({ error: 'invalid_key' }, 400);
+    }
+
+    const sigCheck = checkSignature(c, 'GET', key, secret);
+    if (!sigCheck.ok) return c.json({ error: sigCheck.error }, sigCheck.status);
+
+    const targetPath = resolveSafe(objectsDir, key);
+    if (targetPath === null) {
+      return c.json({ error: 'invalid_key' }, 400);
+    }
+
+    let size: number;
+    try {
+      const st = await fs.stat(targetPath);
+      size = st.size;
+    } catch (err: unknown) {
+      if (isEnoent(err)) return c.json({ error: 'not_found' }, 404);
+      throw err;
+    }
+
+    // Content-Type from the meta sidecar; fall back to a safe generic.
+    let contentType = 'application/octet-stream';
+    try {
+      const raw = await fs.readFile(`${targetPath}.meta.json`, 'utf8');
+      const meta = JSON.parse(raw) as { contentType?: unknown };
+      if (typeof meta.contentType === 'string' && meta.contentType.length > 0) {
+        contentType = meta.contentType;
+      }
+    } catch {
+      // Sidecar absent or malformed — fall back is fine.
+    }
+
+    const baseHeaders: Record<string, string> = {
+      'Content-Type': contentType,
+      'Accept-Ranges': 'bytes',
+    };
+    if (sigCheck.responseContentDisposition !== undefined) {
+      baseHeaders['Content-Disposition'] = sigCheck.responseContentDisposition;
+    }
+
+    const rangeHeader = c.req.header('range');
+    const rangeResult = parseRange(rangeHeader, size);
+
+    if (rangeResult === 'unsatisfiable') {
+      // RFC 7233 §4.4: include `Content-Range: bytes */<size>` so the client
+      // can recover (it now knows the actual size).
+      return new Response(null, {
+        status: 416,
+        headers: { ...baseHeaders, 'Content-Range': `bytes */${size}` },
+      });
+    }
+
+    if (rangeResult === null) {
+      // No `Range` header, or malformed — RFC 7233 §3.1 says ignore a
+      // malformed Range and respond with the full body. Same as S3.
+      const headers = { ...baseHeaders, 'Content-Length': String(size) };
+      const stream = createReadStream(targetPath);
+      const webBody = Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>;
+      return new Response(webBody, { status: 200, headers });
+    }
+
+    const { start, end } = rangeResult;
+    const headers = {
+      ...baseHeaders,
+      'Content-Range': `bytes ${start}-${end}/${size}`,
+      'Content-Length': String(end - start + 1),
+    };
+    const stream = createReadStream(targetPath, { start, end });
+    const webBody = Readable.toWeb(stream) as unknown as ReadableStream<Uint8Array>;
+    return new Response(webBody, { status: 206, headers });
+  });
+
   return route;
+}
+
+/**
+ * Parse an HTTP `Range` header for a single byte-range.
+ *
+ *   - `bytes=N-M`  → byte N to byte M (inclusive)
+ *   - `bytes=N-`   → byte N to end of file
+ *   - `bytes=-N`   → suffix range: last N bytes (RFC 7233 §2.1)
+ *
+ * Returns:
+ *   - `{ start, end }`  → valid, in-bounds range (end clamped to size-1).
+ *   - `'unsatisfiable'` → 416 case (e.g. `start >= size`).
+ *   - `null`            → no header, malformed, multi-range, or syntactically
+ *                         valid but semantically empty. The caller serves
+ *                         the full body in this case (matches S3).
+ */
+export function parseRange(
+  raw: string | undefined,
+  size: number,
+): { start: number; end: number } | 'unsatisfiable' | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  // Multi-range syntax (`bytes=0-10,20-30`) is intentionally not supported;
+  // S3 also serves a single range or the full object, never multipart/byteranges.
+  if (trimmed.includes(',')) return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(trimmed);
+  if (!m) return null;
+  const startStr = m[1] ?? '';
+  const endStr = m[2] ?? '';
+
+  if (startStr === '' && endStr === '') return null;
+
+  // Suffix range: `bytes=-N` → last N bytes.
+  if (startStr === '') {
+    const n = Number.parseInt(endStr, 10);
+    if (!Number.isInteger(n) || n <= 0) return null;
+    if (size === 0) return 'unsatisfiable';
+    const start = Math.max(0, size - n);
+    return { start, end: size - 1 };
+  }
+
+  const start = Number.parseInt(startStr, 10);
+  if (!Number.isInteger(start) || start < 0) return null;
+  if (start >= size) return 'unsatisfiable';
+
+  if (endStr === '') {
+    return { start, end: size - 1 };
+  }
+
+  const end = Number.parseInt(endStr, 10);
+  if (!Number.isInteger(end) || end < start) return null;
+  return { start, end: Math.min(end, size - 1) };
+}
+
+function isEnoent(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: string }).code === 'ENOENT';
 }
 
 interface SignatureOk {
