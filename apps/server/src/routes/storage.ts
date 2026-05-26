@@ -226,6 +226,38 @@ export function createLocalStorageRoute(config: LocalStorageConfig): Hono {
     return new Response(webBody, { status: 206, headers });
   });
 
+  route.delete('/delete/:key{.+}', async (c) => {
+    const key = c.req.param('key');
+    if (!validateKey(key)) {
+      return c.json({ error: 'invalid_key' }, 400);
+    }
+
+    const sigCheck = checkSignature(c, 'DELETE', key, secret);
+    if (!sigCheck.ok) return c.json({ error: sigCheck.error }, sigCheck.status);
+
+    const targetPath = resolveSafe(objectsDir, key);
+    if (targetPath === null) {
+      return c.json({ error: 'invalid_key' }, 400);
+    }
+
+    // Idempotent: ENOENT is success. Matches S3 DeleteObject semantics so the
+    // admin "delete file" flow and the ticket-cleanup sweep (#10) don't need
+    // to special-case "already deleted".
+    try {
+      await fs.unlink(targetPath);
+    } catch (err: unknown) {
+      if (!isEnoent(err)) {
+        console.error('[storage] DELETE failed', { key, err });
+        const message = err instanceof Error ? err.message : 'unknown';
+        return c.json({ error: 'delete_failed', message }, 500);
+      }
+    }
+    // Best-effort sidecar cleanup; missing sidecar is not an error.
+    await fs.unlink(`${targetPath}.meta.json`).catch(() => {});
+
+    return c.body(null, 204);
+  });
+
   return route;
 }
 
