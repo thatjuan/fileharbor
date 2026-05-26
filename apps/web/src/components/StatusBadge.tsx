@@ -16,5 +16,7 @@ const LABELS: Record<ReceiveLinkDisplayStatus, string> = {
 };
 
 export function StatusBadge({ status }: { status: ReceiveLinkDisplayStatus }): JSX.Element {
-  return <span className={`badge badge-${status}`}>{LABELS[status]}</span>;
+  return (
+    <span className={`status-badge status-badge-${status}`}>{LABELS[status]}</span>
+  );
 }
