@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { hashPassword } from '@better-auth/utils/password';
 
 import type { Db } from '../db/client.js';
-import { files, sendLinks } from '../db/schema.js';
+import { files, pendingAborts, sendLinks, uploadTickets } from '../db/schema.js';
+import type { StorageProvider } from '../storage/index.js';
 import { mintUniqueCode, normalizeCode } from './code-generator.js';
 
 /**
@@ -86,7 +87,10 @@ export interface CreateSendLinkInput {
   expiresAt?: number | null;
 }
 
-export function createSendLinksModule(db: Db): SendLinksModule {
+export function createSendLinksModule(
+  db: Db,
+  storage: StorageProvider,
+): SendLinksModule {
   const codeExists = async (code: string): Promise<boolean> => {
     const row = db.select({ id: sendLinks.id }).from(sendLinks).where(eq(sendLinks.code, code)).get();
     return Boolean(row);
@@ -208,7 +212,66 @@ export function createSendLinksModule(db: Db): SendLinksModule {
     },
 
     async remove(id) {
+      // Symmetric cascade-abort with `receive-links.remove` — see that
+      // module for the full rationale. We snapshot in-flight multipart
+      // tickets before the CASCADE wipes them, enqueue durable abort rows,
+      // then fire inline best-effort aborts after the delete.
+      const inFlight = db
+        .select({
+          s3Key: uploadTickets.s3Key,
+          uploadId: uploadTickets.uploadId,
+        })
+        .from(uploadTickets)
+        .where(
+          and(
+            eq(uploadTickets.sendLinkId, id),
+            eq(uploadTickets.protocol, 'multipart'),
+            inArray(uploadTickets.status, ['pending', 'aborting', 'completing']),
+          ),
+        )
+        .all()
+        .filter((r): r is { s3Key: string; uploadId: string } => r.uploadId !== null);
+
+      const now = Math.floor(Date.now() / 1000);
+      for (const row of inFlight) {
+        db.insert(pendingAborts)
+          .values({
+            s3Key: row.s3Key,
+            uploadId: row.uploadId,
+            reason: 'link_delete',
+            enqueuedAt: now,
+            attempts: 0,
+          })
+          .onConflictDoNothing()
+          .run();
+      }
+
       const result = db.delete(sendLinks).where(eq(sendLinks.id, id)).run();
+
+      for (const row of inFlight) {
+        void (async () => {
+          try {
+            await storage.abortMultipart(row.s3Key, row.uploadId);
+            db.delete(pendingAborts)
+              .where(
+                and(
+                  eq(pendingAborts.s3Key, row.s3Key),
+                  eq(pendingAborts.uploadId, row.uploadId),
+                ),
+              )
+              .run();
+          } catch (err) {
+            console.warn(
+              '[send-links] inline link-delete abort failed; sweep will retry',
+              {
+                uploadId: row.uploadId,
+                err: err instanceof Error ? err.message : String(err),
+              },
+            );
+          }
+        })();
+      }
+
       // The schema's FK cascades (upload_tickets.send_link_id,
       // download_tickets.send_link_id) and SET NULLs (files.send_link_id)
       // do the rest of the work. We never touch S3 here — the admin's

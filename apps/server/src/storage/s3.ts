@@ -1,10 +1,14 @@
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -30,6 +34,22 @@ export function createS3StorageProvider(config: S3StorageConfig): StorageProvide
 
   const bucket = config.bucket;
   const defaultTtlSeconds = config.presignTtlSeconds;
+
+  /**
+   * In-memory cache of open multipart sessions keyed by `uploadId`. Lets
+   * `presignUploadPart` and `completeMultipart` read the resolved `partSize`
+   * (and the original `sizeHint`/`contentType`) without an extra round-trip
+   * to S3. The cache is process-local and lost on restart; on a multi-process
+   * deployment the same uploadId is only ever consumed by the originating
+   * process within the URL TTL window. The durable `upload_tickets` row
+   * carries the same `part_size`/`expected_parts` the caller passes back in,
+   * so a cache miss is recoverable (just slower) — the storage layer itself
+   * never reads it back.
+   */
+  const sessions = new Map<
+    string,
+    { partSize: number; sizeHint: number; contentType: string }
+  >();
 
   function ttlFor(override: number | undefined): number {
     return override ?? defaultTtlSeconds;
@@ -90,6 +110,111 @@ export function createS3StorageProvider(config: S3StorageConfig): StorageProvide
 
     async deleteObject(key) {
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    },
+
+    async initMultipart(key, opts) {
+      // Resolve the effective part size: never below caller's configured
+      // floor, and large enough to keep the part count <= 10_000 (S3's hard
+      // cap). For files smaller than configuredFloor * 10_000 this is just
+      // configuredFloor; for very large files it scales linearly.
+      const partSize = Math.max(
+        opts.partSizeBytes,
+        Math.ceil(opts.sizeHint / 10_000),
+      );
+      const expectedParts = Math.ceil(opts.sizeHint / partSize);
+
+      const res = await client.send(
+        new CreateMultipartUploadCommand({
+          Bucket: bucket,
+          Key: key,
+          ContentType: opts.contentType,
+        }),
+      );
+      const uploadId = res.UploadId;
+      if (!uploadId) {
+        throw new Error(
+          `S3 CreateMultipartUpload returned no UploadId for key=${JSON.stringify(key)}`,
+        );
+      }
+      sessions.set(uploadId, {
+        partSize,
+        sizeHint: opts.sizeHint,
+        contentType: opts.contentType,
+      });
+      return { uploadId, partSize, expectedParts };
+    },
+
+    async presignUploadPart(key, uploadId, partNumber, opts) {
+      // R3: deliberately DO NOT include ContentType on the UploadPart
+      // presign. The single-PUT path does, but UploadPart's SigV4 does not
+      // need (or want) it; signing it would make the rejection mode opaque
+      // when intermediaries strip the header.
+      const command = new UploadPartCommand({
+        Bucket: bucket,
+        Key: key,
+        UploadId: uploadId,
+        PartNumber: partNumber,
+      });
+      return signWithTtl(command, ttlFor(opts?.expiresInSeconds));
+    },
+
+    async completeMultipart(key, uploadId, parts) {
+      if (parts.length === 0) {
+        throw new Error(
+          `S3 completeMultipart called with empty parts list for key=${JSON.stringify(key)} uploadId=${uploadId}`,
+        );
+      }
+      // S3 requires Parts in ascending PartNumber order; sort defensively
+      // so a stray out-of-order entry from the caller doesn't fail the whole
+      // session.
+      const sorted = [...parts].sort((a, b) => a.partNumber - b.partNumber);
+      const res = await client.send(
+        new CompleteMultipartUploadCommand({
+          Bucket: bucket,
+          Key: key,
+          UploadId: uploadId,
+          MultipartUpload: {
+            Parts: sorted.map((p) => ({
+              PartNumber: p.partNumber,
+              ETag: p.etag,
+            })),
+          },
+        }),
+      );
+      // Defensive: aws-sdk-js v3 surfaces most `<Error>` bodies as thrown
+      // errors via the deserialiser, but a 200 with an empty/missing ETag
+      // indicates the upload did not actually assemble. Treat as failure
+      // rather than silently returning an empty etag.
+      const etag = res.ETag;
+      if (!etag || etag.length === 0) {
+        throw new Error(
+          `S3 CompleteMultipartUpload returned 200 with no ETag for key=${JSON.stringify(key)} uploadId=${uploadId} — likely an error body; treating as failure.`,
+        );
+      }
+      sessions.delete(uploadId);
+      return { etag };
+    },
+
+    async abortMultipart(key, uploadId) {
+      try {
+        await client.send(
+          new AbortMultipartUploadCommand({
+            Bucket: bucket,
+            Key: key,
+            UploadId: uploadId,
+          }),
+        );
+      } catch (err: unknown) {
+        // NoSuchUpload / 404 — the upload was already aborted (sweep, cascade,
+        // or a parallel cleanup path). Idempotent: success.
+        if (errorHttpStatus(err) === 404) {
+          // swallow
+        } else {
+          throw err;
+        }
+      } finally {
+        sessions.delete(uploadId);
+      }
     },
   };
 }
