@@ -199,8 +199,10 @@ function resolveStorageConfig(
   nodeEnv: AppConfig['nodeEnv'],
   dataDir: string,
 ): StorageConfig {
-  // Slice 1 default: `s3`. Slice 4 (issue #30) flips the default to `local`.
-  const backendRaw = (env.STORAGE_BACKEND ?? 's3').trim().toLowerCase();
+  // Default `local`: a fresh container with only `BETTER_AUTH_SECRET` +
+  // `STORAGE_SIGNING_SECRET` (and a data volume) boots and works end-to-end.
+  // Operators who want off-host bytes opt in with `STORAGE_BACKEND=s3`.
+  const backendRaw = (env.STORAGE_BACKEND ?? 'local').trim().toLowerCase();
   if (backendRaw !== 's3' && backendRaw !== 'local') {
     throw new Error(
       `STORAGE_BACKEND must be 'local' or 's3'. Got: ${JSON.stringify(env.STORAGE_BACKEND)}`,
