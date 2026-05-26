@@ -1,5 +1,4 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 import { createAdmin } from '../lib/setup.js';
 
@@ -9,7 +8,6 @@ import { createAdmin } from '../lib/setup.js';
  * set up, the routing layer bounces them to `/login`.
  */
 export function SetupPage(): JSX.Element {
-  const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -24,10 +22,15 @@ export function SetupPage(): JSX.Element {
       // Setup succeeded — the user still needs to sign in (we don't auto-issue
       // a session from the setup endpoint, by design: it keeps setup a
       // privileged write-only operation).
-      navigate('/login', { replace: true });
+      //
+      // Full-page navigation, not client-side `navigate('/login')`: App's
+      // `fetchSetupStatus` runs once at mount and caches the result, so a
+      // client-side route change would still see `needsSetup: true` and
+      // bounce us straight back here via the catch-all. A real navigation
+      // reboots App, which re-queries `/api/setup` and routes correctly.
+      window.location.assign('/login');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Setup failed.');
-    } finally {
       setSubmitting(false);
     }
   };
