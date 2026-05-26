@@ -36,16 +36,17 @@ export function SetupPage(): JSX.Element {
   };
 
   return (
-    <main className="page">
+    <main className="page-auth">
       <h1>Set up File Harbor</h1>
-      <p>
+      <p className="lead">
         Create the admin account for this instance. This screen disappears once an admin exists.
       </p>
       <form onSubmit={onSubmit} className="stack">
-        <label>
+        <label className="input-label">
           Username
           <input
             type="text"
+            className="input-pill"
             autoComplete="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -54,10 +55,11 @@ export function SetupPage(): JSX.Element {
             required
           />
         </label>
-        <label>
+        <label className="input-label">
           Password
           <input
             type="password"
+            className="input-pill"
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -66,11 +68,11 @@ export function SetupPage(): JSX.Element {
           />
         </label>
         {error && (
-          <p role="alert" className="error">
+          <p role="alert" className="muted">
             {error}
           </p>
         )}
-        <button type="submit" disabled={submitting}>
+        <button type="submit" className="btn-primary" disabled={submitting}>
           {submitting ? 'Creating…' : 'Create admin'}
         </button>
       </form>
