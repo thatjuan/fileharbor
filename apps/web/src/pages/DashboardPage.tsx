@@ -2,18 +2,19 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { StatusBadge } from '../components/StatusBadge.js';
-import {
-  listReceiveLinks,
-  listSendLinks,
-  type ReceiveLink,
-  type SendLink,
-} from '../lib/api.js';
+import { SubNav } from '../components/SubNav.js';
+import { listReceiveLinks, listSendLinks, type ReceiveLink, type SendLink } from '../lib/api.js';
 import { signOut, useSession } from '../lib/auth-client.js';
 
 /**
- * Admin dashboard. Lists existing receive links + a "new link" button.
- * Link detail (and the new-link form) live on dedicated routes so the
- * URL is the source of truth for which view you're looking at.
+ * Admin dashboard at `/`. Renders inside `AdminShell`, so the page itself
+ * only owns the SubNav (section title + new-link CTAs) and the link
+ * inventory below it.
+ *
+ * Receive and send links are listed as `.store-card` grids — two side-by-side
+ * sections, each with its own heading and empty state. Cards lead to the
+ * dedicated detail pages, which are the source of truth for per-link actions
+ * (revoke, copy URL, etc.); we keep the dashboard quiet.
  */
 export function DashboardPage(): JSX.Element {
   const { data: session } = useSession();
@@ -59,98 +60,129 @@ export function DashboardPage(): JSX.Element {
     'admin';
 
   return (
-    <main className="page wide">
-      <header className="row between">
-        <h1>File Harbor</h1>
-        <div className="row">
-          <span className="muted">
+    <>
+      <SubNav
+        title="Dashboard"
+        actions={
+          <>
+            <Link to="/links/receive/new" className="btn-primary">
+              New receive link
+            </Link>
+            <Link to="/links/send/new" className="btn-secondary-pill">
+              New send link
+            </Link>
+          </>
+        }
+      />
+
+      <div className="stack-airy">
+        <div className="row between">
+          <span className="small muted">
             Signed in as <strong>{displayName}</strong>
           </span>
-          <button type="button" onClick={onSignOut}>
+          <button type="button" className="text-link" onClick={onSignOut}>
             Sign out
           </button>
         </div>
-      </header>
 
-      <section className="stack">
-        <div className="row between">
+        <section className="stack">
           <h2>Receive links</h2>
-          <Link to="/links/receive/new" className="button-link">
-            New receive link
-          </Link>
-        </div>
 
-        {error && (
-          <p role="alert" className="error">
-            {error}
-          </p>
-        )}
+          {error !== null && (
+            <p role="alert" className="error">
+              {error}
+            </p>
+          )}
 
-        {links === null && !error && <p className="muted">Loading…</p>}
+          {links === null && error === null && <p className="muted">Loading…</p>}
 
-        {links !== null && links.length === 0 && (
-          <p className="muted">No receive links yet. Create one to get started.</p>
-        )}
+          {links !== null && links.length === 0 && (
+            <div className="store-card" style={{ alignItems: 'center', textAlign: 'center' }}>
+              <p className="lead-airy">No receive links yet.</p>
+              <Link to="/links/receive/new" className="btn-primary">
+                Create your first receive link
+              </Link>
+            </div>
+          )}
 
-        {links !== null && links.length > 0 && (
-          <ul className="list-reset stack">
-            {links.map((link) => (
-              <li key={link.id} className="card row between">
-                <div>
-                  <Link to={`/links/receive/${link.id}`}>
-                    <strong>{link.label}</strong>
-                  </Link>
-                  <div className="muted small">
-                    Code <code>{link.code}</code> ·{' '}
-                    {new Date(link.createdAt * 1000).toLocaleString()}
+          {links !== null && links.length > 0 && (
+            <div className="store-card-grid">
+              {links.map((link) => (
+                <div key={link.id} className="store-card">
+                  <div className="stack-tight">
+                    <span className="body-strong">{link.label}</span>
+                    <span className="small muted">
+                      Code <code>{link.code}</code>
+                    </span>
+                  </div>
+                  <StatusBadge status={link.displayStatus} />
+                  {link.maxUploads !== null && (
+                    <span className="small muted">{link.maxUploads} upload cap</span>
+                  )}
+                  <div className="row">
+                    <Link to={`/links/receive/${link.id}`} className="text-link">
+                      Open
+                    </Link>
                   </div>
                 </div>
-                <StatusBadge status={link.displayStatus} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </section>
 
-      <section className="stack">
-        <div className="row between">
+        <section className="stack">
           <h2>Send links</h2>
-          <Link to="/links/send/new" className="button-link">
-            New send link
-          </Link>
-        </div>
 
-        {sendError && (
-          <p role="alert" className="error">
-            {sendError}
-          </p>
-        )}
+          {sendError !== null && (
+            <p role="alert" className="error">
+              {sendError}
+            </p>
+          )}
 
-        {sendLinks === null && !sendError && <p className="muted">Loading…</p>}
+          {sendLinks === null && sendError === null && <p className="muted">Loading…</p>}
 
-        {sendLinks !== null && sendLinks.length === 0 && (
-          <p className="muted">No send links yet. Create one to share a file.</p>
-        )}
+          {sendLinks !== null && sendLinks.length === 0 && (
+            <div className="store-card" style={{ alignItems: 'center', textAlign: 'center' }}>
+              <p className="lead-airy">No send links yet.</p>
+              <Link to="/links/send/new" className="btn-primary">
+                Create your first send link
+              </Link>
+            </div>
+          )}
 
-        {sendLinks !== null && sendLinks.length > 0 && (
-          <ul className="list-reset stack">
-            {sendLinks.map((link) => (
-              <li key={link.id} className="card row between">
-                <div>
-                  <Link to={`/links/send/${link.id}`}>
-                    <strong>{link.label}</strong>
-                  </Link>
-                  <div className="muted small">
-                    Code <code>{link.code}</code> ·{' '}
-                    {new Date(link.createdAt * 1000).toLocaleString()}
+          {sendLinks !== null && sendLinks.length > 0 && (
+            <div className="store-card-grid">
+              {sendLinks.map((link) => {
+                const remaining =
+                  link.maxDownloads !== null
+                    ? Math.max(0, link.maxDownloads - link.downloadCount)
+                    : null;
+                return (
+                  <div key={link.id} className="store-card">
+                    <div className="stack-tight">
+                      <span className="body-strong">{link.label}</span>
+                      <span className="small muted">
+                        Code <code>{link.code}</code>
+                      </span>
+                    </div>
+                    <StatusBadge status={link.displayStatus} />
+                    {remaining !== null && (
+                      <span className="small muted">
+                        {remaining} of {link.maxDownloads} downloads remaining
+                      </span>
+                    )}
+                    <div className="row">
+                      <Link to={`/links/send/${link.id}`} className="text-link">
+                        Open
+                      </Link>
+                    </div>
                   </div>
-                </div>
-                <StatusBadge status={link.displayStatus} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </main>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+    </>
   );
 }
