@@ -138,21 +138,25 @@ export function PublicSendPage(): JSX.Element {
 
   if (metaError) {
     return (
-      <main className="page">
-        <LanguageSwitcher />
-        <h1>File Harbor</h1>
-        <p role="alert" className="error">
-          {t('send.notAvailable')}
-        </p>
+      <main className="tile tile-parchment">
+        <div className="container-narrow stack">
+          <LanguageSwitcher />
+          <h1>File Harbor</h1>
+          <p role="alert" className="error">
+            {t('send.notAvailable')}
+          </p>
+        </div>
       </main>
     );
   }
 
   if (!meta) {
     return (
-      <main className="page">
-        <LanguageSwitcher />
-        <p className="muted">{t('common.loading')}</p>
+      <main className="tile tile-parchment">
+        <div className="container-narrow stack">
+          <LanguageSwitcher />
+          <p className="muted">{t('common.loading')}</p>
+        </div>
       </main>
     );
   }
@@ -168,78 +172,84 @@ export function PublicSendPage(): JSX.Element {
   })();
 
   return (
-    <main className="page">
-      <LanguageSwitcher />
-      <h1>{t('send.title')}</h1>
-      <p>
-        <Trans k="send.sentYou" components={{ label: <strong>{meta.label}</strong> }} />
-      </p>
-
-      {remainingLine !== null && <p className="muted small">{remainingLine}</p>}
-
-      {passwordGate ? (
-        <form
-          className="stack"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setError(null);
-            // Soft-unlock: hand the typed password to subsequent download
-            // mints. The real validation happens server-side on each call.
-            if (password.length > 0) setUnlockedPassword(password);
-          }}
-        >
-          <label>
-            {t('receive.password')}
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoFocus
-              required
-            />
-          </label>
-          {error && (
-            <p role="alert" className="error">
-              {error}
-            </p>
-          )}
-          <button type="submit" disabled={password.length === 0}>
-            {t('send.unlock')}
-          </button>
-        </form>
-      ) : meta.files.length === 0 ? (
-        // The link exists but the admin's upload hasn't finalized yet. Render
-        // a soft state rather than a hard error — the recipient can refresh.
-        <p className="muted">{t('send.noFilesYet')}</p>
-      ) : (
-        <ul className="list-reset stack">
-          {meta.files.map((file) => (
-            <li key={file.id} className="card row between">
-              <div>
-                <div>
-                  <strong>{file.filename}</strong>
-                </div>
-                <div className="muted small">
-                  {formatBytes(file.size)} · {file.contentType}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => void onDownload(file.id)}
-                disabled={busyFileId !== null}
-              >
-                {busyFileId === file.id ? t('send.preparing') : t('send.download')}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {!passwordGate && error && (
-        <p role="alert" className="error">
-          {error}
+    <main className="tile tile-parchment">
+      <div className="container-narrow stack">
+        <LanguageSwitcher />
+        <h1>{t('send.title')}</h1>
+        <p className="lead">
+          <Trans k="send.sentYou" components={{ label: <strong>{meta.label}</strong> }} />
         </p>
-      )}
+
+        {remainingLine !== null && <p className="muted small">{remainingLine}</p>}
+
+        {passwordGate ? (
+          <form
+            className="stack"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setError(null);
+              // Soft-unlock: hand the typed password to subsequent download
+              // mints. The real validation happens server-side on each call.
+              if (password.length > 0) setUnlockedPassword(password);
+            }}
+          >
+            <label className="input-label">
+              {t('receive.password')}
+              <input
+                type="password"
+                className="input-pill"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoFocus
+                required
+              />
+            </label>
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+            <div className="row">
+              <button type="submit" className="btn-primary" disabled={password.length === 0}>
+                {t('send.unlock')}
+              </button>
+            </div>
+          </form>
+        ) : meta.files.length === 0 ? (
+          // The link exists but the admin's upload hasn't finalized yet. Render
+          // a soft state rather than a hard error — the recipient can refresh.
+          <div className="store-card" style={{ textAlign: 'center' }}>
+            <p className="muted">{t('send.noFilesYet')}</p>
+          </div>
+        ) : (
+          <ul className="list-reset stack">
+            {meta.files.map((file) => (
+              <li key={file.id} className="store-card-row">
+                <div>
+                  <div className="body-strong">{file.filename}</div>
+                  <div className="muted small">
+                    {formatBytes(file.size)} · {file.contentType}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => void onDownload(file.id)}
+                  disabled={busyFileId !== null}
+                >
+                  {busyFileId === file.id ? t('send.preparing') : t('send.download')}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {!passwordGate && error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+      </div>
     </main>
   );
 }

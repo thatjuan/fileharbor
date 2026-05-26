@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
+import { SubNav } from '../components/SubNav.js';
 import { createReceiveLink } from '../lib/api.js';
 
 /**
@@ -70,72 +71,98 @@ export function NewReceiveLinkPage(): JSX.Element {
   };
 
   return (
-    <main className="page">
-      <header className="row between">
-        <h1>New receive link</h1>
-        <Link to="/">Back</Link>
-      </header>
-      <form onSubmit={onSubmit} className="stack">
-        <label>
-          Label
-          <input
-            type="text"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="e.g. Photos from Bob"
-            required
-            maxLength={256}
-            autoFocus
-          />
-        </label>
-
-        <label>
-          Password <span className="muted small">(optional)</span>
-          {/*
-            Plain `text` input rather than `password`: this is the admin's
-            own dashboard, and the operator wants to see what they're setting.
-            They'll share the password out-of-band; obscuring it on entry
-            invites typos that lock recipients out.
-          */}
-          <input
-            type="text"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Leave blank for no password"
-            autoComplete="off"
-          />
-        </label>
-
-        <label>
-          Max uploads <span className="muted small">(optional)</span>
-          <input
-            type="number"
-            value={maxUploads}
-            onChange={(e) => setMaxUploads(e.target.value)}
-            placeholder="Leave blank for unlimited"
-            min={1}
-            step={1}
-          />
-        </label>
-
-        <label>
-          Expires at <span className="muted small">(optional, local time)</span>
-          <input
-            type="datetime-local"
-            value={expiresAt}
-            onChange={(e) => setExpiresAt(e.target.value)}
-          />
-        </label>
-
-        {error && (
-          <p role="alert" className="error">
-            {error}
+    <>
+      <SubNav
+        title="New receive link"
+        actions={
+          <Link to="/" className="text-link">
+            Back to dashboard
+          </Link>
+        }
+      />
+      <section className="container-form">
+        <header className="stack-tight">
+          <h1>New receive link</h1>
+          <p className="lead">
+            A receive link lets someone upload files to you. Share the URL (and password, if you set
+            one) out-of-band.
           </p>
-        )}
-        <button type="submit" disabled={submitting || label.trim().length === 0}>
-          {submitting ? 'Creating…' : 'Create link'}
-        </button>
-      </form>
-    </main>
+        </header>
+        <form onSubmit={onSubmit} className="stack-airy">
+          <label className="input-label">
+            Label
+            <input
+              type="text"
+              className="input-pill"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. Photos from Bob"
+              required
+              maxLength={256}
+              autoFocus
+            />
+          </label>
+
+          <label className="input-label">
+            Password <span className="muted small">(optional)</span>
+            {/*
+              Plain `text` input rather than `password`: this is the admin's
+              own dashboard, and the operator wants to see what they're setting.
+              They'll share the password out-of-band; obscuring it on entry
+              invites typos that lock recipients out.
+            */}
+            <input
+              type="text"
+              className="input-pill"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave blank for no password"
+              autoComplete="off"
+            />
+          </label>
+
+          <label className="input-label">
+            Max uploads <span className="muted small">(optional)</span>
+            <input
+              type="number"
+              className="input-pill"
+              value={maxUploads}
+              onChange={(e) => setMaxUploads(e.target.value)}
+              placeholder="Leave blank for unlimited"
+              min={1}
+              step={1}
+            />
+          </label>
+
+          <label className="input-label">
+            Expires at <span className="muted small">(optional, local time)</span>
+            <input
+              type="datetime-local"
+              className="input-pill"
+              value={expiresAt}
+              onChange={(e) => setExpiresAt(e.target.value)}
+            />
+          </label>
+
+          {error && (
+            <p role="alert" className="muted">
+              {error}
+            </p>
+          )}
+          <div className="row end">
+            <Link to="/" className="btn-secondary-pill">
+              Cancel
+            </Link>
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={submitting || label.trim().length === 0}
+            >
+              {submitting ? 'Creating…' : 'Create link'}
+            </button>
+          </div>
+        </form>
+      </section>
+    </>
   );
 }

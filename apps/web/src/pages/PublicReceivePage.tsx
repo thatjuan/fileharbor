@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
 import { useParams } from 'react-router-dom';
 
 import { LanguageSwitcher, Trans, mapUploadErrorMessage, useT } from '../i18n/index.js';
@@ -358,21 +358,25 @@ export function PublicReceivePage(): JSX.Element {
 
   if (metaError) {
     return (
-      <main className="page">
-        <LanguageSwitcher />
-        <h1>File Harbor</h1>
-        <p role="alert" className="error">
-          {t('receive.notAvailable')}
-        </p>
+      <main className="tile tile-parchment">
+        <div className="container-narrow stack">
+          <LanguageSwitcher />
+          <h1>File Harbor</h1>
+          <p role="alert" className="error">
+            {t('receive.notAvailable')}
+          </p>
+        </div>
       </main>
     );
   }
 
   if (!meta || !uploadConfig) {
     return (
-      <main className="page">
-        <LanguageSwitcher />
-        <p className="muted">{t('common.loading')}</p>
+      <main className="tile tile-parchment">
+        <div className="container-narrow stack">
+          <LanguageSwitcher />
+          <p className="muted">{t('common.loading')}</p>
+        </div>
       </main>
     );
   }
@@ -386,102 +390,134 @@ export function PublicReceivePage(): JSX.Element {
   // The file picker requires a password (when set) AND the link must not be
   // in a terminal failure state. Locked = unrecoverable; failed = re-pickable.
   const passwordReady = !meta.passwordRequired || password.length > 0;
+  const pickerDisabled = busy || !passwordReady;
+
+  // Visually-hide the native file input while keeping it focusable for
+  // keyboard users. Pairs with the styled `<label className="btn-secondary-pill">`
+  // wrapper so the picker reads as a designed pill button.
+  const srOnlyFileInputStyle: CSSProperties = {
+    position: 'absolute',
+    width: 1,
+    height: 1,
+    padding: 0,
+    margin: -1,
+    overflow: 'hidden',
+    clip: 'rect(0,0,0,0)',
+    whiteSpace: 'nowrap',
+    border: 0,
+  };
 
   return (
-    <main className="page">
-      <LanguageSwitcher />
-      <h1>{t('receive.title')}</h1>
-      <p>
-        <Trans k="receive.invitedTo" components={{ label: <strong>{meta.label}</strong> }} />
-      </p>
-
-      {phase === 'completed' && completedName && (
-        <div className="stack">
-          <p className="success" role="status">
-            <Trans
-              k="receive.uploadComplete"
-              components={{ name: <strong>{completedName}</strong> }}
-            />
-          </p>
-          <button type="button" onClick={onReset}>
-            {t('receive.uploadAnother')}
-          </button>
-        </div>
-      )}
-
-      {phase === 'locked' && (
-        <p role="alert" className="error">
-          {error ?? t('receive.lockedDefault')}
+    <main className="tile tile-parchment">
+      <div className="container-narrow stack">
+        <LanguageSwitcher />
+        <h1>{t('receive.title')}</h1>
+        <p className="lead">
+          <Trans k="receive.invitedTo" components={{ label: <strong>{meta.label}</strong> }} />
         </p>
-      )}
 
-      {phase !== 'completed' && phase !== 'locked' && (
-        <div className="stack">
-          {meta.passwordRequired && (
-            <label>
-              {t('receive.password')}
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  // Clear a previous password-wrong / password-required error
-                  // as soon as the user starts retyping — feels more responsive
-                  // than waiting for the next submit.
-                  if (error) setError(null);
-                }}
-                disabled={busy}
-                autoComplete="off"
-                autoFocus
+        {phase === 'completed' && completedName && (
+          <div className="stack">
+            <p className="success" role="status">
+              <Trans
+                k="receive.uploadComplete"
+                components={{ name: <strong>{completedName}</strong> }}
               />
-            </label>
-          )}
-
-          <label>
-            {t('receive.pickFile')}
-            <input
-              ref={fileInputRef}
-              type="file"
-              onChange={onFileChange}
-              disabled={busy || !passwordReady}
-            />
-          </label>
-
-          {phase === 'minting' && <p className="muted">{t('receive.preparing')}</p>}
-
-          {phase === 'uploading' && (
-            <div>
-              <progress value={progress} max={100} style={{ width: '100%' }} />
-              <div className="muted small">{progress}%</div>
-            </div>
-          )}
-
-          {phase === 'finalizing' && <p className="muted">{t('receive.confirming')}</p>}
-
-          {phase === 'cancelling' && <p className="muted">{t('receive.cancelling')}</p>}
-
-          {phase === 'cancelled' && (
-            <div className="stack">
-              <p className="muted">{t('receive.cancelled')}</p>
-              <button type="button" onClick={onRetryAfterCancel}>
-                {t('common.tryAgain')}
+            </p>
+            <div className="row">
+              <button type="button" className="btn-primary" onClick={onReset}>
+                {t('receive.uploadAnother')}
               </button>
             </div>
-          )}
+          </div>
+        )}
 
-          {cancellable && (
-            <button type="button" onClick={onCancel}>
-              {t('receive.cancelUpload')}
-            </button>
-          )}
+        {phase === 'locked' && (
+          <p role="alert" className="error">
+            {error ?? t('receive.lockedDefault')}
+          </p>
+        )}
 
-          {error && (
-            <p role="alert" className="error">
-              {error}
-            </p>
-          )}
-        </div>
-      )}
+        {phase !== 'completed' && phase !== 'locked' && (
+          <div className="stack">
+            {meta.passwordRequired && (
+              <label className="input-label">
+                {t('receive.password')}
+                <input
+                  type="password"
+                  className="input-pill"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    // Clear a previous password-wrong / password-required error
+                    // as soon as the user starts retyping — feels more responsive
+                    // than waiting for the next submit.
+                    if (error) setError(null);
+                  }}
+                  disabled={busy}
+                  autoComplete="off"
+                  autoFocus
+                />
+              </label>
+            )}
+
+            <div className="row">
+              <label
+                className="btn-secondary-pill"
+                aria-disabled={pickerDisabled}
+                style={pickerDisabled ? { opacity: 0.6, cursor: 'not-allowed' } : undefined}
+              >
+                {t('receive.pickFile')}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  onChange={onFileChange}
+                  disabled={pickerDisabled}
+                  style={srOnlyFileInputStyle}
+                />
+              </label>
+            </div>
+
+            {phase === 'minting' && <p className="muted">{t('receive.preparing')}</p>}
+
+            {phase === 'uploading' && (
+              <div className="stack-tight">
+                <progress value={progress} max={100} />
+                <div className="muted small">{progress}%</div>
+              </div>
+            )}
+
+            {phase === 'finalizing' && <p className="muted">{t('receive.confirming')}</p>}
+
+            {phase === 'cancelling' && <p className="muted">{t('receive.cancelling')}</p>}
+
+            {phase === 'cancelled' && (
+              <div className="stack">
+                <p className="muted">{t('receive.cancelled')}</p>
+                <div className="row">
+                  <button type="button" className="btn-primary" onClick={onRetryAfterCancel}>
+                    {t('common.tryAgain')}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {cancellable && (
+              <div className="row">
+                <button type="button" className="btn-secondary-pill" onClick={onCancel}>
+                  {t('receive.cancelUpload')}
+                </button>
+              </div>
+            )}
+
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </main>
   );
 }

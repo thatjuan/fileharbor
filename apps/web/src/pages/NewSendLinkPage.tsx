@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
+import { SubNav } from '../components/SubNav.js';
 import {
   abortSendMultipartUploadTicket,
   addFileToSendLink,
@@ -41,9 +42,9 @@ export function NewSendLinkPage(): JSX.Element {
   const [maxDownloads, setMaxDownloads] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
   const [filesPicked, setFilesPicked] = useState<File[]>([]);
-  const [phase, setPhase] = useState<
-    'idle' | 'creating' | 'uploading' | 'finalizing' | 'done'
-  >('idle');
+  const [phase, setPhase] = useState<'idle' | 'creating' | 'uploading' | 'finalizing' | 'done'>(
+    'idle',
+  );
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +80,10 @@ export function NewSendLinkPage(): JSX.Element {
 
   const onFilesChange = (e: ChangeEvent<HTMLInputElement>): void => {
     setFilesPicked(Array.from(e.target.files ?? []));
+  };
+
+  const onRemoveFile = (indexToRemove: number): void => {
+    setFilesPicked((prev) => prev.filter((_, i) => i !== indexToRemove));
   };
 
   const onSubmit = async (e: FormEvent): Promise<void> => {
@@ -258,116 +263,205 @@ export function NewSendLinkPage(): JSX.Element {
   const busy = phase !== 'idle' && phase !== 'done';
 
   return (
-    <main className="page">
-      <header className="row between">
-        <h1>New send link</h1>
-        <Link to="/">Back</Link>
-      </header>
-      <form onSubmit={onSubmit} className="stack">
-        <label>
-          Label
-          <input
-            type="text"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="e.g. Q3 audit pack"
-            required
-            maxLength={256}
-            autoFocus
-            disabled={busy}
-          />
-        </label>
-
-        <label>
-          Password <span className="muted small">(optional)</span>
-          {/*
-            Plain `text` (not `password`) for the same reason as the receive
-            form: the admin shares this out-of-band and wants to see it.
-          */}
-          <input
-            type="text"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Leave blank for no password"
-            autoComplete="off"
-            disabled={busy}
-          />
-        </label>
-
-        <label>
-          Max downloads <span className="muted small">(optional)</span>
-          <input
-            type="number"
-            value={maxDownloads}
-            onChange={(e) => setMaxDownloads(e.target.value)}
-            placeholder="Leave blank for unlimited"
-            min={1}
-            step={1}
-            disabled={busy}
-          />
-        </label>
-
-        <label>
-          Expires at <span className="muted small">(optional, local time)</span>
-          <input
-            type="datetime-local"
-            value={expiresAt}
-            onChange={(e) => setExpiresAt(e.target.value)}
-            disabled={busy}
-          />
-        </label>
-
-        <label>
-          Files
-          <input type="file" multiple onChange={onFilesChange} disabled={busy} required />
-          {filesPicked.length > 1 && (
-            <span className="muted small">
-              {filesPicked.length} files selected. They will upload one at a time.
-            </span>
-          )}
-        </label>
-
-        {phase === 'creating' && <p className="muted">Preparing link…</p>}
-        {(phase === 'uploading' || phase === 'finalizing') && filesPicked.length > 0 && (
-          <div>
-            <div className="muted small">
-              {phase === 'uploading' ? 'Uploading' : 'Confirming'} file{' '}
-              {currentFileIndex + 1} of {filesPicked.length}:{' '}
-              <strong>{filesPicked[currentFileIndex]?.name}</strong>
-            </div>
-            <progress value={progress} max={100} style={{ width: '100%' }} />
-            <div className="muted small">{progress}%</div>
-          </div>
-        )}
-
-        {error && (
-          <p role="alert" className="error">
-            {error}
+    <>
+      <SubNav
+        title="New send link"
+        actions={
+          <Link to="/" className="text-link">
+            Back to dashboard
+          </Link>
+        }
+      />
+      <section className="container-form">
+        <header className="stack-tight">
+          <h1>New send link</h1>
+          <p className="lead">
+            A send link lets others download files you upload. Share the URL (and password, if you
+            set one) out-of-band.
           </p>
-        )}
-        <div className="row">
-          <button
-            type="submit"
-            disabled={
-              busy ||
-              label.trim().length === 0 ||
-              filesPicked.length === 0 ||
-              uploadConfig === null
-            }
-          >
-            {busy ? 'Creating…' : 'Create send link'}
-          </button>
-          {busy && (
-            // Cancel applies to the current submission: tears the in-flight
-            // file's part XHRs, calls the server-side abort, and bails the
-            // loop. Files already finalized stay attached to the new link.
-            <button type="button" onClick={onCancel}>
-              Cancel
-            </button>
+        </header>
+        <form onSubmit={onSubmit} className="stack-airy">
+          <label className="input-label">
+            Label
+            <input
+              type="text"
+              className="input-pill"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. Q3 audit pack"
+              required
+              maxLength={256}
+              autoFocus
+              disabled={busy}
+            />
+          </label>
+
+          <label className="input-label">
+            Password <span className="muted small">(optional)</span>
+            {/*
+              Plain `text` (not `password`) for the same reason as the receive
+              form: the admin shares this out-of-band and wants to see it.
+            */}
+            <input
+              type="text"
+              className="input-pill"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave blank for no password"
+              autoComplete="off"
+              disabled={busy}
+            />
+          </label>
+
+          <label className="input-label">
+            Max downloads <span className="muted small">(optional)</span>
+            <input
+              type="number"
+              className="input-pill"
+              value={maxDownloads}
+              onChange={(e) => setMaxDownloads(e.target.value)}
+              placeholder="Leave blank for unlimited"
+              min={1}
+              step={1}
+              disabled={busy}
+            />
+          </label>
+
+          <label className="input-label">
+            Expires at <span className="muted small">(optional, local time)</span>
+            <input
+              type="datetime-local"
+              className="input-pill"
+              value={expiresAt}
+              onChange={(e) => setExpiresAt(e.target.value)}
+              disabled={busy}
+            />
+          </label>
+
+          <div className="stack-tight">
+            <span className="input-label">Files</span>
+            {/*
+              Visually a `.btn-secondary-pill` label; the native `<input
+              type="file">` lives inside it, kept in the DOM (focusable for
+              keyboard users) but visually hidden with the inline style below.
+              `aria-label` makes the file picker self-describing for assistive
+              tech since the label text is decorative.
+            */}
+            <label
+              className="btn-secondary-pill"
+              style={{ alignSelf: 'flex-start', cursor: busy ? 'not-allowed' : 'pointer' }}
+            >
+              {filesPicked.length === 0 ? 'Choose files…' : 'Choose different files…'}
+              <input
+                type="file"
+                multiple
+                onChange={onFilesChange}
+                disabled={busy}
+                aria-label="Choose files to upload"
+                style={{
+                  position: 'absolute',
+                  width: 1,
+                  height: 1,
+                  padding: 0,
+                  margin: -1,
+                  overflow: 'hidden',
+                  clip: 'rect(0, 0, 0, 0)',
+                  whiteSpace: 'nowrap',
+                  border: 0,
+                }}
+              />
+            </label>
+            {filesPicked.length > 0 && (
+              <div className="stack" style={{ marginBlockStart: 'var(--space-sm)' }}>
+                {filesPicked.map((file, i) => (
+                  <div className="store-card-row" key={`${file.name}-${i}`}>
+                    <div className="stack-tight">
+                      <span className="body-strong">{file.name}</span>
+                      <span className="muted small">
+                        {formatBytes(file.size)}
+                        {file.type ? ` · ${file.type}` : ''}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-icon-circular"
+                      onClick={() => onRemoveFile(i)}
+                      disabled={busy}
+                      aria-label={`Remove ${file.name}`}
+                      title={`Remove ${file.name}`}
+                    >
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M3 3 L13 13 M13 3 L3 13"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+                {filesPicked.length > 1 && (
+                  <span className="muted small">
+                    {filesPicked.length} files selected. They will upload one at a time.
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {phase === 'creating' && <p className="muted">Preparing link…</p>}
+          {(phase === 'uploading' || phase === 'finalizing') && filesPicked.length > 0 && (
+            <div className="stack-tight">
+              <div className="muted small">
+                {phase === 'uploading' ? 'Uploading' : 'Confirming'} file {currentFileIndex + 1} of{' '}
+                {filesPicked.length}: <strong>{filesPicked[currentFileIndex]?.name}</strong>
+              </div>
+              <progress value={progress} max={100} />
+              <div className="muted small">{progress}%</div>
+            </div>
           )}
-        </div>
-      </form>
-    </main>
+
+          {error && (
+            <p role="alert" className="muted">
+              {error}
+            </p>
+          )}
+          <div className="row end">
+            {busy ? (
+              // Cancel applies to the current submission: tears the in-flight
+              // file's part XHRs, calls the server-side abort, and bails the
+              // loop. Files already finalized stay attached to the new link.
+              <button type="button" className="btn-secondary-pill" onClick={onCancel}>
+                Cancel
+              </button>
+            ) : (
+              <Link to="/" className="btn-secondary-pill">
+                Cancel
+              </Link>
+            )}
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={
+                busy ||
+                label.trim().length === 0 ||
+                filesPicked.length === 0 ||
+                uploadConfig === null
+              }
+            >
+              {busy ? 'Creating…' : 'Create send link'}
+            </button>
+          </div>
+        </form>
+      </section>
+    </>
   );
 }
 
@@ -411,3 +505,9 @@ function describeUploadFinalizeFailure(
   return `Upload failed for "${filename}": ${outcome.message}`;
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}

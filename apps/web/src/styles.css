@@ -1,110 +1,234 @@
-:root {
-  font-family:
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
-  color-scheme: light dark;
+/*
+ * Base sheet. All values consume tokens from styles/tokens.css.
+ * Component grammars (buttons, cards, tiles, nav) live in styles/components.css.
+ *
+ * This file owns: reset, body/page defaults, generic utility classes used by
+ * page components (.page, .stack, .row, .muted, .small, .error, .success,
+ * .list-reset, .card, .button-link, .button-danger, code element).
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
 }
 
 body {
-  margin: 0;
   min-height: 100vh;
-  display: grid;
-  place-items: center;
+  font-family: var(--font-family-text);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+  letter-spacing: var(--tracking-body);
+  color: var(--color-ink);
+  background: var(--color-canvas);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-main {
-  padding: 2rem;
-  text-align: left;
-  min-width: 20rem;
-  max-width: 28rem;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+ul,
+ol,
+figure,
+blockquote {
+  margin: 0;
+  padding: 0;
 }
 
-main.page.wide {
-  max-width: 48rem;
-}
-
-main.page.wide,
-main.page {
-  width: 100%;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-family-display);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-ink);
 }
 
 h1 {
-  margin: 0 0 1rem;
-  font-size: clamp(2rem, 5vw, 3rem);
+  font-size: var(--font-size-display-lg);
+  line-height: var(--line-height-display-lg);
+  letter-spacing: var(--tracking-display-lg);
 }
 
-p {
-  margin: 0 0 0.75rem;
+h2 {
+  font-size: var(--font-size-display-md);
+  line-height: var(--line-height-display-md);
+  letter-spacing: var(--tracking-display-md);
 }
 
-p.muted {
-  opacity: 0.7;
+h3 {
+  font-size: var(--font-size-tagline);
+  line-height: var(--line-height-tagline);
+  letter-spacing: var(--tracking-tagline);
 }
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+a:hover,
+a:focus-visible {
+  text-decoration: underline;
+}
+
+code {
+  font-family: var(--font-family-mono);
+  font-size: 0.95em;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+/* ====================================================================== */
+/* Page chassis                                                            */
+/* ====================================================================== */
+
+.page {
+  width: 100%;
+  max-width: var(--container-max-narrow);
+  margin-inline: auto;
+  padding: var(--space-xxl) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.page.wide {
+  max-width: var(--container-max-wide);
+}
+
+.page-auth {
+  width: 100%;
+  max-width: var(--container-max-auth);
+  margin-inline: auto;
+  padding: var(--space-xxl) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-height: 100vh;
+  justify-content: center;
+}
+
+/* ====================================================================== */
+/* Generic layout utilities                                                */
+/* ====================================================================== */
 
 .stack {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--space-md);
+}
+
+.stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.stack-airy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
 }
 
 .row {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: var(--space-md);
+  flex-wrap: wrap;
 }
 
 .row.between {
   justify-content: space-between;
 }
 
-label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.875rem;
+.row.end {
+  justify-content: flex-end;
 }
 
-input {
-  font: inherit;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid currentColor;
-  border-radius: 0.375rem;
-  background: transparent;
-  color: inherit;
+/* ====================================================================== */
+/* Typography helpers                                                      */
+/* ====================================================================== */
+
+.muted {
+  color: var(--color-ink-muted-80);
 }
 
-button {
-  font: inherit;
-  padding: 0.5rem 1rem;
-  border: 1px solid currentColor;
-  border-radius: 0.375rem;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.error {
-  color: #d33;
-  margin: 0;
-}
-
-.success {
-  color: #2a8;
-  margin: 0;
+.muted-soft {
+  color: var(--color-ink-muted-48);
 }
 
 .small {
-  font-size: 0.8rem;
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  letter-spacing: var(--tracking-caption);
 }
+
+.lead {
+  font-size: var(--font-size-lead);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-lead);
+  letter-spacing: var(--tracking-lead);
+}
+
+.lead-airy {
+  font-size: var(--font-size-lead-airy);
+  font-weight: var(--font-weight-light);
+  line-height: var(--line-height-lead-airy);
+  letter-spacing: var(--tracking-lead-airy);
+}
+
+.tagline {
+  font-size: var(--font-size-tagline);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tagline);
+  letter-spacing: var(--tracking-tagline);
+}
+
+.body-strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+.fine-print {
+  font-size: var(--font-size-fine-print);
+  line-height: var(--line-height-fine-print);
+  letter-spacing: var(--tracking-fine-print);
+  color: var(--color-ink-muted-48);
+}
+
+/* ====================================================================== */
+/* Status copy                                                             */
+/* ====================================================================== */
+
+.error {
+  color: var(--color-ink);
+  font-weight: var(--font-weight-semibold);
+}
+
+.success {
+  color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ====================================================================== */
+/* Lists, generic card, buttons-as-link                                    */
+/* ====================================================================== */
 
 .list-reset {
   list-style: none;
@@ -113,135 +237,126 @@ button:disabled {
 }
 
 .card {
-  border: 1px solid currentColor;
-  border-radius: 0.5rem;
-  padding: 0.75rem 1rem;
-  opacity: 0.95;
-}
-
-.button-link {
-  display: inline-block;
-  padding: 0.5rem 1rem;
-  border: 1px solid currentColor;
-  border-radius: 0.375rem;
-  text-decoration: none;
-  color: inherit;
-}
-
-h2 {
-  margin: 0;
-  font-size: 1.25rem;
-}
-
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-/*
- * Status badges for receive links. Colour-coded by `displayStatus` so the
- * dashboard list communicates lifecycle at a glance. The four values match
- * the server's wire type: active / expired / quota_exhausted / disabled.
- *
- * Each variant pairs a tinted background with a darker text colour — chosen
- * to read on both light and dark backgrounds via fixed RGB rather than
- * `currentColor`.
- */
-.badge {
-  display: inline-block;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  line-height: 1.4;
-  white-space: nowrap;
-  border: 1px solid transparent;
-}
-
-.badge-active {
-  background: rgba(42, 168, 80, 0.15);
-  color: #1e7a3e;
-  border-color: rgba(42, 168, 80, 0.35);
-}
-
-.badge-disabled {
-  background: rgba(128, 128, 128, 0.18);
-  color: #555;
-  border-color: rgba(128, 128, 128, 0.4);
-}
-
-.badge-expired {
-  background: rgba(211, 51, 51, 0.15);
-  color: #b02828;
-  border-color: rgba(211, 51, 51, 0.35);
-}
-
-.badge-quota_exhausted {
-  background: rgba(220, 150, 30, 0.18);
-  color: #8a5a00;
-  border-color: rgba(220, 150, 30, 0.4);
-}
-
-.button-danger {
-  border-color: #d33;
-  color: #d33;
-}
-
-
-/*
- * Admin shell chrome — top bar with brand link + notification bell. The shell
- * wraps every authed admin page; the styles here only apply when an authed
- * route mounts `<AdminShell>`.
- */
-.admin-nav {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1.5rem;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
-  background: inherit;
-  z-index: 10;
-}
-
-.admin-nav .brand {
-  font-weight: 700;
-  text-decoration: none;
-  color: inherit;
-}
-
-.admin-nav .bell {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.8rem;
-  text-decoration: none;
-  color: inherit;
-  border: 1px solid currentColor;
-  border-radius: 0.375rem;
-}
-
-.admin-nav .bell .badge {
-  background: #d33;
-  color: white;
-  border: none;
-  padding: 0 0.45rem;
-  font-size: 0.7rem;
-  border-radius: 999px;
-  min-width: 1.25rem;
-  text-align: center;
-}
-
-body:has(.admin-nav) {
-  align-items: start;
-}
-body:has(.admin-nav) main.page {
-  margin-top: 4rem;
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  color: var(--color-ink);
 }
 
 .card.unread {
-  border-left: 3px solid #d33;
+  border-inline-start: 3px solid var(--color-primary);
+}
+
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 11px 22px;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  text-decoration: none;
+  font-size: var(--font-size-body);
+  font-family: var(--font-family-text);
+  transition: transform var(--motion-fast) ease;
+  min-block-size: 44px;
+}
+
+.button-link:hover,
+.button-link:focus-visible {
+  text-decoration: none;
+}
+
+.button-link:active {
+  transform: scale(var(--press-scale));
+}
+
+.button-link.secondary {
+  background: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.button-danger {
+  color: var(--color-ink);
+  background: transparent;
+  border: 1px solid var(--color-hairline);
+}
+
+/* ====================================================================== */
+/* Default form controls (fallback for any <input>/<button> without an
+   explicit utility class). Pages opt into .input-pill / .btn-* for the
+   designed shapes; this provides a sane neutral default.                  */
+/* ====================================================================== */
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-primary-focus);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+label {
+  display: block;
+}
+
+progress {
+  width: 100%;
+  block-size: 6px;
+  appearance: none;
+  border: 0;
+  background: var(--color-hairline);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+progress::-webkit-progress-bar {
+  background: var(--color-hairline);
+  border-radius: var(--radius-pill);
+}
+
+progress::-webkit-progress-value {
+  background: var(--color-primary);
+  border-radius: var(--radius-pill);
+}
+
+progress::-moz-progress-bar {
+  background: var(--color-primary);
+  border-radius: var(--radius-pill);
+}
+
+/* ====================================================================== */
+/* Focus ring fallback                                                     */
+/* ====================================================================== */
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary-focus);
+  outline-offset: 2px;
 }
