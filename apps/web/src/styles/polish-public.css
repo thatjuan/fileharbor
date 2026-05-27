@@ -1,0 +1,354 @@
+/*
+ * polish-public.css
+ *
+ * Public-page polish layer (PublicReceivePage, PublicSendPage,
+ * LanguageSwitcher). Apple-inspired DESIGN.md grammar:
+ *   - one accent (Action Blue), no second color
+ *   - no decorative shadows (product-shadow is reserved for imagery)
+ *   - no hover affordances; active scale-95 already lives in components.css
+ *   - all values consume tokens from styles/tokens.css
+ *
+ * Wire-in: add `import './styles/polish-public.css';` to apps/web/src/main.tsx
+ * AFTER components.css and styles.css so these utilities can win on the
+ * cascade when needed.
+ */
+
+/* ====================================================================== */
+/* Public hero — centered stack with Apple breathing room                  */
+/* ====================================================================== */
+
+.public-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-xl);
+}
+
+.public-hero > h1 {
+  margin-block-start: var(--space-xl);
+  max-width: 18ch;
+}
+
+.public-hero > .lead {
+  max-width: 42ch;
+  margin-inline: auto;
+  /* tighten the gap so headline + tagline read as a single cluster */
+  margin-block-start: calc(-1 * var(--space-sm));
+}
+
+/* Centered column for the action surface beneath the hero cluster. */
+.public-action {
+  width: 100%;
+  max-width: var(--container-max-form);
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  /* extra air between tagline and the action surface */
+  margin-block-start: var(--space-lg);
+}
+
+/* ====================================================================== */
+/* Drop-target card — inviting file picker for PublicReceivePage           */
+/* ====================================================================== */
+
+.drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  width: 100%;
+  min-block-size: 96px;
+  padding: var(--space-xl) var(--space-lg);
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-lg);
+  color: var(--color-ink);
+  cursor: pointer;
+  transition: transform var(--motion-fast) ease, border-color var(--motion-fast) ease;
+  text-align: center;
+}
+
+.drop-card:active {
+  transform: scale(var(--press-scale));
+}
+
+.drop-card.is-dragging {
+  border-color: var(--color-primary);
+}
+
+.drop-card[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.drop-card-title {
+  font-family: var(--font-family-text);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-body-strong);
+  letter-spacing: var(--tracking-body-strong);
+  color: var(--color-ink);
+}
+
+.drop-card-hint {
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  letter-spacing: var(--tracking-caption);
+  color: var(--color-ink-muted-48);
+}
+
+/* Visually-hidden file input — still focusable via the wrapping <label>. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ====================================================================== */
+/* Upload progress block — big percentage + caption + bar                  */
+/* ====================================================================== */
+
+.progress-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+}
+
+.progress-percent {
+  font-family: var(--font-family-display);
+  font-size: var(--font-size-display-md);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-display-md);
+  letter-spacing: var(--tracking-display-md);
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-caption {
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  letter-spacing: var(--tracking-caption);
+  color: var(--color-ink-muted-48);
+}
+
+.progress-block > progress {
+  width: 100%;
+}
+
+/* ====================================================================== */
+/* Success state — quiet celebration                                       */
+/* ====================================================================== */
+
+.success-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  text-align: center;
+}
+
+.success-check {
+  color: var(--color-primary);
+  width: 56px;
+  height: 56px;
+}
+
+/* ====================================================================== */
+/* Empty / waiting state on PublicSendPage                                 */
+/* ====================================================================== */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xxl) var(--space-lg);
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  color: var(--color-ink);
+}
+
+.empty-state-icon {
+  color: var(--color-ink-muted-48);
+  width: 28px;
+  height: 28px;
+  margin-block-end: var(--space-xs);
+}
+
+.empty-state-title {
+  font-family: var(--font-family-text);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-body-strong);
+  letter-spacing: var(--tracking-body-strong);
+  color: var(--color-ink);
+}
+
+.empty-state-hint {
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  letter-spacing: var(--tracking-caption);
+  color: var(--color-ink-muted-48);
+}
+
+/* ====================================================================== */
+/* File row — tightened hierarchy                                          */
+/* ====================================================================== */
+
+.file-row-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
+  min-width: 0;
+}
+
+.file-row-name {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-body-strong);
+  letter-spacing: var(--tracking-body-strong);
+  color: var(--color-ink);
+  word-break: break-word;
+}
+
+.file-row-sub {
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  letter-spacing: var(--tracking-caption);
+  color: var(--color-ink-muted-80);
+}
+
+/* ====================================================================== */
+/* Public footer — quiet brand line                                        */
+/* ====================================================================== */
+
+.public-footer {
+  margin-block-start: var(--space-section);
+  text-align: center;
+  font-size: var(--font-size-fine-print);
+  line-height: var(--line-height-fine-print);
+  letter-spacing: var(--tracking-fine-print);
+  color: var(--color-ink-muted-48);
+}
+
+/* ====================================================================== */
+/* LanguageSwitcher — compact icon button + popover                        */
+/* ====================================================================== */
+
+.lang-switch {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  z-index: 30;
+}
+
+.lang-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-block-size: 36px;
+  padding: 0;
+  background: transparent;
+  color: var(--color-ink);
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: transform var(--motion-fast) ease;
+}
+
+.lang-trigger:active {
+  transform: scale(var(--press-scale));
+}
+
+.lang-trigger:focus-visible {
+  outline: 2px solid var(--color-primary-focus);
+  outline-offset: 2px;
+}
+
+.lang-trigger > svg {
+  width: 18px;
+  height: 18px;
+}
+
+.lang-menu {
+  position: absolute;
+  top: calc(100% + var(--space-xs));
+  right: 0;
+  min-width: 180px;
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+  padding: var(--space-xs);
+  margin: 0;
+  list-style: none;
+  /* Reuse the system product-shadow token (DESIGN.md "Elevation") — it is
+     the only documented shadow. A native popover is functional UI, not
+     decorative chrome, so this single soft drop is appropriate. */
+  box-shadow: var(--shadow-product);
+}
+
+.lang-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  width: 100%;
+  min-block-size: 36px;
+  padding: var(--space-xs) var(--space-sm);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-ink);
+  font-family: var(--font-family-text);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  letter-spacing: var(--tracking-caption);
+  text-align: start;
+  cursor: pointer;
+  transition: transform var(--motion-fast) ease;
+}
+
+.lang-menu-item:active {
+  transform: scale(var(--press-scale));
+}
+
+.lang-menu-item:focus-visible {
+  outline: 2px solid var(--color-primary-focus);
+  outline-offset: -2px;
+}
+
+.lang-menu-item[aria-checked='true'] {
+  color: var(--color-primary);
+}
+
+.lang-menu-item > svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  /* When unchecked, the check glyph is hidden so the row stays quiet. */
+}
+
+.lang-menu-item[aria-checked='false'] > svg {
+  visibility: hidden;
+}
+
+/* Make sure the parent main can host the absolutely-positioned switcher. */
+.public-main {
+  position: relative;
+  min-height: 100vh;
+}

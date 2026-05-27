@@ -3,6 +3,7 @@
  * Parchment background with dense-link columns per DESIGN.md.
  */
 export function AdminFooter(): JSX.Element {
+  const year = new Date().getFullYear();
   return (
     <footer className="admin-footer">
       <div className="admin-footer-inner">
@@ -59,6 +60,7 @@ export function AdminFooter(): JSX.Element {
       <div className="admin-footer-legal">
         File Harbor is open source software released under the MIT license.
       </div>
+      <div className="admin-footer-copy">© {year} File Harbor</div>
     </footer>
   );
 }

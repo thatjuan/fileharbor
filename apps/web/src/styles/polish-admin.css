@@ -1,0 +1,187 @@
+/*
+ * Admin chassis polish — DESIGN.md grammars at lower volume.
+ *
+ * Scope: AdminShell, AdminFooter, NotificationBell, SubNav, StatusBadge,
+ * DashboardPage. Every value sourced from styles/tokens.css. No new colors,
+ * no gradients, no shadows (except the single ring exception called out in
+ * the task for the notification dot — it sits on the black global-nav and
+ * needs a 2px halo of that same black surface to lift off the bell glyph).
+ *
+ * No hover states. Default + active only, per DESIGN.md.
+ *
+ * Wire-up: imported from AdminShell.tsx so it loads with the admin chassis.
+ */
+
+/* ====================================================================== */
+/* Global nav — brand lockup + dashboard link                              */
+/* ====================================================================== */
+
+.global-nav-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--color-body-on-dark);
+  text-decoration: none;
+}
+
+.global-nav-brand-mark {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  color: currentColor;
+}
+
+.global-nav-left {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+.global-nav-right {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.global-nav-dashboard-link {
+  color: var(--color-body-on-dark);
+  text-decoration: none;
+  font-family: var(--font-family-text);
+  font-size: var(--font-size-nav-link);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-nav-link);
+  letter-spacing: var(--tracking-nav-link);
+}
+
+@media (max-width: 833px) {
+  .global-nav-dashboard-link {
+    display: none;
+  }
+}
+
+/* ====================================================================== */
+/* Notification bell — dot ring on the black surface                       */
+/* ====================================================================== */
+
+.notification-bell .unread-dot {
+  box-shadow: 0 0 0 2px var(--color-surface-black);
+}
+
+/* ====================================================================== */
+/* SubNav — CTA glyphs                                                     */
+/* ====================================================================== */
+
+.btn-glyph {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  color: currentColor;
+}
+
+/* ====================================================================== */
+/* StatusBadge — at-a-glance state dot                                     */
+/* ====================================================================== */
+
+.status-badge-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-ink-muted-48);
+}
+
+.status-badge-active .status-badge-dot {
+  background: var(--color-primary);
+}
+
+/* ====================================================================== */
+/* Dashboard — section intros, sign-out row, card hierarchy                */
+/* ====================================================================== */
+
+.dashboard-signed-in {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
+.dashboard-section-intro {
+  color: var(--color-ink-muted-80);
+  margin: 0;
+}
+
+.dashboard-card-label {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-body-strong);
+  letter-spacing: var(--tracking-body-strong);
+  color: var(--color-ink);
+}
+
+.dashboard-card-code {
+  font-size: var(--font-size-fine-print);
+  line-height: var(--line-height-fine-print);
+  letter-spacing: var(--tracking-fine-print);
+  color: var(--color-ink-muted-48);
+}
+
+.dashboard-card-quota {
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  letter-spacing: var(--tracking-caption);
+  color: var(--color-ink-muted-48);
+}
+
+.dashboard-card-action {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-family: var(--font-family-text);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  letter-spacing: var(--tracking-caption);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xxs);
+}
+
+/* ====================================================================== */
+/* Dashboard — empty state                                                 */
+/* ====================================================================== */
+
+.dashboard-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-md);
+  padding-block: var(--space-xl);
+}
+
+.dashboard-empty-icon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  color: var(--color-ink-muted-48);
+}
+
+.dashboard-empty-headline {
+  margin: 0;
+  color: var(--color-ink);
+}
+
+/* ====================================================================== */
+/* Admin footer — centered copyright line                                  */
+/* ====================================================================== */
+
+.admin-footer-copy {
+  width: 100%;
+  max-width: var(--container-max-wide);
+  margin-inline: auto;
+  padding-inline: var(--space-lg);
+  padding-block-start: var(--space-sm);
+  text-align: center;
+  font-size: var(--font-size-fine-print);
+  line-height: var(--line-height-fine-print);
+  letter-spacing: var(--tracking-fine-print);
+  color: var(--color-ink-muted-48);
+}

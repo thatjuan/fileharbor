@@ -66,9 +66,11 @@ export function DashboardPage(): JSX.Element {
         actions={
           <>
             <Link to="/links/receive/new" className="btn-primary">
+              <PlusGlyph />
               New receive link
             </Link>
             <Link to="/links/send/new" className="btn-secondary-pill">
+              <PlusGlyph />
               New send link
             </Link>
           </>
@@ -76,10 +78,11 @@ export function DashboardPage(): JSX.Element {
       />
 
       <div className="stack-airy">
-        <div className="row between">
-          <span className="small muted">
+        <div className="dashboard-signed-in fine-print">
+          <span>
             Signed in as <strong>{displayName}</strong>
           </span>
+          <span aria-hidden>·</span>
           <button type="button" className="text-link" onClick={onSignOut}>
             Sign out
           </button>
@@ -87,6 +90,9 @@ export function DashboardPage(): JSX.Element {
 
         <section className="stack">
           <h2>Receive links</h2>
+          <p className="dashboard-section-intro lead-airy">
+            Mint a one-time URL so somebody can upload to your bucket.
+          </p>
 
           {error !== null && (
             <p role="alert" className="error">
@@ -97,9 +103,11 @@ export function DashboardPage(): JSX.Element {
           {links === null && error === null && <p className="muted">Loading…</p>}
 
           {links !== null && links.length === 0 && (
-            <div className="store-card" style={{ alignItems: 'center', textAlign: 'center' }}>
-              <p className="lead-airy">No receive links yet.</p>
+            <div className="store-card dashboard-empty">
+              <InboxIcon />
+              <p className="dashboard-empty-headline lead-airy">No receive links yet.</p>
               <Link to="/links/receive/new" className="btn-primary">
+                <PlusGlyph />
                 Create your first receive link
               </Link>
             </div>
@@ -109,19 +117,19 @@ export function DashboardPage(): JSX.Element {
             <div className="store-card-grid">
               {links.map((link) => (
                 <div key={link.id} className="store-card">
-                  <div className="stack-tight">
-                    <span className="body-strong">{link.label}</span>
-                    <span className="small muted">
-                      Code <code>{link.code}</code>
-                    </span>
+                  <span className="dashboard-card-label">{link.label}</span>
+                  <span className="dashboard-card-code">
+                    Code <code>{link.code}</code>
+                  </span>
+                  <div>
+                    <StatusBadge status={link.displayStatus} />
                   </div>
-                  <StatusBadge status={link.displayStatus} />
                   {link.maxUploads !== null && (
-                    <span className="small muted">{link.maxUploads} upload cap</span>
+                    <span className="dashboard-card-quota">{link.maxUploads} upload cap</span>
                   )}
                   <div className="row">
-                    <Link to={`/links/receive/${link.id}`} className="text-link">
-                      Open
+                    <Link to={`/links/receive/${link.id}`} className="dashboard-card-action">
+                      Open <span aria-hidden>→</span>
                     </Link>
                   </div>
                 </div>
@@ -132,6 +140,9 @@ export function DashboardPage(): JSX.Element {
 
         <section className="stack">
           <h2>Send links</h2>
+          <p className="dashboard-section-intro lead-airy">
+            Share files with one or more recipients.
+          </p>
 
           {sendError !== null && (
             <p role="alert" className="error">
@@ -142,9 +153,11 @@ export function DashboardPage(): JSX.Element {
           {sendLinks === null && sendError === null && <p className="muted">Loading…</p>}
 
           {sendLinks !== null && sendLinks.length === 0 && (
-            <div className="store-card" style={{ alignItems: 'center', textAlign: 'center' }}>
-              <p className="lead-airy">No send links yet.</p>
+            <div className="store-card dashboard-empty">
+              <AnchorIcon />
+              <p className="dashboard-empty-headline lead-airy">No send links yet.</p>
               <Link to="/links/send/new" className="btn-primary">
+                <PlusGlyph />
                 Create your first send link
               </Link>
             </div>
@@ -159,21 +172,21 @@ export function DashboardPage(): JSX.Element {
                     : null;
                 return (
                   <div key={link.id} className="store-card">
-                    <div className="stack-tight">
-                      <span className="body-strong">{link.label}</span>
-                      <span className="small muted">
-                        Code <code>{link.code}</code>
-                      </span>
+                    <span className="dashboard-card-label">{link.label}</span>
+                    <span className="dashboard-card-code">
+                      Code <code>{link.code}</code>
+                    </span>
+                    <div>
+                      <StatusBadge status={link.displayStatus} />
                     </div>
-                    <StatusBadge status={link.displayStatus} />
                     {remaining !== null && (
-                      <span className="small muted">
+                      <span className="dashboard-card-quota">
                         {remaining} of {link.maxDownloads} downloads remaining
                       </span>
                     )}
                     <div className="row">
-                      <Link to={`/links/send/${link.id}`} className="text-link">
-                        Open
+                      <Link to={`/links/send/${link.id}`} className="dashboard-card-action">
+                        Open <span aria-hidden>→</span>
                       </Link>
                     </div>
                   </div>
@@ -184,5 +197,80 @@ export function DashboardPage(): JSX.Element {
         </section>
       </div>
     </>
+  );
+}
+
+/**
+ * 12px plus glyph used inside SubNav CTAs and empty-state CTAs. currentColor
+ * + 1.75 stroke matches the bell + anchor glyphs so the whole chassis reads
+ * as one icon family.
+ */
+function PlusGlyph(): JSX.Element {
+  return (
+    <svg
+      className="btn-glyph"
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
+/**
+ * Receive-empty-state inbox glyph. 28px, muted ink, matches the rest of the
+ * icon family.
+ */
+function InboxIcon(): JSX.Element {
+  return (
+    <svg
+      className="dashboard-empty-icon"
+      width="28"
+      height="28"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+      <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+    </svg>
+  );
+}
+
+/**
+ * Send-empty-state anchor glyph. Mirrors the global-nav brand mark at a
+ * larger size — the chassis's repeated motif.
+ */
+function AnchorIcon(): JSX.Element {
+  return (
+    <svg
+      className="dashboard-empty-icon"
+      width="28"
+      height="28"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="5" r="2" />
+      <line x1="12" y1="7" x2="12" y2="21" />
+      <line x1="8" y1="11" x2="16" y2="11" />
+      <path d="M4 14c0 4 3.5 7 8 7s8-3 8-7" />
+    </svg>
   );
 }

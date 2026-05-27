@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+} from 'react';
 import { useParams } from 'react-router-dom';
 
 import { LanguageSwitcher, Trans, mapUploadErrorMessage, useT } from '../i18n/index.js';
@@ -25,7 +31,8 @@ import { DEFAULT_UPLOAD_CONFIG, getUploadConfig, type UploadConfig } from '../li
  *   2. If the metadata reports `passwordRequired`, prompt for it BEFORE the
  *      file picker. The password is sent on the ticket-mint call (and again on
  *      finalize) — the server is the only place that decides "correct".
- *   3. User picks a file.
+ *   3. User picks a file (via the drop-card label or by dragging a file onto
+ *      the same target).
  *   4. Mint a ticket via the public API (with password if set). On
  *      `password_required` / `password_wrong` we surface the inline error and
  *      let the user retype; on `quota_exhausted` / `expired` / `disabled` we
@@ -63,6 +70,7 @@ export function PublicReceivePage(): JSX.Element {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [completedName, setCompletedName] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   /**
    * Controller for the in-flight upload. Recreated per upload attempt; the
@@ -97,9 +105,12 @@ export function PublicReceivePage(): JSX.Element {
     };
   }, [code]);
 
-  const onFileChange = async (e: ChangeEvent<HTMLInputElement>): Promise<void> => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  /**
+   * Core upload pipeline. Extracted so both the file-input `onChange` and the
+   * drop-target `onDrop` can share the exact same dispatch — including the
+   * phase machine, abort wiring, password capture, and error routing.
+   */
+  const processFile = async (file: File): Promise<void> => {
     // The picker is `disabled` until `uploadConfig` resolves; the guard here
     // is belt-and-braces against a synthetic event firing pre-resolve.
     const cfg = uploadConfig ?? DEFAULT_UPLOAD_CONFIG;
@@ -285,11 +296,17 @@ export function PublicReceivePage(): JSX.Element {
     }
   };
 
+  const onFileChange = async (e: ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processFile(file);
+  };
+
   /**
    * User-initiated cancel. The dispatcher tears every in-flight part XHR via
    * the AbortController and fires a best-effort server-side abort with a 5s
    * ceiling. The page state moves to `cancelling` immediately for UI feedback;
-   * the `cancelled` terminal is set inside `onFileChange` once the dispatcher
+   * the `cancelled` terminal is set inside `processFile` once the dispatcher
    * settles.
    */
   const onCancel = (): void => {
@@ -358,23 +375,24 @@ export function PublicReceivePage(): JSX.Element {
 
   if (metaError) {
     return (
-      <main className="tile tile-parchment">
-        <div className="container-narrow stack">
-          <LanguageSwitcher />
+      <main className="public-main tile tile-parchment">
+        <LanguageSwitcher />
+        <div className="container-narrow public-hero">
           <h1>File Harbor</h1>
           <p role="alert" className="error">
             {t('receive.notAvailable')}
           </p>
         </div>
+        <PublicFooter />
       </main>
     );
   }
 
   if (!meta || !uploadConfig) {
     return (
-      <main className="tile tile-parchment">
-        <div className="container-narrow stack">
-          <LanguageSwitcher />
+      <main className="public-main tile tile-parchment">
+        <LanguageSwitcher />
+        <div className="container-narrow public-hero">
           <p className="muted">{t('common.loading')}</p>
         </div>
       </main>
@@ -392,39 +410,48 @@ export function PublicReceivePage(): JSX.Element {
   const passwordReady = !meta.passwordRequired || password.length > 0;
   const pickerDisabled = busy || !passwordReady;
 
-  // Visually-hide the native file input while keeping it focusable for
-  // keyboard users. Pairs with the styled `<label className="btn-secondary-pill">`
-  // wrapper so the picker reads as a designed pill button.
-  const srOnlyFileInputStyle: CSSProperties = {
-    position: 'absolute',
-    width: 1,
-    height: 1,
-    padding: 0,
-    margin: -1,
-    overflow: 'hidden',
-    clip: 'rect(0,0,0,0)',
-    whiteSpace: 'nowrap',
-    border: 0,
+  /**
+   * Drag-and-drop wiring. `onDragOver` MUST call `preventDefault()` or the
+   * browser refuses `onDrop`. While `pickerDisabled` is true (busy or
+   * password-not-typed) we short-circuit so dropping cannot bypass the gate.
+   */
+  const onDragOver = (event: DragEvent<HTMLLabelElement>): void => {
+    if (pickerDisabled) return;
+    event.preventDefault();
+    if (!isDragging) setIsDragging(true);
+  };
+  const onDragLeave = (event: DragEvent<HTMLLabelElement>): void => {
+    // Only treat as "leave" when leaving the card itself, not a child element.
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setIsDragging(false);
+  };
+  const onDrop = (event: DragEvent<HTMLLabelElement>): void => {
+    event.preventDefault();
+    setIsDragging(false);
+    if (pickerDisabled) return;
+    const file = event.dataTransfer.files?.[0];
+    if (file) void processFile(file);
   };
 
   return (
-    <main className="tile tile-parchment">
-      <div className="container-narrow stack">
-        <LanguageSwitcher />
+    <main className="public-main tile tile-parchment">
+      <LanguageSwitcher />
+      <div className="container-narrow public-hero">
         <h1>{t('receive.title')}</h1>
         <p className="lead">
           <Trans k="receive.invitedTo" components={{ label: <strong>{meta.label}</strong> }} />
         </p>
 
         {phase === 'completed' && completedName && (
-          <div className="stack">
+          <div className="public-action success-block">
+            <SuccessCheck />
             <p className="success" role="status">
               <Trans
                 k="receive.uploadComplete"
                 components={{ name: <strong>{completedName}</strong> }}
               />
             </p>
-            <div className="row">
+            <div>
               <button type="button" className="btn-primary" onClick={onReset}>
                 {t('receive.uploadAnother')}
               </button>
@@ -433,13 +460,15 @@ export function PublicReceivePage(): JSX.Element {
         )}
 
         {phase === 'locked' && (
-          <p role="alert" className="error">
-            {error ?? t('receive.lockedDefault')}
-          </p>
+          <div className="public-action">
+            <p role="alert" className="error">
+              {error ?? t('receive.lockedDefault')}
+            </p>
+          </div>
         )}
 
         {phase !== 'completed' && phase !== 'locked' && (
-          <div className="stack">
+          <div className="public-action">
             {meta.passwordRequired && (
               <label className="input-label">
                 {t('receive.password')}
@@ -461,29 +490,33 @@ export function PublicReceivePage(): JSX.Element {
               </label>
             )}
 
-            <div className="row">
+            {phase !== 'uploading' && phase !== 'minting' && phase !== 'finalizing' && (
               <label
-                className="btn-secondary-pill"
+                className={`drop-card${isDragging ? ' is-dragging' : ''}`}
                 aria-disabled={pickerDisabled}
-                style={pickerDisabled ? { opacity: 0.6, cursor: 'not-allowed' } : undefined}
+                onDragOver={onDragOver}
+                onDragLeave={onDragLeave}
+                onDrop={onDrop}
               >
-                {t('receive.pickFile')}
+                <span className="drop-card-title">{t('receive.pickFile')}</span>
+                <span className="drop-card-hint">{t('receive.dropHint')}</span>
                 <input
                   ref={fileInputRef}
                   type="file"
+                  className="sr-only"
                   onChange={onFileChange}
                   disabled={pickerDisabled}
-                  style={srOnlyFileInputStyle}
                 />
               </label>
-            </div>
+            )}
 
             {phase === 'minting' && <p className="muted">{t('receive.preparing')}</p>}
 
             {phase === 'uploading' && (
-              <div className="stack-tight">
+              <div className="progress-block">
+                <div className="progress-percent">{progress}%</div>
+                <div className="progress-caption">{t('receive.uploadingPhase')}</div>
                 <progress value={progress} max={100} />
-                <div className="muted small">{progress}%</div>
               </div>
             )}
 
@@ -494,7 +527,7 @@ export function PublicReceivePage(): JSX.Element {
             {phase === 'cancelled' && (
               <div className="stack">
                 <p className="muted">{t('receive.cancelled')}</p>
-                <div className="row">
+                <div className="row" style={{ justifyContent: 'center' }}>
                   <button type="button" className="btn-primary" onClick={onRetryAfterCancel}>
                     {t('common.tryAgain')}
                   </button>
@@ -503,7 +536,7 @@ export function PublicReceivePage(): JSX.Element {
             )}
 
             {cancellable && (
-              <div className="row">
+              <div className="row" style={{ justifyContent: 'center' }}>
                 <button type="button" className="btn-secondary-pill" onClick={onCancel}>
                   {t('receive.cancelUpload')}
                 </button>
@@ -518,7 +551,37 @@ export function PublicReceivePage(): JSX.Element {
           </div>
         )}
       </div>
+      <PublicFooter />
     </main>
+  );
+}
+
+/** Tiny quiet brand line so the page doesn't end on the action. */
+function PublicFooter(): JSX.Element {
+  const t = useT();
+  return <div className="public-footer">{t('footer.poweredBy')}</div>;
+}
+
+/**
+ * Large Action-Blue checkmark for the success state. Inline SVG to avoid
+ * any asset dependency and to pick up `currentColor` from the parent class.
+ */
+function SuccessCheck(): JSX.Element {
+  return (
+    <svg
+      className="success-check"
+      viewBox="0 0 56 56"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="28" cy="28" r="24" />
+      <path d="M18 29l7 7 14-17" />
+    </svg>
   );
 }
 

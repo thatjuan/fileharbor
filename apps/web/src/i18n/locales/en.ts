@@ -9,6 +9,8 @@ export const EN_CATALOG = {
     invitedTo: "You've been invited to upload to: {label}",
     password: 'Password',
     pickFile: 'Pick a file',
+    dropHint: 'or drag and drop here',
+    uploadingPhase: 'Uploading',
     preparing: 'Preparing upload…',
     confirming: 'Confirming with server…',
     cancelling: 'Cancelling…',
@@ -28,7 +30,8 @@ export const EN_CATALOG = {
     unlock: 'Unlock',
     download: 'Download',
     preparing: 'Preparing…',
-    noFilesYet: 'No files available yet. Try again in a moment.',
+    noFilesYet: 'No files available yet.',
+    noFilesYetHint: 'Refresh in a moment.',
     notAvailable: 'This download link is not available. It may be incorrect, disabled, or expired.',
     downloadUnavailable: 'This download is no longer available.',
   },
@@ -51,9 +54,13 @@ export const EN_CATALOG = {
   },
   switcher: {
     label: 'Language',
+    triggerAria: 'Switch language',
     en: 'English',
     es: 'Español',
     fr: 'Français',
+  },
+  footer: {
+    poweredBy: 'Powered by File Harbor',
   },
 } as const;
 

@@ -6,6 +6,9 @@ import { App } from './App.js';
 import './styles/tokens.css';
 import './styles/components.css';
 import './styles.css';
+import './styles/polish-public.css';
+import './styles/polish-auth.css';
+import './styles/polish-admin.css';
 
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('Root element #root not found in index.html');

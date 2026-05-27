@@ -138,23 +138,24 @@ export function PublicSendPage(): JSX.Element {
 
   if (metaError) {
     return (
-      <main className="tile tile-parchment">
-        <div className="container-narrow stack">
-          <LanguageSwitcher />
+      <main className="public-main tile tile-parchment">
+        <LanguageSwitcher />
+        <div className="container-narrow public-hero">
           <h1>File Harbor</h1>
           <p role="alert" className="error">
             {t('send.notAvailable')}
           </p>
         </div>
+        <PublicFooter />
       </main>
     );
   }
 
   if (!meta) {
     return (
-      <main className="tile tile-parchment">
-        <div className="container-narrow stack">
-          <LanguageSwitcher />
+      <main className="public-main tile tile-parchment">
+        <LanguageSwitcher />
+        <div className="container-narrow public-hero">
           <p className="muted">{t('common.loading')}</p>
         </div>
       </main>
@@ -172,9 +173,9 @@ export function PublicSendPage(): JSX.Element {
   })();
 
   return (
-    <main className="tile tile-parchment">
-      <div className="container-narrow stack">
-        <LanguageSwitcher />
+    <main className="public-main tile tile-parchment">
+      <LanguageSwitcher />
+      <div className="container-narrow public-hero">
         <h1>{t('send.title')}</h1>
         <p className="lead">
           <Trans k="send.sentYou" components={{ label: <strong>{meta.label}</strong> }} />
@@ -184,7 +185,7 @@ export function PublicSendPage(): JSX.Element {
 
         {passwordGate ? (
           <form
-            className="stack"
+            className="public-action"
             onSubmit={(e) => {
               e.preventDefault();
               setError(null);
@@ -209,39 +210,45 @@ export function PublicSendPage(): JSX.Element {
                 {error}
               </p>
             )}
-            <div className="row">
+            <div className="row" style={{ justifyContent: 'center' }}>
               <button type="submit" className="btn-primary" disabled={password.length === 0}>
                 {t('send.unlock')}
               </button>
             </div>
           </form>
         ) : meta.files.length === 0 ? (
-          // The link exists but the admin's upload hasn't finalized yet. Render
-          // a soft state rather than a hard error — the recipient can refresh.
-          <div className="store-card" style={{ textAlign: 'center' }}>
-            <p className="muted">{t('send.noFilesYet')}</p>
+          // The link exists but the admin's upload hasn't finalized yet.
+          // Soft empty state with a hint to refresh.
+          <div className="public-action">
+            <div className="empty-state">
+              <HourglassGlyph />
+              <div className="empty-state-title">{t('send.noFilesYet')}</div>
+              <div className="empty-state-hint">{t('send.noFilesYetHint')}</div>
+            </div>
           </div>
         ) : (
-          <ul className="list-reset stack">
-            {meta.files.map((file) => (
-              <li key={file.id} className="store-card-row">
-                <div>
-                  <div className="body-strong">{file.filename}</div>
-                  <div className="muted small">
-                    {formatBytes(file.size)} · {file.contentType}
+          <div className="public-action">
+            <ul className="list-reset stack">
+              {meta.files.map((file) => (
+                <li key={file.id} className="store-card-row">
+                  <div className="file-row-meta">
+                    <div className="file-row-name">{file.filename}</div>
+                    <div className="file-row-sub">
+                      {formatBytes(file.size)} · {file.contentType}
+                    </div>
                   </div>
-                </div>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={() => void onDownload(file.id)}
-                  disabled={busyFileId !== null}
-                >
-                  {busyFileId === file.id ? t('send.preparing') : t('send.download')}
-                </button>
-              </li>
-            ))}
-          </ul>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => void onDownload(file.id)}
+                    disabled={busyFileId !== null}
+                  >
+                    {busyFileId === file.id ? t('send.preparing') : t('send.download')}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         {!passwordGate && error && (
@@ -250,7 +257,36 @@ export function PublicSendPage(): JSX.Element {
           </p>
         )}
       </div>
+      <PublicFooter />
     </main>
+  );
+}
+
+/** Tiny quiet brand line so the page doesn't end on the action. */
+function PublicFooter(): JSX.Element {
+  const t = useT();
+  return <div className="public-footer">{t('footer.poweredBy')}</div>;
+}
+
+/** Small hour-glass for the "files not ready yet" empty state. */
+function HourglassGlyph(): JSX.Element {
+  return (
+    <svg
+      className="empty-state-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M7 3h10" />
+      <path d="M7 21h10" />
+      <path d="M7 3v3a5 5 0 0 0 10 0V3" />
+      <path d="M7 21v-3a5 5 0 0 1 10 0v3" />
+    </svg>
   );
 }
 

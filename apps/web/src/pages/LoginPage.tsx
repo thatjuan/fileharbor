@@ -32,40 +32,49 @@ export function LoginPage(): JSX.Element {
   };
 
   return (
-    <main className="page-auth">
-      <h1>Sign in</h1>
-      <form onSubmit={onSubmit} className="stack">
-        <label className="input-label">
-          Username
-          <input
-            type="text"
-            className="input-pill"
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            required
-          />
-        </label>
-        <label className="input-label">
-          Password
-          <input
-            type="password"
-            className="input-pill"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </label>
-        {error && (
-          <p role="alert" className="muted">
-            {error}
-          </p>
-        )}
-        <button type="submit" className="btn-primary" disabled={submitting}>
-          {submitting ? 'Signing in…' : 'Sign in'}
-        </button>
-      </form>
+    <main className="auth-chassis">
+      <div className="auth-column">
+        <p className="auth-wordmark">File Harbor</p>
+        <header className="auth-hero">
+          <h1>Sign in</h1>
+          <p className="lead-airy auth-tagline">Manage your receive and send links.</p>
+        </header>
+        <section className="auth-card">
+          <form onSubmit={onSubmit} className="auth-form" aria-busy={submitting}>
+            <label className="input-label">
+              Username
+              <input
+                type="text"
+                className="input-pill"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+              />
+            </label>
+            <label className="input-label">
+              Password
+              <input
+                type="password"
+                className="input-pill"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </label>
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+            <button type="submit" className="btn-primary" disabled={submitting}>
+              {submitting ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
+        </section>
+        <p className="auth-fineprint">Forgot password? Contact your administrator.</p>
+      </div>
     </main>
   );
 }

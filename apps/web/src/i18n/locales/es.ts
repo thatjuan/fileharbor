@@ -11,6 +11,8 @@ export const ES_CATALOG: Catalog = {
     invitedTo: 'Se te ha invitado a subir a: {label}',
     password: 'Contraseña',
     pickFile: 'Elige un archivo',
+    dropHint: 'o arrástralo y suéltalo aquí',
+    uploadingPhase: 'Subiendo',
     preparing: 'Preparando subida…',
     confirming: 'Confirmando con el servidor…',
     cancelling: 'Cancelando…',
@@ -31,7 +33,8 @@ export const ES_CATALOG: Catalog = {
     unlock: 'Desbloquear',
     download: 'Descargar',
     preparing: 'Preparando…',
-    noFilesYet: 'Todavía no hay archivos disponibles. Vuelve a intentarlo en un momento.',
+    noFilesYet: 'Todavía no hay archivos disponibles.',
+    noFilesYetHint: 'Actualiza en un momento.',
     notAvailable:
       'Este enlace de descarga no está disponible. Puede ser incorrecto, estar deshabilitado o haber expirado.',
     downloadUnavailable: 'Esta descarga ya no está disponible.',
@@ -54,8 +57,12 @@ export const ES_CATALOG: Catalog = {
   },
   switcher: {
     label: 'Idioma',
+    triggerAria: 'Cambiar idioma',
     en: 'English',
     es: 'Español',
     fr: 'Français',
+  },
+  footer: {
+    poweredBy: 'Con tecnología de File Harbor',
   },
 };

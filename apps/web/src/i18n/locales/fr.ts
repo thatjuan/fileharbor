@@ -11,6 +11,8 @@ export const FR_CATALOG: Catalog = {
     invitedTo: 'Vous avez été invité·e à téléverser vers : {label}',
     password: 'Mot de passe',
     pickFile: 'Choisir un fichier',
+    dropHint: 'ou glissez-déposez ici',
+    uploadingPhase: 'Téléversement',
     preparing: 'Préparation du téléversement…',
     confirming: 'Confirmation avec le serveur…',
     cancelling: 'Annulation…',
@@ -31,7 +33,8 @@ export const FR_CATALOG: Catalog = {
     unlock: 'Déverrouiller',
     download: 'Télécharger',
     preparing: 'Préparation…',
-    noFilesYet: 'Aucun fichier disponible pour le moment. Réessayez dans un instant.',
+    noFilesYet: 'Aucun fichier disponible pour le moment.',
+    noFilesYetHint: 'Actualisez dans un instant.',
     notAvailable:
       "Ce lien de téléchargement n'est pas disponible. Il peut être incorrect, désactivé ou expiré.",
     downloadUnavailable: "Ce téléchargement n'est plus disponible.",
@@ -55,8 +58,12 @@ export const FR_CATALOG: Catalog = {
   },
   switcher: {
     label: 'Langue',
+    triggerAria: 'Changer de langue',
     en: 'English',
     es: 'Español',
     fr: 'Français',
+  },
+  footer: {
+    poweredBy: 'Propulsé par File Harbor',
   },
 };

@@ -36,46 +36,52 @@ export function SetupPage(): JSX.Element {
   };
 
   return (
-    <main className="page-auth">
-      <h1>Set up File Harbor</h1>
-      <p className="lead">
-        Create the admin account for this instance. This screen disappears once an admin exists.
-      </p>
-      <form onSubmit={onSubmit} className="stack">
-        <label className="input-label">
-          Username
-          <input
-            type="text"
-            className="input-pill"
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            minLength={3}
-            maxLength={64}
-            required
-          />
-        </label>
-        <label className="input-label">
-          Password
-          <input
-            type="password"
-            className="input-pill"
-            autoComplete="new-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            minLength={8}
-            required
-          />
-        </label>
-        {error && (
-          <p role="alert" className="muted">
-            {error}
-          </p>
-        )}
-        <button type="submit" className="btn-primary" disabled={submitting}>
-          {submitting ? 'Creating…' : 'Create admin'}
-        </button>
-      </form>
+    <main className="auth-chassis">
+      <div className="auth-column">
+        <p className="auth-wordmark">File Harbor</p>
+        <header className="auth-hero">
+          <h1>Set up your harbor</h1>
+          <p className="lead auth-tagline">Create the admin account for this instance.</p>
+        </header>
+        <section className="auth-card">
+          <form onSubmit={onSubmit} className="auth-form" aria-busy={submitting}>
+            <label className="input-label">
+              Username
+              <input
+                type="text"
+                className="input-pill"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                minLength={3}
+                maxLength={64}
+                required
+              />
+            </label>
+            <label className="input-label">
+              Password
+              <input
+                type="password"
+                className="input-pill"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                minLength={8}
+                required
+              />
+            </label>
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+            <button type="submit" className="btn-primary" disabled={submitting}>
+              {submitting ? 'Creating…' : 'Create admin'}
+            </button>
+          </form>
+        </section>
+        <p className="auth-fineprint">This screen disappears once an admin exists.</p>
+      </div>
     </main>
   );
 }
