@@ -5,9 +5,11 @@ build/
 .env
 .env.*
 !.env.example
+!.env.example.clean
 *.log
 .DS_Store
 data/
 *.sqlite
 *.sqlite-journal
-.claude/scheduled_tasks.lock
+.agents/
+.claude/
