@@ -1,14 +1,38 @@
+<div align="center">
+
 # ⚓ File Harbor
 
-Self-hosted file send/receive. One container, one volume.
+**Self-hosted file send/receive. One container, one volume.**
 
-- **Receive links** (`/r/<code>`) — others upload to you.
-- **Send links** (`/s/<code>`) — bundle files into a download link.
-- Per-link policy: label, password, max-uploads quota, expiry.
-- Bytes go browser ↔ storage via short-lived presigned URLs.
-- One admin, no public signup.
+Short, shareable URLs to send files to people — or receive files from them. <br/>
+Per-link policy, presigned uploads, optional Cloudflare Tunnel. No bucket required.
 
-Storage: `local` (bytes on the data volume) or `s3` (R2, MinIO, AWS, B2 — anything S3-compatible).
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Node](https://img.shields.io/badge/Node-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![Self-hosted](https://img.shields.io/badge/Self--hosted-yes-success)](#scenario-1-local-storage-no-s3)
+[![GitHub stars](https://img.shields.io/github/stars/thatjuan/fileharbor?style=social)](https://github.com/thatjuan/fileharbor/stargazers)
+
+[Quick start](#build-the-image) ·
+[Local mode](#scenario-1-local-storage-no-s3) ·
+[S3 mode](#scenario-2-external-s3) ·
+[Cloudflare Tunnel](#scenario-3-add-a-cloudflare-tunnel) ·
+[Config](#config-reference)
+
+</div>
+
+---
+
+## Features
+
+- 📤 **Receive links** (`/r/<code>`) — others upload to you.
+- 📦 **Send links** (`/s/<code>`) — bundle files into a download link.
+- 🔒 **Per-link policy** — label, password, max-uploads quota, expiry.
+- ⚡ **Presigned uploads** — bytes go browser ↔ storage; server handles policy, not bytes.
+- 🗂️ **Local or S3** — bytes on disk, or any S3-compatible bucket (R2, MinIO, AWS, B2).
+- 🌐 **Optional Cloudflare Tunnel** — public hostname without opening ports.
+- 🧑‍💼 **Single admin** — no public signup, no teams.
 
 ---
 
