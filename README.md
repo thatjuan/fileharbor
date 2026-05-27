@@ -1,19 +1,18 @@
 # ⚓ File Harbor
 
-Self-hosted file send/receive service. One container, one volume, no external bucket required.
+Self-hosted file send/receive. One container, one volume.
 
-## What it does
+- **Receive links** (`/r/<code>`) — others upload to you.
+- **Send links** (`/s/<code>`) — bundle files into a download link.
+- Per-link policy: label, password, max-uploads quota, expiry.
+- Bytes go browser ↔ storage via short-lived presigned URLs.
+- One admin, no public signup.
 
-Short, shareable URLs to send files to people or receive files from them.
+Storage: `local` (bytes on the data volume) or `s3` (R2, MinIO, AWS, B2 — anything S3-compatible).
 
-- **Receive links** (`/r/<code>`) — others upload to you. Optional label, password, max-uploads quota, expiry.
-- **Send links** (`/s/<code>`) — bundle files into a download link. Same policy controls.
-- Bytes go browser ↔ storage via short-lived presigned URLs. File Harbor handles policy, not bytes.
-- One admin, no public signup, no teams.
+---
 
-**Storage modes:** `local` (default — bytes on the data volume) or `s3` (any S3-compatible bucket: R2, MinIO, AWS, B2).
-
-## Quick start
+## Build the image
 
 ```bash
 git clone https://github.com/thatjuan/fileharbor.git
@@ -29,7 +28,11 @@ openssl rand -hex 32 > /srv/fileharbor/auth-secret
 openssl rand -hex 32 > /srv/fileharbor/storage-secret
 ```
 
-Run:
+---
+
+## Scenario 1: Local storage (no S3)
+
+Bytes live on the mounted `/data` volume alongside the SQLite database.
 
 ```bash
 docker run -d \
@@ -42,18 +45,20 @@ docker run -d \
   fileharbor
 ```
 
-Create the admin one of two ways:
+`STORAGE_BACKEND` defaults to `local`. Reverse-proxy `https://files.example.com` to the container's port 3000.
 
-- Open `https://files.example.com/setup` and submit a username + password. Route seals after first user.
-- Or set `ADMIN_USERNAME` + `ADMIN_PASSWORD` in the env (both required, ignored after admin exists).
+---
 
-Log in, create a link, share the URL.
+## Scenario 2: External S3
 
-## S3 mode
+Any S3-compatible bucket. Bucket must exist; CORS must allow `PUT` + `GET` from your `BETTER_AUTH_URL` origin and expose `ETag`. A `HeadBucket` probe runs at boot.
 
 ```bash
-docker run -d --name fileharbor -p 3000:3000 -v fileharbor-data:/data \
-  -e BETTER_AUTH_SECRET="..." \
+docker run -d \
+  --name fileharbor \
+  -p 3000:3000 \
+  -v fileharbor-data:/data \
+  -e BETTER_AUTH_SECRET="$(cat /srv/fileharbor/auth-secret)" \
   -e BETTER_AUTH_URL="https://files.example.com" \
   -e STORAGE_BACKEND=s3 \
   -e S3_ENDPOINT="https://<account>.r2.cloudflarestorage.com" \
@@ -64,53 +69,94 @@ docker run -d --name fileharbor -p 3000:3000 -v fileharbor-data:/data \
   fileharbor
 ```
 
-Bucket must exist + CORS must allow `PUT` and `GET` from your `BETTER_AUTH_URL` origin, expose `ETag`. A `HeadBucket` probe runs at boot.
+`STORAGE_SIGNING_SECRET` is not used in S3 mode (S3 signs its own URLs). The `/data` volume still holds SQLite.
 
-## Cloudflare Tunnel (optional)
+---
 
-Set `CLOUDFLARE_API_TOKEN` (scopes `Zone:DNS:Edit` + `Account:Cloudflare Tunnel:Edit`) and `CLOUDFLARE_TUNNEL_DOMAIN`. Drop the `-p 3000:3000` flag — `cftunn` provisions the tunnel + DNS at startup. `BETTER_AUTH_URL` auto-derives from the domain.
+## Scenario 3: Add a Cloudflare Tunnel
 
-## Large files
+The image bundles [`cftunn`](https://github.com/thatjuan/cftunn), which provisions a named Cloudflare Tunnel and the matching DNS record at startup. No port publish needed — Cloudflare routes traffic to the container.
 
-Files above 100 MiB (configurable via `STORAGE_MULTIPART_THRESHOLD_BYTES`) auto-upload in 16 MiB parts with parallel PUTs + per-part retry + cancel. Both storage modes. Lifts the Cloudflare Free-plan 100 MB cap automatically.
+Cloudflare API token scopes: `Zone:DNS:Edit` + `Account:Cloudflare Tunnel:Edit`.
 
-## Config
+Full local-storage + tunnel example:
 
-Every value is env-driven. Authoritative list: [`apps/server/src/config.ts`](./apps/server/src/config.ts). Mirror with comments: [`.env.example`](./.env.example). Key vars:
+```bash
+docker run -d \
+  --name fileharbor \
+  --restart unless-stopped \
+  -v fileharbor-data:/data \
+  -e BETTER_AUTH_SECRET="$(cat /srv/fileharbor/auth-secret)" \
+  -e STORAGE_SIGNING_SECRET="$(cat /srv/fileharbor/storage-secret)" \
+  -e CLOUDFLARE_API_TOKEN="..." \
+  -e CLOUDFLARE_TUNNEL_DOMAIN="files.example.com" \
+  fileharbor
+```
 
-| Variable                                            | Purpose                                                                |
-| --------------------------------------------------- | ---------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`                                | Signs session cookies. Required in production.                         |
-| `BETTER_AUTH_URL`                                   | Public base URL. Used for cookies + CORS origin.                       |
-| `STORAGE_BACKEND`                                   | `local` (default) or `s3`.                                             |
-| `STORAGE_SIGNING_SECRET`                            | HMAC for local presigned URLs. Required in production, local mode.     |
-| `DATA_DIR`                                          | SQLite + (local mode) bytes. Default `/data` in the image.             |
-| `S3_*`                                              | Endpoint, keys, bucket. Required when `STORAGE_BACKEND=s3`.            |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD`                 | Headless admin seed. Both or neither.                                  |
-| `STORAGE_MULTIPART_THRESHOLD_BYTES`                 | Multipart cut-over. Default 100 MiB.                                   |
-| `RATE_LIMIT_*`                                      | In-memory abuse limits for auth/setup/public ticket surfaces.          |
-| `SECURITY_HEADERS_*`                                | Production security headers and HSTS controls.                         |
-| `SECURITY_TRUST_PROXY_HEADERS`                      | Trust forwarded IP headers only behind a trusted proxy. Default false. |
-| `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_TUNNEL_DOMAIN` | Tunnel mode. Both or neither.                                          |
+`BETTER_AUTH_URL` auto-derives to `https://${CLOUDFLARE_TUNNEL_DOMAIN}`. Drop `-p 3000:3000` — the tunnel reaches the server inside the container.
 
-## Security notes
+For S3 + tunnel, combine: drop `-p 3000:3000` from the S3 command above and add the two `CLOUDFLARE_*` vars (you can also drop `BETTER_AUTH_URL`).
 
-Production responses include baseline CSP, nosniff, referrer, and frame-deny
-headers. HSTS is enabled automatically for HTTPS `BETTER_AUTH_URL` deployments
-and can be disabled for unusual proxy setups.
+Multipart uploads (files >100 MiB) automatically bypass the Cloudflare Free-plan 100 MB body cap.
 
-Rate limits are in-memory and process-local, which matches the single-container
-v1 deployment model. Multi-replica deployments should add shared rate limiting
-at the reverse proxy or a future shared backend.
+---
 
-`npm audit` may continue to report a moderate Better Auth peer-tooling chain
-through `drizzle-kit -> @esbuild-kit -> esbuild`. File Harbor does not execute
-Drizzle Kit in the production server path; it is retained for schema generation
-and Better Auth peer compatibility until upstream publishes a clean peer tree.
+## Custom data location
 
-## Persistence
+`/data` is the in-container path. Replace the named volume with any host path:
 
-Mount `/data` to a named volume or host dir. SQLite + (local mode) object bytes live there. Drizzle migrations run on every start. Upgrade = pull image, restart, same volume.
+```bash
+-v /mnt/disks/fileharbor:/data
+```
+
+SQLite and (in `local` mode) object bytes both live under that mount. To split them, set `LOCAL_OBJECTS_DIR` to a second path and mount that too:
+
+```bash
+-v /mnt/disks/fileharbor:/data \
+-v /mnt/objects/fileharbor:/objects \
+-e LOCAL_OBJECTS_DIR=/objects
+```
+
+To change the in-container path itself, set `DATA_DIR` (and mount the new path).
+
+---
+
+## Admin setup
+
+Two options, pick one:
+
+- **Web setup** — open `https://<your-host>/setup` and submit username + password. Route seals after first user.
+- **Headless** — set `ADMIN_USERNAME` + `ADMIN_PASSWORD` in the env (both required, ignored after the admin exists).
+
+---
+
+## Config reference
+
+Every value is env-driven. Authoritative list: [`apps/server/src/config.ts`](./apps/server/src/config.ts). Plain template: [`.env.example.clean`](./.env.example.clean). Commented template: [`.env.example`](./.env.example).
+
+| Variable                                            | Purpose                                                         |
+| --------------------------------------------------- | --------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                                | Signs session cookies. Required in production.                  |
+| `BETTER_AUTH_URL`                                   | Public base URL. Auto-derived in tunnel mode.                   |
+| `STORAGE_BACKEND`                                   | `local` (default) or `s3`.                                      |
+| `STORAGE_SIGNING_SECRET`                            | HMAC for local presigned URLs. Required in production (local).  |
+| `DATA_DIR`                                          | SQLite + (local mode) bytes. Default `/data` in the image.      |
+| `LOCAL_OBJECTS_DIR`                                 | Split local object bytes onto a separate path.                  |
+| `S3_*`                                              | Endpoint, keys, bucket. Required when `STORAGE_BACKEND=s3`.     |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD`                 | Headless admin seed. Both or neither.                           |
+| `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_TUNNEL_DOMAIN` | Cloudflare Tunnel mode. Both or neither.                        |
+| `STORAGE_MULTIPART_THRESHOLD_BYTES`                 | Multipart cut-over. Default 100 MiB.                            |
+| `RATE_LIMIT_*`                                      | In-memory abuse limits for auth/setup/public surfaces.          |
+| `SECURITY_HEADERS_*`                                | Production security headers and HSTS controls.                  |
+| `SECURITY_TRUST_PROXY_HEADERS`                      | Trust forwarded IP headers. Set only behind a trusted proxy.    |
+
+---
+
+## Upgrade
+
+Pull the image, restart, same volume. Drizzle migrations run on every start.
+
+---
 
 ## Local development
 
