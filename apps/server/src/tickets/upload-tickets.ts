@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import type { MultipartConfig } from '../config.js';
 import type { Db } from '../db/client.js';
-import { files, pendingAborts, uploadTickets } from '../db/schema.js';
+import { files, pendingAborts, receiveLinks, uploadTickets } from '../db/schema.js';
 import type { FilesModule } from '../files/files.js';
 import { evaluateReceiveLink, type ReceiveLinkPolicyResult } from '../links/policy/index.js';
 import { resolvePasswordCheck } from '../links/policy/password-check.js';
@@ -272,6 +272,48 @@ function validateUploadInput(
   return { ok: true, filename, contentType };
 }
 
+/**
+ * Thrown by the in-transaction quota guard when the receive link's
+ * `max_uploads` cap is already met by committed `files` rows. Never escapes
+ * this module — callers translate it to `policy_rejected: quota_exhausted`
+ * and clean up the staged object.
+ */
+class QuotaExhaustedError extends Error {
+  constructor() {
+    super('quota_exhausted');
+  }
+}
+
+/** The transaction handle drizzle passes to `db.transaction((tx) => ...)`. */
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+
+/**
+ * Quota guard run INSIDE the publish transaction, immediately before the
+ * `files` insert. The mint-time and finalize-time policy checks read the
+ * committed upload count outside any transaction, with async storage calls
+ * between check and insert — so K concurrent finalizes could each observe
+ * `count = max - 1` and all publish, overshooting `max_uploads` by K-1.
+ * Re-counting in the same synchronous transaction that inserts the row makes
+ * the cap atomic: better-sqlite3 transactions run to completion without
+ * yielding to other JS execution, so no interleaving is possible.
+ */
+function assertReceiveQuotaInTx(tx: Tx, receiveLinkId: string): void {
+  const link = tx
+    .select({ maxUploads: receiveLinks.maxUploads })
+    .from(receiveLinks)
+    .where(eq(receiveLinks.id, receiveLinkId))
+    .get();
+  if (!link || link.maxUploads === null) return;
+  const count = tx
+    .select({ value: sql<number>`count(*)` })
+    .from(files)
+    .where(eq(files.receiveLinkId, receiveLinkId))
+    .get();
+  if ((count?.value ?? 0) >= link.maxUploads) {
+    throw new QuotaExhaustedError();
+  }
+}
+
 export function createUploadTicketsModule(
   db: Db,
   storage: StorageProvider,
@@ -383,7 +425,8 @@ export function createUploadTicketsModule(
   async function deleteCompletedObjectBestEffort(args: {
     ticketId: string;
     key: string;
-    uploadId: string;
+    /** Multipart session id; null on the single-PUT finalize path. */
+    uploadId: string | null;
     reason: string;
     expectedSize?: number | null;
     actualSize?: number | null;
@@ -545,21 +588,59 @@ export function createUploadTicketsModule(
       // Trust the bucket's reported size over the client's hint — this is
       // the whole point of HEAD-then-record. ContentType may be missing on
       // some providers/configs; fall back to the ticket's claimed type.
+      //
+      // The file insert, the ticket flip, and the quota re-count run in ONE
+      // synchronous transaction. The policy re-check above is advisory only:
+      // `await storage.headObject` sits between it and this insert, so two
+      // concurrent finalizes can both pass it with `count = max - 1`. The
+      // in-transaction guard is the enforcement point — the loser lands in
+      // the QuotaExhaustedError arm below.
       const fileId = randomUUID();
-      await filesModule.create({
-        id: fileId,
-        s3Key: ticketRow.s3Key,
-        filename: ticketRow.filename,
-        contentType: info.contentType ?? ticketRow.contentType,
-        size: info.size,
-        receiveLinkId: ticketRow.receiveLinkId,
-        sendLinkId: ticketRow.sendLinkId,
-      });
-
-      db.update(uploadTickets)
-        .set({ status: 'completed', completedAt })
-        .where(eq(uploadTickets.id, ticketId))
-        .run();
+      try {
+        db.transaction((tx) => {
+          if (ticketRow.intent === 'receive' && ticketRow.receiveLinkId !== null) {
+            assertReceiveQuotaInTx(tx, ticketRow.receiveLinkId);
+          }
+          tx.insert(files)
+            .values({
+              id: fileId,
+              s3Key: ticketRow.s3Key,
+              filename: ticketRow.filename,
+              contentType: info.contentType ?? ticketRow.contentType,
+              size: info.size,
+              createdAt: completedAt,
+              receiveLinkId: ticketRow.receiveLinkId,
+              sendLinkId: ticketRow.sendLinkId,
+            })
+            .run();
+          tx.update(uploadTickets)
+            .set({ status: 'completed', completedAt })
+            .where(eq(uploadTickets.id, ticketId))
+            .run();
+        });
+      } catch (err) {
+        if (err instanceof QuotaExhaustedError) {
+          // Lost the publish race: the cap filled between the advisory check
+          // and this commit. The bytes are already in the bucket, so delete
+          // them — quota exists to bound storage — and close the ticket. A
+          // retry can't succeed without a fresh upload, so `failed` (not
+          // `pending`) is the honest terminal state.
+          db.update(uploadTickets)
+            .set({ status: 'failed', completedAt })
+            .where(eq(uploadTickets.id, ticketId))
+            .run();
+          await deleteCompletedObjectBestEffort({
+            ticketId,
+            key: ticketRow.s3Key,
+            uploadId: null,
+            reason: 'quota_exhausted',
+            expectedSize: ticketRow.sizeHint,
+            actualSize: info.size,
+          });
+          return { kind: 'policy_rejected', policy: { kind: 'quota_exhausted' } };
+        }
+        throw err;
+      }
 
       // Notifications: inbound (receive-intent) uploads only. Admin send-link
       // uploads do NOT produce a notification (PRD: in-app on inbound only).
@@ -983,6 +1064,13 @@ export function createUploadTicketsModule(
       const fileId = randomUUID();
       try {
         db.transaction((tx) => {
+          // Same atomicity rationale as `finalize`: the policy re-check that
+          // ran before the CAS is advisory (async storage calls separate it
+          // from this insert); this in-transaction guard is what actually
+          // enforces `max_uploads` under concurrency.
+          if (ticketRow.intent === 'receive' && ticketRow.receiveLinkId !== null) {
+            assertReceiveQuotaInTx(tx, ticketRow.receiveLinkId);
+          }
           tx.insert(files)
             .values({
               id: fileId,
@@ -1012,11 +1100,14 @@ export function createUploadTicketsModule(
           ticketId,
           key: ticketRow.s3Key,
           uploadId: ticketRow.uploadId,
-          reason: 'publish_failed',
+          reason: err instanceof QuotaExhaustedError ? 'quota_exhausted' : 'publish_failed',
           expectedSize: ticketRow.sizeHint,
           actualSize: objectInfo.size,
           err,
         });
+        if (err instanceof QuotaExhaustedError) {
+          return { kind: 'policy_rejected', policy: { kind: 'quota_exhausted' } };
+        }
         return { kind: 'failed', reason: 'storage_complete_failed' };
       }
 
