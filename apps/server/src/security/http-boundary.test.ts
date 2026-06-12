@@ -98,13 +98,19 @@ test('public multipart part URLs use body password and reject query password', a
   assert.deepEqual(await get.json(), { error: 'password_in_query_not_allowed' });
 });
 
-test('admin origin guard accepts configured origin and rejects cross-origin mutation', async () => {
-  const config = {
-    nodeEnv: 'production',
-    auth: { baseUrl: 'https://files.example.com' },
+function originGuardConfig(
+  overrides: { baseUrl?: string; nodeEnv?: string; trustProxyHeaders?: boolean } = {},
+): Parameters<typeof createAdminOriginGuard>[0] {
+  return {
+    nodeEnv: overrides.nodeEnv ?? 'production',
+    auth: { baseUrl: overrides.baseUrl ?? 'https://files.example.com' },
+    security: security({ trustProxyHeaders: overrides.trustProxyHeaders ?? false }),
   } as Parameters<typeof createAdminOriginGuard>[0];
+}
+
+test('admin origin guard accepts configured origin and rejects cross-origin mutation', async () => {
   const app = new Hono();
-  app.use('/admin', createAdminOriginGuard(config));
+  app.use('/admin', createAdminOriginGuard(originGuardConfig()));
   app.post('/admin', (c) => c.json({ ok: true }));
 
   const sameOrigin = await app.request('/admin', {
@@ -119,4 +125,62 @@ test('admin origin guard accepts configured origin and rejects cross-origin muta
   });
   assert.equal(crossOrigin.status, 403);
   assert.deepEqual(await crossOrigin.json(), { error: 'forbidden' });
+});
+
+test('admin origin guard accepts same-origin via X-Forwarded-Host when proxy trusted', async () => {
+  // baseUrl differs from the public host (the misconfigured-tunnel case that
+  // produced the 403 on DELETE). With trusted proxy headers, a request whose
+  // Origin matches the forwarded host is allowed even though it isn't in the
+  // configured allowlist.
+  const config = originGuardConfig({ baseUrl: 'http://localhost:3000', trustProxyHeaders: true });
+  const app = new Hono();
+  app.use('/admin', createAdminOriginGuard(config));
+  app.delete('/admin', (c) => c.json({ ok: true }));
+
+  const proxied = await app.request('/admin', {
+    method: 'DELETE',
+    headers: {
+      origin: 'https://files-dev.juan.ca',
+      'x-forwarded-host': 'files-dev.juan.ca',
+      'x-forwarded-proto': 'https',
+      host: 'localhost:3000',
+    },
+  });
+  assert.equal(proxied.status, 200);
+});
+
+test('admin origin guard ignores X-Forwarded-Host when proxy headers untrusted', async () => {
+  // trustProxyHeaders=false: forwarded headers are attacker-spoofable, so they
+  // must not widen the allowlist. Host (localhost:3000) is the only same-origin
+  // signal, and it doesn't match the cross-origin Origin → rejected.
+  const config = originGuardConfig({ baseUrl: 'http://localhost:3000', trustProxyHeaders: false });
+  const app = new Hono();
+  app.use('/admin', createAdminOriginGuard(config));
+  app.delete('/admin', (c) => c.json({ ok: true }));
+
+  const spoofed = await app.request('/admin', {
+    method: 'DELETE',
+    headers: {
+      origin: 'https://files-dev.juan.ca',
+      'x-forwarded-host': 'files-dev.juan.ca',
+      host: 'localhost:3000',
+    },
+  });
+  assert.equal(spoofed.status, 403);
+});
+
+test('admin origin guard accepts same-origin via Host header without proxy', async () => {
+  // Direct exposure (no proxy): the browser's Origin matches the Host it
+  // connected to. Host is browser-controlled-as-forbidden, so this is a sound
+  // same-origin check even with trustProxyHeaders=false.
+  const config = originGuardConfig({ baseUrl: 'https://other.example.com', trustProxyHeaders: false });
+  const app = new Hono();
+  app.use('/admin', createAdminOriginGuard(config));
+  app.delete('/admin', (c) => c.json({ ok: true }));
+
+  const sameHost = await app.request('/admin', {
+    method: 'DELETE',
+    headers: { origin: 'https://files.example.com', host: 'files.example.com' },
+  });
+  assert.equal(sameHost.status, 200);
 });

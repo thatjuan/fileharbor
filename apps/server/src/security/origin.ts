@@ -1,4 +1,4 @@
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 
 import type { AppConfig } from '../config.js';
 
@@ -18,8 +18,34 @@ export function allowedAdminOrigins(config: AppConfig): Set<string> {
   return origins;
 }
 
+/**
+ * The host (hostname[:port]) the request actually arrived on, for a
+ * same-origin CSRF check that survives reverse proxies and tunnels.
+ *
+ * Behind a proxy the operator opts into via `SECURITY_TRUST_PROXY_HEADERS`,
+ * the public host is in `X-Forwarded-Host` (the `Host` header is usually
+ * rewritten to the internal origin, e.g. `localhost:3000`). When proxy
+ * headers are not trusted we use `Host` directly — a browser cannot forge
+ * `Host` on a cross-site `fetch` (it's a forbidden header), so this stays a
+ * sound same-origin signal.
+ *
+ * We compare by host only, not full origin: a TLS-terminating tunnel speaks
+ * plain HTTP to the app, so the scheme seen here (`http`) won't match the
+ * browser's `https` Origin. The host is the part that actually distinguishes
+ * our site from an attacker's.
+ */
+function requestSelfHost(c: Context, trustProxy: boolean): string | null {
+  if (trustProxy) {
+    const forwarded = c.req.header('x-forwarded-host')?.split(',')[0]?.trim();
+    if (forwarded) return forwarded.toLowerCase();
+  }
+  const host = c.req.header('host')?.trim();
+  return host ? host.toLowerCase() : null;
+}
+
 export function createAdminOriginGuard(config: AppConfig): MiddlewareHandler {
   const allowed = allowedAdminOrigins(config);
+  const trustProxy = config.security.trustProxyHeaders;
 
   return async (c, next) => {
     if (!MUTATING_METHODS.has(c.req.method.toUpperCase())) {
@@ -29,20 +55,51 @@ export function createAdminOriginGuard(config: AppConfig): MiddlewareHandler {
 
     const rawOrigin = c.req.header('origin');
     if (!rawOrigin || rawOrigin === 'null') {
+      console.warn('[security] admin origin rejected: missing/null Origin', {
+        method: c.req.method,
+        path: c.req.path,
+      });
       return c.json({ error: 'forbidden' }, 403);
     }
 
-    let origin: string;
+    let parsed: URL;
     try {
-      origin = new URL(rawOrigin).origin;
+      parsed = new URL(rawOrigin);
     } catch {
+      console.warn('[security] admin origin rejected: unparseable Origin', {
+        method: c.req.method,
+        path: c.req.path,
+        rawOrigin,
+      });
       return c.json({ error: 'forbidden' }, 403);
     }
 
-    if (!allowed.has(origin)) {
-      return c.json({ error: 'forbidden' }, 403);
+    // Primary: the configured/dev allowlist.
+    if (allowed.has(parsed.origin)) {
+      await next();
+      return;
     }
 
-    await next();
+    // Fallback: same-origin as the host the request actually arrived on.
+    // Covers proxied/tunnelled deploys where the public origin differs from
+    // `config.auth.baseUrl`, without weakening CSRF protection — a cross-site
+    // request's Origin won't match our serving host.
+    const selfHost = requestSelfHost(c, trustProxy);
+    if (selfHost && parsed.host.toLowerCase() === selfHost) {
+      await next();
+      return;
+    }
+
+    console.warn('[security] admin origin rejected', {
+      method: c.req.method,
+      path: c.req.path,
+      origin: parsed.origin,
+      allowed: [...allowed],
+      trustProxy,
+      host: c.req.header('host') ?? null,
+      forwardedHost: c.req.header('x-forwarded-host') ?? null,
+      forwardedProto: c.req.header('x-forwarded-proto') ?? null,
+    });
+    return c.json({ error: 'forbidden' }, 403);
   };
 }
