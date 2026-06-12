@@ -71,6 +71,8 @@ docker run -d \
 
 `STORAGE_BACKEND` defaults to `local`. Reverse-proxy `https://files.example.com` to the container's port 3000.
 
+Behind a reverse proxy, also set `-e SECURITY_TRUST_PROXY_HEADERS=true` so rate limiting sees the real client IP (not the proxy's) and admin actions (delete, revoke) aren't rejected when the public origin differs from `BETTER_AUTH_URL`. Your proxy must strip incoming `X-Forwarded-*` from clients.
+
 ---
 
 ## Scenario 2: External S3
@@ -114,12 +116,15 @@ docker run -d \
   -e STORAGE_SIGNING_SECRET="$(cat /srv/fileharbor/storage-secret)" \
   -e CLOUDFLARE_API_TOKEN="..." \
   -e CLOUDFLARE_TUNNEL_DOMAIN="files.example.com" \
+  -e SECURITY_TRUST_PROXY_HEADERS=true \
   fileharbor
 ```
 
 `BETTER_AUTH_URL` auto-derives to `https://${CLOUDFLARE_TUNNEL_DOMAIN}`. Drop `-p 3000:3000` — the tunnel reaches the server inside the container.
 
-For S3 + tunnel, combine: drop `-p 3000:3000` from the S3 command above and add the two `CLOUDFLARE_*` vars (you can also drop `BETTER_AUTH_URL`).
+`SECURITY_TRUST_PROXY_HEADERS=true` is required behind the tunnel: without it the server sees every request as coming from the tunnel's loopback address, so per-client rate limits collapse into one shared bucket and admin actions (delete, revoke) can 403 on an origin mismatch. The tunnel is the only thing setting the forwarded headers, so trusting them is safe here.
+
+For S3 + tunnel, combine: drop `-p 3000:3000` from the S3 command above and add the two `CLOUDFLARE_*` vars plus `SECURITY_TRUST_PROXY_HEADERS=true` (you can also drop `BETTER_AUTH_URL`).
 
 Multipart uploads (files >100 MiB) automatically bypass the Cloudflare Free-plan 100 MB body cap.
 
@@ -172,7 +177,7 @@ Every value is env-driven. Authoritative list: [`apps/server/src/config.ts`](./a
 | `STORAGE_MULTIPART_THRESHOLD_BYTES`                 | Multipart cut-over. Default 100 MiB.                            |
 | `RATE_LIMIT_*`                                      | In-memory abuse limits for auth/setup/public surfaces.          |
 | `SECURITY_HEADERS_*`                                | Production security headers and HSTS controls.                  |
-| `SECURITY_TRUST_PROXY_HEADERS`                      | Trust forwarded IP headers. Set only behind a trusted proxy.    |
+| `SECURITY_TRUST_PROXY_HEADERS`                      | Trust forwarded headers (real client IP + public origin). Set `true` behind a trusted proxy/tunnel, off if directly exposed. |
 
 ---
 
