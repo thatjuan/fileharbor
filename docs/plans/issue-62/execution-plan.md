@@ -1,168 +1,79 @@
-# Execution Plan: Fix 403 on file deletion / link revocation (Issue #62)
+# Fix: 403 on file deletion / link revocation (Issue #62)
 
-## Overview
+## Root cause
 
-DELETE `/api/files/:id` and revoke-link return 403 Forbidden because `auth.api.getSession` in Better Auth rejects requests whose Origin/Host don't match `trustedOrigins`. In production, `trustedOrigins` is set to `[config.auth.baseUrl]` only. When requests come through a proxy (Cloudflare Tunnel, reverse proxy), the Origin header may differ from the configured base URL, causing `auth.api.getSession` to throw a 403. The current `getSession` catch block swallows this throw and returns `null`, but the 403 is surfaced by the outer handler.
+DELETE `/api/files/:id`, DELETE `/api/receive-links/:id`, and the other
+mutating admin routes returned `403 { "error": "forbidden" }` from the
+**admin origin guard** (`apps/server/src/security/origin.ts`), not from
+auth.
 
-## Goals
+The guard runs ahead of `requireAdmin` (`apps/server/src/app.ts`) on every
+`POST`/`PATCH`/`DELETE` under `/api/{receive-links,send-links,files,notifications}`.
+It compares the browser `Origin` header against an allowlist that, in
+production, contains only `new URL(config.auth.baseUrl).origin`. When the app
+is served through a reverse proxy or Cloudflare Tunnel, the public origin the
+browser sends (`https://files.example.com`) can differ from the configured
+`config.auth.baseUrl`, so the guard rejects the request with a 403 before the
+session is ever checked.
 
-1. Reproduce and verify the 403 occurs in the auth session lookup (not storage delete).
-2. Fix `getSession` to propagate the 403 status from `auth.api.getSession`.
-3. Improve `trustedOrigins` to handle proxied requests in production.
-4. Add logging for the 403 case.
-5. Verify deletion succeeds for both admin and receive-link delete paths.
+### Why the earlier diagnosis was wrong
 
-## Architecture / Approach
+An earlier draft of this plan blamed `auth.api.getSession` throwing a 403 on a
+trusted-origins mismatch. That path cannot produce the observed 403:
+`getSession` wraps the call in `try/catch` and returns `null` on any error, so
+the failure surfaces as **401 `unauthorized`** from `requireAdmin`, never 403.
+The only source of a 403 on the admin mutation path is the origin guard. The
+tell is the response body: `{"error":"forbidden"}` (origin guard) vs
+`{"error":"unauthorized"}` (auth).
 
-Root cause is in the Better Auth `getSession` call, specifically the trusted-origins check. Fix:
+## Fix (shipped)
 
-1. **Improve `getSession` error handling** (the core fix)
-   - Add `getSessionRaw` to `AuthModule` that returns the raw `Response | null` from `auth.api.getSession`.
-   - Update `requireAdmin` to call `getSessionRaw` and short-circuit on 403, returning the actual error.
-   - Keep `getSession` backward-compatible (returning null on 403).
+`apps/server/src/security/origin.ts` — `createAdminOriginGuard`:
 
-2. **Improve `trustedOrigins` for proxied requests** (production fix)
-   - In `createAuthModule`, dynamically extend `trustedOrigins` with `X-Forwarded-Host` and `X-Forwarded-Proto` values when present.
-   - This fixes the case where the app is behind Cloudflare Tunnel or a reverse proxy.
-   - Also add `X-Forwarded-Proto` (`https`) to allow `https` origins from proxied requests even when `config.auth.baseUrl` is `http`.
+1. **Diagnostic logging.** Every rejection logs `console.warn('[security] admin
+   origin rejected', { method, path, origin, allowed, trustProxy, host,
+   forwardedHost, forwardedProto })`, so a misconfigured deploy names the exact
+   mismatch instead of returning an opaque 403.
 
-## Execution Steps
+2. **Proxy-aware same-origin fallback.** When the `Origin` isn't in the
+   configured allowlist, the guard also accepts the request if `Origin` matches
+   the host the request actually arrived on:
+   - `SECURITY_TRUST_PROXY_HEADERS=true` → the public host is taken from
+     `X-Forwarded-Host` (the `Host` header is usually rewritten to the internal
+     origin behind a proxy).
+   - otherwise → the `Host` header is used. A browser cannot set `Host` on a
+     cross-site `fetch` (it's a forbidden header), so this remains a sound
+     same-origin / CSRF check.
+   - Comparison is by **host**, not full origin: a TLS-terminating tunnel
+     speaks plain HTTP to the app, so the locally observed scheme (`http`)
+     would falsely mismatch the browser's `https` Origin.
 
-### Phase 1: Diagnosis and reproduction
+This keeps CSRF protection intact — a genuine cross-site request's `Origin`
+won't equal the serving host, and forged `X-Forwarded-*` is only honoured when
+the operator has explicitly opted into trusting proxy headers.
 
-#### Step 1.1: Add logging to getSession in auth/index.ts
-- Modify the catch block in `getSession` to log the error details (status code, message, and stack).
-- The log line should include: `{ err: string, code: string | null, stack: string }`.
-- Add a `getSessionRaw` method to the AuthModule interface.
-- `getSessionRaw` calls `auth.api.getSession({ headers: request.headers })` directly without try/catch.
-- Return the raw Response object when the call succeeds.
+## Operator note
 
-#### Step 1.2: Verify the Origin header is the cause
-- Start the dev server.
-- Hit DELETE `/api/files/:id` with Origin = `http://other-origin`.
-- Confirm the logged error shows a Better Auth origin mismatch.
-- Repeat with the correct Origin.
+Behind a reverse proxy or Cloudflare Tunnel, set:
 
-### Phase 2: Fix getSession — propagate 403
-
-#### Step 2.1: Update AuthModule interface in auth/index.ts
-Add `getSessionRaw`:
-```ts
-export interface AuthModule {
-  // ... existing methods ...
-  /**
-   * Return the raw session object from Better Auth, or null if no session.
-   * Returns the original Response when a session exists so callers can
-   * inspect the actual status code (e.g. 403 for origin mismatch).
-   */
-  getSessionRaw(request: Request): Promise<Response | null>;
-}
+```
+SECURITY_TRUST_PROXY_HEADERS=true
 ```
 
-Implement `getSessionRaw`:
-```ts
-const getSessionRaw = async (request: Request): Promise<Response | null> => {
-  const response = await auth.api.getSession({ headers: request.headers });
-  return response; // Response or null
-};
-```
+Without it the forwarded-host fallback stays off (correct — untrusted forwarded
+headers are spoofable). Alternatively, set `BETTER_AUTH_URL` to the exact public
+origin so the configured allowlist matches directly.
 
-#### Step 2.2: Update requireAdmin middleware (auth/middleware.ts)
-Change `requireAdmin` to prefer `getSessionRaw` for accurate error propagation:
-```ts
-export function requireAdmin(authModule: AuthModule): MiddlewareHandler<AdminContext> {
-  return async (c, next) => {
-    const raw = await authModule.getSessionRaw(c.req.raw);
-    if (raw === null) {
-      return c.json({ error: 'unauthorized' }, 401);
-    }
-    if (raw.status === 403) {
-      const body = await raw.text().catch(() => '');
-      console.error('[auth] getSession 403', { body });
-      return new Response(JSON.stringify({ error: 'forbidden', message: body }), {
-        status: 403,
-        headers: { 'content-type': 'application/json' },
-      });
-    }
-    const session = await authModule.getSession(c.req.raw);
-    if (!session) {
-      return c.json({ error: 'unauthorized' }, 401);
-    }
-    c.set('session', session);
-    await next();
-  };
-}
-```
+## Tests
 
-### Phase 3: Fix trustedOrigins for proxied requests
+`apps/server/src/security/http-boundary.test.ts`:
 
-#### Step 3.1: Improve trustedOrigins in auth/index.ts
-Update the `createAuthModule` function to expand `trustedOrigins` dynamically:
+- Configured origin accepted; cross-origin mutation rejected (existing).
+- Same-origin via `X-Forwarded-Host` accepted when proxy headers trusted.
+- `X-Forwarded-Host` ignored when proxy headers untrusted (anti-spoof).
+- Same-origin via `Host` accepted without a proxy.
 
-```ts
-// Build base trusted origins list
-const baseTrustedOrigins: string[] = [config.auth.baseUrl];
+## Touched files
 
-// If behind a proxy (X-Forwarded-* present), add the forwarded origin too
-if (config.auth.baseUrl.startsWith('http')) {
-  const forwardedProto = 'https';
-  const forwardedHost = `https://${new URL(config.auth.baseUrl).hostname}`;
-  baseTrustedOrigins.push(forwardedHost);
-  // In dev, also add http localhost + forwarded HTTPS
-  if (config.nodeEnv !== 'production') {
-    baseTrustedOrigins.push('http://localhost:5173', 'http://127.0.0.1:5173');
-  }
-}
-
-const auth = betterAuth({
-  // ...
-  trustedOrigins: baseTrustedOrigins,
-});
-```
-
-#### Step 3.2: Detect and trust proxy headers in the Hono middleware chain
-Add a `setXForwardedHeaders` middleware to the server's middleware stack that reads `X-Forwarded-Host` and `X-Forwarded-Proto` from incoming requests and sets them on the request context so they're visible to `auth.api.getSession`.
-
-### Phase 4: Verification and tests
-
-#### Step 4.1: Add unit tests for requireAdmin 403 handling
-Create tests in `auth/middleware.test.ts`:
-- Test that `requireAdmin` returns 403 when `getSessionRaw` returns 403.
-- Test that `requireAdmin` returns 401 when `getSessionRaw` returns null.
-- Test that `requireAdmin` returns 200 (next) on successful session.
-- Test with the updated `trustedOrigins` config.
-
-#### Step 4.2: Add integration test for DELETE /files
-- Create a file, verify DELETE succeeds.
-- Simulate a 403-tripping origin in the request.
-- Verify 403 is returned (not 401, not 500).
-
-#### Step 4.3: Manual verification in dev and production profiles
-- Start the dev server, hit DELETE `/api/files/:id` with browser Origin header.
-- Start the server in production mode with `STORAGE_BACKEND=s3` (or `local`).
-- Hit DELETE through a proxy that sets `X-Forwarded-*`.
-- Verify the responses in each case.
-
-## Integration Points
-
-1. `auth/index.ts` — `AuthModule` interface and `createAuthModule`.
-2. `auth/middleware.ts` — `requireAdmin` middleware.
-3. `routes/files.ts` — DELETE route (uses `requireAdmin`).
-4. `routes/receive-links.ts` — delete link (also uses `requireAdmin`).
-5. `http/server.ts` (or `src/index.ts`) — middleware chain ordering.
-
-## Quality Assurance
-
-- Unit tests for all `requireAdmin` branches.
-- Integration tests for the DELETE flow.
-- Dev + production smoke tests.
-- Logging confirms the 403 diagnosis.
-
-## Risk Register
-
-- **Risk**: Changing `requireAdmin` to call `getSessionRaw` may alter behavior for edge cases where `auth.api.getSession` succeeds but `getSession` (with catch) returns null.
-  - **Mitigation**: `requireAdmin` falls back to `getSession` if `getSessionRaw` returns a non-403 Response.
-- **Risk**: Expanding `trustedOrigins` may allow unintended origins in production.
-  - **Mitigation**: Only add well-known proxy headers (`X-Forwarded-*`), not all origins.
-- **Risk**: The `X-Forwarded-*` values may contain query parameters or paths.
-  - **Mitigation**: Strip query parameters from the Host header when constructing the forwarded origin.
+1. `apps/server/src/security/origin.ts` — guard logic + logging.
+2. `apps/server/src/security/http-boundary.test.ts` — guard coverage.
