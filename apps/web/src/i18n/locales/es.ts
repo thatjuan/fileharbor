@@ -55,6 +55,13 @@ export const ES_CATALOG: Catalog = {
     uploadObjectNotFound: 'El servidor no pudo verificar tu subida. Vuelve a intentarlo.',
     downloadStartFailed: 'No se pudo iniciar la descarga.',
   },
+  meta: {
+    link: 'Enlace',
+    password: 'Contraseña',
+    expires: 'Caduca',
+    downloads: 'Descargas',
+    files: 'Archivos',
+  },
   switcher: {
     label: 'Idioma',
     triggerAria: 'Cambiar idioma',

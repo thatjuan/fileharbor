@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { SubNav } from '../components/SubNav.js';
+import { AlertIcon, BellIcon, UploadIcon } from '../components/Icons.js';
 import {
   isUploadReceivedPayload,
   listNotifications,
@@ -16,7 +16,7 @@ import {
  *
  * Read state is managed in two affordances:
  *   - per-row "Mark read" on each unread item
- *   - top-level "Mark all read" bulk button (in SubNav actions, only when
+ *   - top-level "Mark all read" bulk button (in the page head, only when
  *     there are unread items — per DESIGN.md affordance density rules).
  *
  * Both call the server and use the response's `unreadCount` to update the
@@ -87,46 +87,69 @@ export function NotificationsPage(): JSX.Element {
 
   return (
     <>
-      <SubNav
-        title="Notifications"
-        actions={
-          hasUnread ? (
-            <button
-              type="button"
-              className="btn-secondary-pill"
-              onClick={onMarkAll}
-              disabled={busy}
-            >
+      <div className="page-head">
+        <div className="page-head-text">
+          <h1>Notifications</h1>
+          <p className="page-head-sub">Recent events on this instance, newest first.</p>
+        </div>
+        <div className="page-head-actions">
+          {hasUnread && (
+            <button type="button" className="btn btn-ghost" onClick={onMarkAll} disabled={busy}>
               Mark all read
             </button>
-          ) : undefined
-        }
-      />
-      <section className="container-narrow stack">
-        {error && (
-          <p role="alert" className="error">
-            {error}
-          </p>
+          )}
+        </div>
+      </div>
+
+      {error !== null && (
+        <p
+          role="alert"
+          className="notice notice-danger"
+          style={{ marginBottom: 'var(--space-md)' }}
+        >
+          {error}
+        </p>
+      )}
+
+      <div className="panel">
+        <div className="panel-head">
+          <span className="panel-title">
+            Activity
+            <span className="panel-count">{items === null ? '—' : unreadCount}</span>
+          </span>
+        </div>
+
+        {items === null && !error && (
+          <div className="panel-body">
+            <p className="muted">Loading…</p>
+          </div>
         )}
 
-        {items === null && !error && <p className="muted">Loading…</p>}
-
         {items !== null && items.length === 0 && (
-          <div className="store-card" style={{ alignItems: 'center', textAlign: 'center' }}>
-            <p className="lead-airy">You&apos;re all caught up.</p>
+          <div className="empty">
+            <BellIcon size={30} className="empty-icon" />
+            <p className="empty-title">All caught up</p>
+            <p className="empty-hint">
+              Uploads and other instance events land here as they happen. Nothing to read right now.
+            </p>
           </div>
         )}
 
         {items !== null && items.length > 0 && (
-          <ul className="list-reset stack">
-            {items.map((n) => (
+          <ul className="list-reset">
+            {items.map((n, i) => (
               <li key={n.id}>
-                <NotificationItem item={n} onMarkRead={onMarkOne} disabled={busy} />
+                <NotificationItem
+                  item={n}
+                  onMarkRead={onMarkOne}
+                  disabled={busy}
+                  isLast={i === items.length - 1}
+                />
               </li>
             ))}
           </ul>
         )}
-      </section>
+      </div>
     </>
   );
 }
@@ -135,10 +158,12 @@ function NotificationItem({
   item,
   onMarkRead,
   disabled,
+  isLast,
 }: {
   item: NotificationRecord;
   onMarkRead: (id: string) => void;
   disabled: boolean;
+  isLast: boolean;
 }): JSX.Element {
   const isUnread = item.readAt === null;
   // Discriminate on `kind` so future kinds (e.g. `link_expired`) can land
@@ -146,15 +171,17 @@ function NotificationItem({
   // raw payload as a fallback rather than crashing.
   let title: JSX.Element;
   let body: JSX.Element | null;
+  let isUpload = false;
   if (item.kind === 'upload_received' && isUploadReceivedPayload(item.payload)) {
     const p = item.payload;
+    isUpload = true;
     title = (
       <span>
         Uploaded {p.filename} ({formatSize(p.size)})
       </span>
     );
     body = (
-      <div>
+      <div className="small secondary">
         to{' '}
         <Link to={`/links/receive/${p.receiveLinkId}`} className="text-link">
           {p.receiveLinkLabel}
@@ -171,17 +198,70 @@ function NotificationItem({
   }
 
   return (
-    <div className={`store-card${isUnread ? ' unread' : ''}`}>
-      <div className="row between" style={{ alignItems: 'flex-start', gap: 'var(--space-lg)' }}>
-        <div className="stack-tight" style={{ flex: 1, minWidth: 0 }}>
-          <div className={isUnread ? 'body-strong' : undefined}>{title}</div>
-          {body}
-          <div className="small muted">{new Date(item.createdAt * 1000).toLocaleString()}</div>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 'var(--space-sm)',
+        padding: 'var(--space-sm) var(--space-md)',
+        borderBottom: isLast ? 'none' : '1px solid var(--color-hairline-soft)',
+        background: isUnread ? 'var(--color-surface-raised)' : 'transparent',
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flex: '0 0 auto',
+          width: 30,
+          height: 30,
+          borderRadius: 'var(--radius-sm)',
+          border: '1px solid var(--color-hairline)',
+          background: isUpload ? 'var(--color-accent-wash)' : 'var(--color-warning-wash)',
+          color: isUpload ? 'var(--color-accent)' : 'var(--color-warning)',
+        }}
+      >
+        {isUpload ? <UploadIcon size={14} /> : <AlertIcon size={14} />}
+      </span>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          className={isUnread ? 'strong' : undefined}
+          style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-xs)' }}
+        >
+          {isUnread && (
+            <span
+              aria-hidden
+              style={{
+                flex: '0 0 auto',
+                width: 5,
+                height: 5,
+                borderRadius: 'var(--radius-pill)',
+                background: 'var(--color-accent)',
+              }}
+            />
+          )}
+          {title}
         </div>
+        {body}
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 'var(--space-sm)',
+          flex: '0 0 auto',
+          paddingTop: 2,
+        }}
+      >
+        <span className="small faint">{formatWhen(item.createdAt)}</span>
         {isUnread && (
           <button
             type="button"
-            className="btn-secondary-pill"
+            className="text-link small"
             onClick={() => onMarkRead(item.id)}
             disabled={disabled}
           >
@@ -191,6 +271,19 @@ function NotificationItem({
       </div>
     </div>
   );
+}
+
+/** Relative for the last day, absolute after that — an operator scanning the
+ * list cares about "how recent", not the exact clock time of last week. */
+function formatWhen(epochSeconds: number): string {
+  const seconds = Math.max(0, Math.floor(Date.now() / 1000) - epochSeconds);
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return new Date(epochSeconds * 1000).toLocaleDateString(undefined, {
+    month: 'short',
+    day: '2-digit',
+  });
 }
 
 function formatSize(bytes: number): string {

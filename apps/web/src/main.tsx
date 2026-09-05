@@ -1,14 +1,13 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
-import '@fontsource-variable/inter';
+import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/500.css';
+import '@fontsource/ibm-plex-mono/600.css';
 import { App } from './App.js';
 import './styles/tokens.css';
 import './styles/components.css';
 import './styles.css';
-import './styles/polish-public.css';
-import './styles/polish-auth.css';
-import './styles/polish-admin.css';
 
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('Root element #root not found in index.html');
