@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
+import { FileDropOverlay } from '../components/FileDropOverlay.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 import { SubNav } from '../components/SubNav.js';
 import { listReceiveLinks, listSendLinks, type ReceiveLink, type SendLink } from '../lib/api.js';
 import { signOut, useSession } from '../lib/auth-client.js';
+import type { NewSendLinkLocationState } from '../lib/new-send-link-state.js';
+import { useFileDropZone } from '../lib/useFileDropZone.js';
 
 /**
  * Admin dashboard at `/`. Renders inside `AdminShell`, so the page itself
@@ -15,6 +18,10 @@ import { signOut, useSession } from '../lib/auth-client.js';
  * sections, each with its own heading and empty state. Cards lead to the
  * dedicated detail pages, which are the source of truth for per-link actions
  * (revoke, copy URL, etc.); we keep the dashboard quiet.
+ *
+ * The whole window is a file drop target (#65): dropping files jumps to the
+ * new-send-link form with those files pre-attached. The dashboard never
+ * uploads anything itself; the form owns the whole pipeline.
  */
 export function DashboardPage(): JSX.Element {
   const { data: session } = useSession();
@@ -48,6 +55,15 @@ export function DashboardPage(): JSX.Element {
     };
   }, []);
 
+  const drop = useFileDropZone({
+    onFiles: (dropped) => {
+      // A folder-only drop still lands on the form so it can explain why
+      // nothing was attached. A drop with nothing usable is ignored.
+      if (dropped.files.length === 0 && dropped.foldersSkipped === 0) return;
+      navigate('/links/send/new', { state: dropped satisfies NewSendLinkLocationState });
+    },
+  });
+
   const onSignOut = async (): Promise<void> => {
     await signOut();
     navigate('/login', { replace: true });
@@ -61,6 +77,11 @@ export function DashboardPage(): JSX.Element {
 
   return (
     <>
+      <FileDropOverlay
+        active={drop.isDragging}
+        headline="Drop to create a send link"
+        itemCount={drop.itemCount}
+      />
       <SubNav
         title="Dashboard"
         actions={
