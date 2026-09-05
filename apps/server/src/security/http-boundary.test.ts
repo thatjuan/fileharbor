@@ -2,8 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import type { AuthModule } from '../auth/index.js';
-import type { SecurityConfig } from '../config.js';
+import { createAuthModule } from '../auth/index.js';
+import type { AppConfig, SecurityConfig } from '../config.js';
+import { openDatabase } from '../db/client.js';
 import { createAdminOriginGuard } from './origin.js';
 import { FixedWindowRateLimiter } from './rate-limit.js';
 import { createSetupRoute } from '../routes/setup.js';
@@ -173,7 +178,10 @@ test('admin origin guard accepts same-origin via Host header without proxy', asy
   // Direct exposure (no proxy): the browser's Origin matches the Host it
   // connected to. Host is browser-controlled-as-forbidden, so this is a sound
   // same-origin check even with trustProxyHeaders=false.
-  const config = originGuardConfig({ baseUrl: 'https://other.example.com', trustProxyHeaders: false });
+  const config = originGuardConfig({
+    baseUrl: 'https://other.example.com',
+    trustProxyHeaders: false,
+  });
   const app = new Hono();
   app.use('/admin', createAdminOriginGuard(config));
   app.delete('/admin', (c) => c.json({ ok: true }));
@@ -183,4 +191,82 @@ test('admin origin guard accepts same-origin via Host header without proxy', asy
     headers: { origin: 'https://files.example.com', host: 'files.example.com' },
   });
   assert.equal(sameHost.status, 200);
+});
+
+// --- Better Auth origin handling (/api/auth/*) --------------------------------
+//
+// `/api/auth/*` bypasses `createAdminOriginGuard` entirely — it goes straight
+// to Better Auth's fetch handler, which runs its own CSRF/origin check against
+// `trustedOrigins`. These cases pin that second boundary (#67).
+//
+// A 403 means Better Auth rejected the origin. Any other status means the
+// origin was accepted and the request reached the endpoint; we don't sign in
+// first, so a trusted sign-out just reports "no session".
+
+function authConfig(overrides: { baseUrl?: string; trustProxyHeaders?: boolean } = {}): AppConfig {
+  return {
+    nodeEnv: 'production',
+    auth: {
+      baseUrl: overrides.baseUrl ?? 'http://localhost:3000',
+      secret: 'test-secret-value-that-is-long-enough-1234',
+      adminSeed: null,
+    },
+    security: security({ trustProxyHeaders: overrides.trustProxyHeaders ?? false }),
+  } as unknown as AppConfig;
+}
+
+function authApp(config: AppConfig): Hono {
+  const db = openDatabase(
+    ':memory:',
+    resolve(dirname(fileURLToPath(import.meta.url)), '../../drizzle'),
+  );
+  const authModule = createAuthModule(db, config);
+  return new Hono().all('/api/auth/*', (c) => authModule.auth.handler(c.req.raw));
+}
+
+test('auth sign-out accepts the proxied public host when proxy headers are trusted', async () => {
+  // The reported bug: BETTER_AUTH_URL resolves to the internal origin while the
+  // browser posts from the tunnel's public host.
+  const app = authApp(authConfig({ baseUrl: 'http://localhost:3000', trustProxyHeaders: true }));
+
+  const res = await app.request('/api/auth/sign-out', {
+    method: 'POST',
+    headers: {
+      origin: 'https://files.juan.ca',
+      'x-forwarded-host': 'files.juan.ca',
+      'x-forwarded-proto': 'https',
+      host: 'localhost:3000',
+      cookie: 'better-auth.session_token=not-a-real-session',
+    },
+  });
+  assert.notEqual(res.status, 403);
+});
+
+test('auth sign-out accepts the Host header origin without a proxy', async () => {
+  const app = authApp(authConfig({ baseUrl: 'https://other.example.com' }));
+
+  const res = await app.request('/api/auth/sign-out', {
+    method: 'POST',
+    headers: {
+      origin: 'https://files.example.com',
+      host: 'files.example.com',
+      cookie: 'better-auth.session_token=not-a-real-session',
+    },
+  });
+  assert.notEqual(res.status, 403);
+});
+
+test('auth sign-out still rejects a genuinely cross-site origin', async () => {
+  const app = authApp(authConfig({ baseUrl: 'http://localhost:3000', trustProxyHeaders: true }));
+
+  const res = await app.request('/api/auth/sign-out', {
+    method: 'POST',
+    headers: {
+      origin: 'https://evil.example.com',
+      'x-forwarded-host': 'files.juan.ca',
+      host: 'localhost:3000',
+      cookie: 'better-auth.session_token=not-a-real-session',
+    },
+  });
+  assert.equal(res.status, 403);
 });

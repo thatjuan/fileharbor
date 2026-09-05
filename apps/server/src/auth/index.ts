@@ -7,6 +7,7 @@ import type { AppConfig } from '../config.js';
 import type { Db } from '../db/client.js';
 import { user } from '../db/schema.js';
 import * as schema from '../db/schema.js';
+import { selfTrustedOrigins } from '../security/origin.js';
 
 /**
  * The Better Auth instance, plus the helpers that the rest of the codebase
@@ -62,13 +63,24 @@ export function createAuthModule(db: Db, config: AppConfig): AuthModule {
     appName: 'File Harbor',
     baseURL: config.auth.baseUrl,
     secret: config.auth.secret,
-    // Trust the configured base URL plus the local Vite dev origin. Better
-    // Auth otherwise rejects requests whose Origin/Host doesn't match a
-    // known good list, which trips up the Vite dev server on :5173.
-    trustedOrigins:
-      config.nodeEnv === 'production'
-        ? [config.auth.baseUrl]
-        : [config.auth.baseUrl, 'http://localhost:5173', 'http://127.0.0.1:5173'],
+    // Better Auth rejects any mutating request whose Origin isn't trusted.
+    // `baseURL`'s origin is always trusted implicitly; everything below is
+    // additive.
+    //
+    // Resolved per request rather than as a static list so a proxied or
+    // tunnelled deploy works when the public host differs from
+    // `BETTER_AUTH_URL` — the same same-origin fallback our admin guard uses
+    // (`selfTrustedOrigins`), so both boundaries agree on what "same site"
+    // means. Without it, sign-out POSTs from the real host 403 (#67).
+    //
+    // The dev origins cover the Vite dev server on :5173, which proxies
+    // `/api/*` here and so arrives with a different Origin than Host.
+    trustedOrigins: (request) => [
+      ...(request ? selfTrustedOrigins(request.headers, config.security.trustProxyHeaders) : []),
+      ...(config.nodeEnv === 'production'
+        ? []
+        : ['http://localhost:5173', 'http://127.0.0.1:5173']),
+    ],
     database: drizzleAdapter(db, { provider: 'sqlite', schema }),
     // Single-user app: public sign-up is permanently disabled, on both the
     // email/password provider and the username plugin. The very first user
@@ -97,6 +109,15 @@ export function createAuthModule(db: Db, config: AppConfig): AuthModule {
   };
 
   const auth = betterAuth(baseOptions);
+
+  // The two values that decide whether a mutating auth request is accepted.
+  // Logged at boot so a misconfigured deploy (a 403 on sign-out) is diagnosable
+  // from the container log alone.
+  console.log(
+    `[fileharbor] auth baseUrl=${config.auth.baseUrl} ` +
+      `trustProxyHeaders=${config.security.trustProxyHeaders} ` +
+      '(plus the request host as a same-origin fallback)',
+  );
 
   const hasAnyUser = (): boolean => {
     const row = db.select({ value: count() }).from(user).get();

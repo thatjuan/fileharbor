@@ -1,4 +1,4 @@
-import type { Context, MiddlewareHandler } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 
 import type { AppConfig } from '../config.js';
 
@@ -33,14 +33,31 @@ export function allowedAdminOrigins(config: AppConfig): Set<string> {
  * plain HTTP to the app, so the scheme seen here (`http`) won't match the
  * browser's `https` Origin. The host is the part that actually distinguishes
  * our site from an attacker's.
+ *
+ * Takes raw `Headers` rather than a Hono `Context` so Better Auth — which
+ * only ever sees a Web `Request` — can share the same rule.
  */
-function requestSelfHost(c: Context, trustProxy: boolean): string | null {
+export function requestSelfHost(headers: Headers, trustProxy: boolean): string | null {
   if (trustProxy) {
-    const forwarded = c.req.header('x-forwarded-host')?.split(',')[0]?.trim();
+    const forwarded = headers.get('x-forwarded-host')?.split(',')[0]?.trim();
     if (forwarded) return forwarded.toLowerCase();
   }
-  const host = c.req.header('host')?.trim();
+  const host = headers.get('host')?.trim();
   return host ? host.toLowerCase() : null;
+}
+
+/**
+ * The same-origin allowance from {@link requestSelfHost}, expressed as full
+ * origins for consumers that match on origin rather than host — Better Auth's
+ * `trustedOrigins` in particular.
+ *
+ * Both schemes are returned because the scheme the browser used is not
+ * recoverable behind a TLS-terminating tunnel. That is not a widening: the
+ * host is identical either way, so a cross-site origin still never matches.
+ */
+export function selfTrustedOrigins(headers: Headers, trustProxy: boolean): string[] {
+  const host = requestSelfHost(headers, trustProxy);
+  return host ? [`https://${host}`, `http://${host}`] : [];
 }
 
 export function createAdminOriginGuard(config: AppConfig): MiddlewareHandler {
@@ -84,7 +101,7 @@ export function createAdminOriginGuard(config: AppConfig): MiddlewareHandler {
     // Covers proxied/tunnelled deploys where the public origin differs from
     // `config.auth.baseUrl`, without weakening CSRF protection — a cross-site
     // request's Origin won't match our serving host.
-    const selfHost = requestSelfHost(c, trustProxy);
+    const selfHost = requestSelfHost(c.req.raw.headers, trustProxy);
     if (selfHost && parsed.host.toLowerCase() === selfHost) {
       await next();
       return;
