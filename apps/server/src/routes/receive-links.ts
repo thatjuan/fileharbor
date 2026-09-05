@@ -5,7 +5,11 @@ import { requireAdmin, type AdminContext } from '../auth/middleware.js';
 import type { FilesModule } from '../files/files.js';
 import { logServerError, messageFromAllowedError } from '../http/errors.js';
 import { evaluateReceiveLink } from '../links/policy/index.js';
-import type { ReceiveLink, ReceiveLinksModule } from '../links/receive-links.js';
+import type {
+  ReceiveLink,
+  ReceiveLinksModule,
+  UpdateReceiveLinkInput,
+} from '../links/receive-links.js';
 
 interface CreateBody {
   label?: unknown;
@@ -16,6 +20,7 @@ interface CreateBody {
 
 interface UpdateBody {
   status?: unknown;
+  expiresAt?: unknown;
 }
 
 const RECEIVE_LINK_VALIDATION_ERRORS = [
@@ -109,7 +114,8 @@ function toResponse(link: ReceiveLink, uploadsSoFar: number): ReceiveLinkRespons
  *  - `POST   /`        — create a link from `{ label }`. Returns full row.
  *  - `GET    /`        — list links (newest first), each with `displayStatus`.
  *  - `GET    /:id`     — link detail + recent files.
- *  - `PATCH  /:id`     — update link status (`active` | `disabled`).
+ *  - `PATCH  /:id`     — update link status (`active` | `disabled`) and/or
+ *                        `expiresAt` (epoch seconds, or `null` for never).
  *  - `DELETE /:id`     — remove the link; received files survive (schema FK
  *                        on `files.receive_link_id` is `ON DELETE SET NULL`).
  *
@@ -188,16 +194,30 @@ export function createReceiveLinksRoute(
       return c.json({ error: 'invalid_json' }, 400);
     }
 
-    // Whitelist `status`. Future PATCH fields (label, policy bits) get added
-    // here; we don't blindly pass the body through to the module.
-    const status = body.status;
-    if (status !== 'active' && status !== 'disabled') {
-      return c.json({ error: 'invalid_input', message: 'status_required' }, 400);
+    // Whitelist the mutable fields. Both are independently optional so the
+    // bulk expiry change (#68) can PATCH `expiresAt` alone without disturbing
+    // a link's disabled state. Future PATCH fields (label, other policy bits)
+    // get added here; we don't blindly pass the body through to the module.
+    const patch: UpdateReceiveLinkInput = {};
+    if (body.status !== undefined) {
+      if (body.status !== 'active' && body.status !== 'disabled') {
+        return c.json({ error: 'invalid_input', message: 'status_required' }, 400);
+      }
+      patch.status = body.status;
+    }
+    if (body.expiresAt !== undefined) {
+      if (body.expiresAt !== null && typeof body.expiresAt !== 'number') {
+        return c.json({ error: 'invalid_input', message: 'invalid_expires_at' }, 400);
+      }
+      patch.expiresAt = body.expiresAt;
+    }
+    if (Object.keys(patch).length === 0) {
+      return c.json({ error: 'invalid_input', message: 'no_updatable_fields' }, 400);
     }
 
     let updated;
     try {
-      updated = await receiveLinksModule.update(id, { status });
+      updated = await receiveLinksModule.update(id, patch);
     } catch (err) {
       const message = messageFromAllowedError(err, RECEIVE_LINK_VALIDATION_ERRORS, 'invalid_input');
       if (message === 'invalid_input') logServerError('receive_links.update_failed', err, { id });

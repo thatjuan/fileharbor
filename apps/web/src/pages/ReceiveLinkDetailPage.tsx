@@ -15,7 +15,7 @@ import {
   deleteReceiveLink,
   getFileDownload,
   getReceiveLink,
-  updateReceiveLinkStatus,
+  updateReceiveLink,
   type FileRecord,
   type ReceiveLink,
 } from '../lib/api.js';
@@ -94,7 +94,7 @@ export function ReceiveLinkDetailPage(): JSX.Element {
     setBusy(true);
     setActionError(null);
     try {
-      const updated = await updateReceiveLinkStatus(data.link.id, next);
+      const updated = await updateReceiveLink(data.link.id, { status: next });
       setData({ ...data, link: updated });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to update link.');

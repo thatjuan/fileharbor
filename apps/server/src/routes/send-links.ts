@@ -5,7 +5,7 @@ import { requireAdmin, type AdminContext } from '../auth/middleware.js';
 import type { FilesModule } from '../files/files.js';
 import { logServerError, messageFromAllowedError } from '../http/errors.js';
 import { evaluateSendLink } from '../links/policy/index.js';
-import type { SendLink, SendLinksModule } from '../links/send-links.js';
+import type { SendLink, SendLinksModule, UpdateSendLinkInput } from '../links/send-links.js';
 import type { CompletedPart, UploadTicketsModule } from '../tickets/upload-tickets.js';
 
 interface CreateBody {
@@ -38,6 +38,7 @@ interface MultipartCompleteBody {
 
 interface UpdateBody {
   status?: unknown;
+  expiresAt?: unknown;
 }
 
 const SEND_LINK_VALIDATION_ERRORS = [
@@ -146,8 +147,9 @@ function toResponse(link: SendLink): SendLinkResponse {
  *                              variant of paged PUT-PART URL fetch.
  *  - `GET    /`             — list links (newest first) with `displayStatus`.
  *  - `GET    /:id`          — link detail + bundled files.
- *  - `PATCH  /:id`          — update link status (`active` | `disabled`).
- *                              Mirrors the receive-side PATCH shape.
+ *  - `PATCH  /:id`          — update link status (`active` | `disabled`)
+ *                              and/or `expiresAt` (epoch seconds, or `null`
+ *                              for never). Mirrors the receive-side PATCH.
  *  - `DELETE /:id`          — remove the link. Bundled files survive
  *                              (`files.send_link_id` → SET NULL); outstanding
  *                              upload + download tickets are cascade-deleted
@@ -424,17 +426,28 @@ export function createSendLinksRoute(
       return c.json({ error: 'invalid_json' }, 400);
     }
 
-    // Whitelist `status`. Future PATCH fields (label, policy bits) get added
-    // here; we don't blindly pass the body through to the module. Mirrors
+    // Whitelist the mutable fields. Both are independently optional. Mirrors
     // the receive-side PATCH shape exactly.
-    const status = body.status;
-    if (status !== 'active' && status !== 'disabled') {
-      return c.json({ error: 'invalid_input', message: 'status_required' }, 400);
+    const patch: UpdateSendLinkInput = {};
+    if (body.status !== undefined) {
+      if (body.status !== 'active' && body.status !== 'disabled') {
+        return c.json({ error: 'invalid_input', message: 'status_required' }, 400);
+      }
+      patch.status = body.status;
+    }
+    if (body.expiresAt !== undefined) {
+      if (body.expiresAt !== null && typeof body.expiresAt !== 'number') {
+        return c.json({ error: 'invalid_input', message: 'invalid_expires_at' }, 400);
+      }
+      patch.expiresAt = body.expiresAt;
+    }
+    if (Object.keys(patch).length === 0) {
+      return c.json({ error: 'invalid_input', message: 'no_updatable_fields' }, 400);
     }
 
     let updated;
     try {
-      updated = await sendLinksModule.update(id, { status });
+      updated = await sendLinksModule.update(id, patch);
     } catch (err) {
       const message = messageFromAllowedError(err, SEND_LINK_VALIDATION_ERRORS, 'invalid_input');
       if (message === 'invalid_input') logServerError('send_links.update_failed', err, { id });

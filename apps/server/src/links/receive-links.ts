@@ -33,9 +33,11 @@ export interface ReceiveLinksModule {
   getById(id: string): Promise<ReceiveLink | null>;
   list(): Promise<ReceiveLink[]>;
   /**
-   * Update the mutable bits of a link. Currently just `status` (#7's
-   * disable / re-enable). Returns the updated row, or `null` when the id
-   * doesn't match an existing link.
+   * Update the mutable bits of a link: `status` (#7's disable / re-enable)
+   * and `expiresAt` (#68's bulk expiry change). Fields are independently
+   * optional — an absent key is left alone, an explicit `null` on
+   * `expiresAt` means "never expires". Returns the updated row, or `null`
+   * when the id doesn't match an existing link.
    */
   update(id: string, input: UpdateReceiveLinkInput): Promise<ReceiveLink | null>;
   /**
@@ -59,6 +61,8 @@ export interface ReceiveLinksModule {
 
 export interface UpdateReceiveLinkInput {
   status?: 'active' | 'disabled';
+  /** Unix epoch seconds, UTC. `null` clears the expiry. */
+  expiresAt?: number | null;
 }
 
 export interface CreateReceiveLinkInput {
@@ -189,6 +193,14 @@ export function createReceiveLinksModule(
           throw new Error('invalid_status');
         }
         patch.status = input.status;
+      }
+      // Same rule as `create`: any integer is accepted, including one in the
+      // past (that's a deliberate "expire it now"). `null` clears the expiry.
+      if (input.expiresAt !== undefined) {
+        if (input.expiresAt !== null && !Number.isInteger(input.expiresAt)) {
+          throw new Error('invalid_expires_at');
+        }
+        patch.expiresAt = input.expiresAt;
       }
 
       // No-op update: caller passed nothing actionable. Return the existing

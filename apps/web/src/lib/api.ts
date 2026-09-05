@@ -158,17 +158,28 @@ export async function getReceiveLink(
 }
 
 /**
- * Toggle a link's lifecycle flag. The server returns the updated row;
- * `displayStatus` is recomputed from policy at the same time.
+ * The mutable fields of either link kind. Both are independently optional —
+ * an absent key is left alone server-side, so the dashboard's bulk expiry
+ * change can move `expiresAt` without touching a link's disabled state.
  */
-export async function updateReceiveLinkStatus(
+export interface UpdateLinkInput {
+  status?: 'active' | 'disabled';
+  /** Unix epoch seconds, UTC. `null` means never expires. */
+  expiresAt?: number | null;
+}
+
+/**
+ * Patch a receive link. The server returns the updated row; `displayStatus`
+ * is recomputed from policy at the same time.
+ */
+export async function updateReceiveLink(
   id: string,
-  status: 'active' | 'disabled',
+  patch: UpdateLinkInput,
 ): Promise<ReceiveLink> {
   const res = await fetch(`/api/receive-links/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(patch),
     credentials: 'include',
   });
   const data = await jsonOrThrow<{ link: ReceiveLink }>(res);
@@ -293,16 +304,13 @@ export async function getSendLink(id: string): Promise<{ link: SendLink; files: 
 /**
  * Toggle a send link's lifecycle flag. The server returns the updated row;
  * `displayStatus` is recomputed from policy at the same time. Mirrors
- * `updateReceiveLinkStatus`.
+ * `updateReceiveLink`.
  */
-export async function updateSendLinkStatus(
-  id: string,
-  status: 'active' | 'disabled',
-): Promise<SendLink> {
+export async function updateSendLink(id: string, patch: UpdateLinkInput): Promise<SendLink> {
   const res = await fetch(`/api/send-links/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify(patch),
     credentials: 'include',
   });
   const data = await jsonOrThrow<{ link: SendLink }>(res);

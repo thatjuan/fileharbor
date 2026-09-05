@@ -1,10 +1,20 @@
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { FileDropOverlay } from '../components/FileDropOverlay.js';
 import { DownloadIcon, InboxIcon, PlusIcon, UploadIcon } from '../components/Icons.js';
 import { useLinks } from '../components/LinksProvider.js';
 import { StatusBadge } from '../components/StatusBadge.js';
-import type { ReceiveLink, ReceiveLinkDisplayStatus, SendLink } from '../lib/api.js';
+import {
+  deleteReceiveLink,
+  deleteSendLink,
+  updateReceiveLink,
+  updateSendLink,
+  type ReceiveLink,
+  type ReceiveLinkDisplayStatus,
+  type SendLink,
+} from '../lib/api.js';
+import { runBulk } from '../lib/bulk.js';
 import type { NewSendLinkLocationState } from '../lib/new-send-link-state.js';
 import { useFileDropZone } from '../lib/useFileDropZone.js';
 
@@ -17,12 +27,15 @@ import { useFileDropZone } from '../lib/useFileDropZone.js';
  * receive/send split, colour-coded so a mixed list is readable without
  * reading the word.
  *
- * Rows are read-only here. Every per-link action (copy URL, disable, revoke,
- * per-file work) lives on the detail screen, which stays the single place
- * where a link can be changed.
+ * Rows are selectable, and a selection turns on a bulk bar with the two
+ * actions that are painful one link at a time: delete, and change expiry
+ * (#68). Everything else — copy URL, disable, per-file work — still lives on
+ * the detail screen. Selection spans both link kinds, and the fan-out sends
+ * each row to whichever endpoint it needs.
  *
  * Filtering is driven by `?status=` in the URL, written by the rail. Data
- * comes from `LinksProvider` — the shell already loaded it for the rail.
+ * comes from `LinksProvider` — the shell already loaded it for the rail, and
+ * a bulk action refreshes it so the rail counts don't drift.
  *
  * The whole window is a file drop target (#65): dropping files jumps to the
  * new-send-link form with those files pre-attached. The dashboard never
@@ -30,10 +43,20 @@ import { useFileDropZone } from '../lib/useFileDropZone.js';
  */
 type Row = { kind: 'receive'; link: ReceiveLink } | { kind: 'send'; link: SendLink };
 
+/** Stable identity for a row across refreshes. Ids are unique per kind only. */
+function rowKey(row: Row): string {
+  return `${row.kind}-${row.link.id}`;
+}
+
 export function DashboardPage(): JSX.Element {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const { receive, send, receiveError, sendError } = useLinks();
+  const { receive, send, receiveError, sendError, refresh } = useLinks();
+
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [expiryOpen, setExpiryOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<{ text: string; failed: boolean } | null>(null);
 
   const drop = useFileDropZone({
     onFiles: (dropped) => {
@@ -55,6 +78,91 @@ export function DashboardPage(): JSX.Element {
   ]
     .filter((r) => statusFilter === null || r.link.displayStatus === statusFilter)
     .sort((a, b) => b.link.createdAt - a.link.createdAt);
+
+  // Selection is against what is on screen. Changing the filter would leave
+  // invisible rows selected and a bulk action would hit links the operator
+  // can't see, so the filter resets the selection.
+  useEffect(() => {
+    setSelected(new Set());
+    setExpiryOpen(false);
+    setOutcome(null);
+  }, [statusFilter]);
+
+  const selectedRows = rows.filter((r) => selected.has(rowKey(r)));
+  const allSelected = rows.length > 0 && selectedRows.length === rows.length;
+
+  const toggleRow = (row: Row): void => {
+    const key = rowKey(row);
+    const next = new Set(selected);
+    if (!next.delete(key)) next.add(key);
+    setSelected(next);
+  };
+
+  const toggleAll = (): void => {
+    setSelected(allSelected ? new Set() : new Set(rows.map(rowKey)));
+  };
+
+  const clearSelection = (): void => {
+    setSelected(new Set());
+    setExpiryOpen(false);
+  };
+
+  /**
+   * Fan the per-link call out over the selection and report honestly. Rows
+   * that failed stay selected so a retry hits exactly those; the rest of the
+   * selection clears because that work is done. A failed row that no longer
+   * exists (someone deleted it elsewhere) just disappears on the refresh —
+   * which is why the message counts failures rather than claiming what is
+   * still on screen.
+   */
+  const applyBulk = async (verb: string, task: (row: Row) => Promise<unknown>): Promise<void> => {
+    const targets = selectedRows;
+    if (targets.length === 0) return;
+    setBusy(true);
+    setOutcome(null);
+
+    const { succeeded, failed } = await runBulk(targets, task);
+    refresh();
+    setSelected(new Set(failed.map((f) => rowKey(f.item))));
+    setBusy(false);
+    setExpiryOpen(false);
+
+    if (failed.length === 0) {
+      setOutcome({ text: `${plural(succeeded.length)} ${verb}.`, failed: false });
+      return;
+    }
+    setOutcome({
+      text:
+        `${succeeded.length} of ${targets.length} links ${verb}. ` +
+        `${failed.length} failed — first error: ${failed[0]!.message}`,
+      failed: true,
+    });
+  };
+
+  const onBulkDelete = (): void => {
+    const receiveCount = selectedRows.filter((r) => r.kind === 'receive').length;
+    const sendCount = selectedRows.length - receiveCount;
+    if (
+      !window.confirm(
+        `Delete ${plural(selectedRows.length)} (${receiveCount} receive, ${sendCount} send)? ` +
+          'Their codes stop working immediately and any outstanding upload or download ' +
+          'tickets are removed. Uploaded and bundled files are kept (admin only).',
+      )
+    ) {
+      return;
+    }
+    void applyBulk('deleted', (row) =>
+      row.kind === 'receive' ? deleteReceiveLink(row.link.id) : deleteSendLink(row.link.id),
+    );
+  };
+
+  const onBulkExpiry = (expiresAt: number | null): void => {
+    void applyBulk('updated', (row) =>
+      row.kind === 'receive'
+        ? updateReceiveLink(row.link.id, { expiresAt })
+        : updateSendLink(row.link.id, { expiresAt }),
+    );
+  };
 
   const total = (receive?.length ?? 0) + (send?.length ?? 0);
   const isEmpty = !loading && total === 0;
@@ -98,6 +206,16 @@ export function DashboardPage(): JSX.Element {
         </p>
       )}
 
+      {outcome !== null && (
+        <p
+          role="status"
+          className={`notice ${outcome.failed ? 'notice-warning' : ''}`}
+          style={{ marginBottom: 'var(--space-md)' }}
+        >
+          {outcome.text}
+        </p>
+      )}
+
       {isEmpty ? (
         <EmptyInventory />
       ) : (
@@ -114,9 +232,33 @@ export function DashboardPage(): JSX.Element {
             )}
           </div>
 
+          {selectedRows.length > 0 && (
+            <BulkBar
+              count={selectedRows.length}
+              busy={busy}
+              expiryOpen={expiryOpen}
+              onToggleExpiry={() => setExpiryOpen((open) => !open)}
+              onDelete={onBulkDelete}
+              onApplyExpiry={onBulkExpiry}
+              onClear={clearSelection}
+            />
+          )}
+
           <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: '1%' }}>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !allSelected && selectedRows.length > 0;
+                    }}
+                    onChange={toggleAll}
+                    disabled={busy || rows.length === 0}
+                    aria-label="Select every link in this view"
+                  />
+                </th>
                 <th>Type</th>
                 <th>Code</th>
                 <th>Label</th>
@@ -130,13 +272,13 @@ export function DashboardPage(): JSX.Element {
             <tbody>
               {loading && (
                 <tr className="data-table-message">
-                  <td colSpan={8}>Loading…</td>
+                  <td colSpan={9}>Loading…</td>
                 </tr>
               )}
 
               {!loading && rows.length === 0 && (
                 <tr className="data-table-message">
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     No links match this filter.{' '}
                     <Link to="/" className="text-link">
                       Show all links
@@ -146,7 +288,13 @@ export function DashboardPage(): JSX.Element {
               )}
 
               {rows.map((row) => (
-                <LinkRow key={`${row.kind}-${row.link.id}`} row={row} />
+                <LinkRow
+                  key={rowKey(row)}
+                  row={row}
+                  selected={selected.has(rowKey(row))}
+                  busy={busy}
+                  onToggle={() => toggleRow(row)}
+                />
               ))}
             </tbody>
           </table>
@@ -163,12 +311,140 @@ const STATUS_LABELS: Record<ReceiveLinkDisplayStatus, string> = {
   quota_exhausted: 'Quota-exhausted links',
 };
 
-function LinkRow({ row }: { row: Row }): JSX.Element {
+function plural(count: number): string {
+  return `${count} ${count === 1 ? 'link' : 'links'}`;
+}
+
+interface BulkBarProps {
+  count: number;
+  busy: boolean;
+  expiryOpen: boolean;
+  onToggleExpiry: () => void;
+  onDelete: () => void;
+  onApplyExpiry: (expiresAt: number | null) => void;
+  onClear: () => void;
+}
+
+/**
+ * The bar that appears under the panel head once something is selected. It
+ * reuses the panel-head grammar rather than inventing a floating toolbar:
+ * the actions belong to the table below them, and sitting in the same band as
+ * the title keeps that relationship obvious.
+ */
+function BulkBar({
+  count,
+  busy,
+  expiryOpen,
+  onToggleExpiry,
+  onDelete,
+  onApplyExpiry,
+  onClear,
+}: BulkBarProps): JSX.Element {
+  const [when, setWhen] = useState('');
+  const [never, setNever] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const onApply = (): void => {
+    if (never) {
+      setFormError(null);
+      onApplyExpiry(null);
+      return;
+    }
+    // `datetime-local` hands back local wall time; `Date` parses it in the
+    // viewer's zone, which is what the operator meant. The API wants UTC
+    // epoch seconds.
+    const parsed = new Date(when).getTime();
+    if (when === '' || Number.isNaN(parsed)) {
+      setFormError('Pick a date and time, or choose "never expires".');
+      return;
+    }
+    setFormError(null);
+    onApplyExpiry(Math.floor(parsed / 1000));
+  };
+
+  return (
+    <>
+      <div className="panel-head">
+        <span className="panel-title">{plural(count)} selected</span>
+        <div className="row">
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={onToggleExpiry}
+            disabled={busy}
+            aria-expanded={expiryOpen}
+          >
+            Change expiry
+          </button>
+          <button type="button" className="btn btn-danger" onClick={onDelete} disabled={busy}>
+            Delete
+          </button>
+          <button type="button" className="text-link small" onClick={onClear} disabled={busy}>
+            Clear selection
+          </button>
+        </div>
+      </div>
+
+      {expiryOpen && (
+        <div className="panel-head">
+          <div className="row">
+            <input
+              type="datetime-local"
+              className="input"
+              style={{ width: 'auto' }}
+              value={when}
+              onChange={(e) => setWhen(e.target.value)}
+              disabled={busy || never}
+              aria-label="New expiry"
+            />
+            <label className="row" style={{ gap: 'var(--space-xxs)' }}>
+              <input
+                type="checkbox"
+                checked={never}
+                onChange={(e) => setNever(e.target.checked)}
+                disabled={busy}
+              />
+              Never expires
+            </label>
+          </div>
+          <div className="row">
+            {formError !== null && (
+              <span role="alert" className="small" style={{ color: 'var(--color-danger)' }}>
+                {formError}
+              </span>
+            )}
+            <button type="button" className="btn btn-accent" onClick={onApply} disabled={busy}>
+              {busy ? 'Applying…' : `Apply to ${plural(count)}`}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+interface LinkRowProps {
+  row: Row;
+  selected: boolean;
+  busy: boolean;
+  onToggle: () => void;
+}
+
+function LinkRow({ row, selected, busy, onToggle }: LinkRowProps): JSX.Element {
   const { kind, link } = row;
   const href = `/links/${kind}/${link.id}`;
 
   return (
     <tr>
+      <td>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggle}
+          disabled={busy}
+          aria-label={`Select ${kind} link ${link.code}`}
+        />
+      </td>
       <td>
         <span className={`chip chip-${kind}`}>
           {kind === 'receive' ? <DownloadIcon size={11} /> : <UploadIcon size={11} />}
