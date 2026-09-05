@@ -71,7 +71,7 @@ docker run -d \
 
 `STORAGE_BACKEND` defaults to `local`. Reverse-proxy `https://files.example.com` to the container's port 3000.
 
-Behind a reverse proxy, also set `-e SECURITY_TRUST_PROXY_HEADERS=true` so rate limiting sees the real client IP (not the proxy's) and admin actions (delete, revoke) aren't rejected when the public origin differs from `BETTER_AUTH_URL`. Your proxy must strip incoming `X-Forwarded-*` from clients.
+Behind a reverse proxy, also set `-e SECURITY_TRUST_PROXY_HEADERS=true` so rate limiting sees the real client IP (not the proxy's) and admin actions (delete, revoke) and auth actions (sign in, sign out) aren't rejected when the public origin differs from `BETTER_AUTH_URL`. Your proxy must strip incoming `X-Forwarded-*` from clients.
 
 ---
 
@@ -122,7 +122,7 @@ docker run -d \
 
 `BETTER_AUTH_URL` auto-derives to `https://${CLOUDFLARE_TUNNEL_DOMAIN}`. Drop `-p 3000:3000` — the tunnel reaches the server inside the container.
 
-`SECURITY_TRUST_PROXY_HEADERS=true` is required behind the tunnel: without it the server sees every request as coming from the tunnel's loopback address, so per-client rate limits collapse into one shared bucket and admin actions (delete, revoke) can 403 on an origin mismatch. The tunnel is the only thing setting the forwarded headers, so trusting them is safe here.
+`SECURITY_TRUST_PROXY_HEADERS=true` is required behind the tunnel: without it the server sees every request as coming from the tunnel's loopback address, so per-client rate limits collapse into one shared bucket and admin or auth actions (delete, revoke, sign out) can 403 on an origin mismatch. The tunnel is the only thing setting the forwarded headers, so trusting them is safe here.
 
 For S3 + tunnel, combine: drop `-p 3000:3000` from the S3 command above and add the two `CLOUDFLARE_*` vars plus `SECURITY_TRUST_PROXY_HEADERS=true` (you can also drop `BETTER_AUTH_URL`).
 
