@@ -1,524 +1,1309 @@
 /*
- * Component utility classes — DESIGN.md grammars.
+ * Component grammar — the single source of truth for the console's visual
+ * vocabulary. Pages compose these classes and bring only their own layout;
+ * they do not redefine tokens and do not invent new grammar.
  *
- * Single source of truth for buttons, cards, tiles, inputs, layout
- * containers. All page components consume these classes; do not redefine
- * them inline or per-page.
- *
- * Hover states are deliberately absent (DESIGN.md "Iteration Guide": default
- * and active only). The active scale-95 micro-interaction is system-wide.
+ * Sections, in order:
+ *   1. Shell (top nav, rail, workspace, footer)
+ *   2. Page head
+ *   3. Containers
+ *   4. Panels + cards
+ *   5. Data tables
+ *   6. Meta strip
+ *   7. Buttons
+ *   8. Inputs
+ *   9. Status + chips
+ *  10. Share block
+ *  11. Progress
+ *  12. Drop zone
+ *  13. File rows
+ *  14. Empty state
+ *  15. Auth surfaces
+ *  16. Public surfaces
  */
 
-/* ====================================================================== */
-/* Layout containers                                                       */
-/* ====================================================================== */
+/* ===================================================================
+   1. Shell
+   ===================================================================
+   Fixed chrome, scrolling content. The nav pins to the top, the rail to
+   the left, and only `.workspace` scrolls — so the operator never loses
+   the link counts or the create buttons while reading a long table. */
 
-.container-wide {
-  width: 100%;
-  max-width: var(--container-max-wide);
-  margin-inline: auto;
-  padding-inline: var(--space-lg);
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
+  grid-template-rows: var(--nav-height) minmax(0, 1fr);
+  grid-template-areas:
+    'nav nav'
+    'rail workspace';
+  height: 100vh;
 }
 
-.container-narrow {
-  width: 100%;
-  max-width: var(--container-max-narrow);
-  margin-inline: auto;
-  padding-inline: var(--space-lg);
+.top-nav {
+  grid-area: nav;
+  background: var(--color-surface-chrome);
+  border-bottom: 1px solid var(--color-hairline-soft);
 }
 
-.container-form {
-  width: 100%;
-  max-width: var(--container-max-form);
-  margin-inline: auto;
-  padding-inline: var(--space-lg);
-}
-
-.container-auth {
-  width: 100%;
-  max-width: var(--container-max-auth);
-  margin-inline: auto;
-  padding-inline: var(--space-lg);
-}
-
-/* ====================================================================== */
-/* Tiles — full-bleed sections                                             */
-/* ====================================================================== */
-
-.tile {
-  width: 100%;
-  padding-block: var(--space-section);
-}
-
-.tile-light {
-  background: var(--color-canvas);
-  color: var(--color-ink);
-}
-
-.tile-parchment {
-  background: var(--color-canvas-parchment);
-  color: var(--color-ink);
-}
-
-.tile-dark {
-  background: var(--color-surface-tile-1);
-  color: var(--color-body-on-dark);
-}
-
-.tile-dark-2 {
-  background: var(--color-surface-tile-2);
-  color: var(--color-body-on-dark);
-}
-
-.tile-dark-3 {
-  background: var(--color-surface-tile-3);
-  color: var(--color-body-on-dark);
-}
-
-@media (max-width: 640px) {
-  .tile {
-    padding-block: var(--space-xxl);
-  }
-}
-
-/* ====================================================================== */
-/* Buttons                                                                 */
-/* ====================================================================== */
-
-/* Shared transition + focus mechanics. */
-.btn-primary,
-.btn-secondary-pill,
-.btn-dark-utility,
-.btn-pearl-capsule,
-.btn-store-hero,
-.btn-icon-circular {
-  font-family: var(--font-family-text);
-  cursor: pointer;
-  border: 0;
-  text-decoration: none;
-  transition: transform var(--motion-fast) ease;
-  min-block-size: 44px;
-  display: inline-flex;
+.top-nav-inner {
+  display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  height: 100%;
+  padding: 0 var(--space-lg);
+}
+
+.top-nav-left,
+.top-nav-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+/* Wordmark. Caps + wide tracking is the one place the brand is allowed to
+   be loud; everything else in the chrome is quieter than the content. */
+.top-nav-brand {
+  display: flex;
+  align-items: center;
   gap: var(--space-xs);
-}
-
-.btn-primary:active,
-.btn-secondary-pill:active,
-.btn-dark-utility:active,
-.btn-pearl-capsule:active,
-.btn-store-hero:active,
-.btn-icon-circular:active {
-  transform: scale(var(--press-scale));
-}
-
-.btn-primary:focus-visible,
-.btn-secondary-pill:focus-visible,
-.btn-dark-utility:focus-visible,
-.btn-pearl-capsule:focus-visible,
-.btn-store-hero:focus-visible,
-.btn-icon-circular:focus-visible {
-  outline: 2px solid var(--color-primary-focus);
-  outline-offset: 2px;
-}
-
-.btn-primary {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-  font-size: var(--font-size-body);
-  font-weight: var(--font-weight-regular);
-  line-height: 1;
-  border-radius: var(--radius-pill);
-  padding: 11px 22px;
-}
-
-.btn-secondary-pill {
-  background: transparent;
-  color: var(--color-primary);
-  border: 1px solid var(--color-primary);
-  font-size: var(--font-size-body);
-  font-weight: var(--font-weight-regular);
-  line-height: 1;
-  border-radius: var(--radius-pill);
-  padding: 10px 21px;
-}
-
-.btn-dark-utility {
-  background: var(--color-ink);
-  color: var(--color-body-on-dark);
-  font-size: var(--font-size-button-utility);
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-button-utility);
-  letter-spacing: var(--tracking-button-utility);
-  border-radius: var(--radius-sm);
-  padding: 8px 15px;
-  min-block-size: 32px;
-}
-
-.btn-pearl-capsule {
-  background: var(--color-surface-pearl);
-  color: var(--color-ink-muted-80);
-  border: 3px solid var(--color-divider-soft);
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
-  border-radius: var(--radius-md);
-  padding: 8px 14px;
-}
-
-.btn-store-hero {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-  font-size: var(--font-size-button-large);
-  font-weight: var(--font-weight-light);
-  line-height: var(--line-height-button-large);
-  border-radius: var(--radius-pill);
-  padding: 14px 28px;
-}
-
-.btn-icon-circular {
-  width: 44px;
-  height: 44px;
-  min-block-size: 44px;
-  background: var(--color-surface-chip-translucent);
   color: var(--color-ink);
-  border-radius: var(--radius-full);
-  padding: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--tracking-caps-tight);
+  text-transform: uppercase;
 }
 
-/* Disabled (any button) */
-.btn-primary:disabled,
-.btn-secondary-pill:disabled,
-.btn-dark-utility:disabled,
-.btn-pearl-capsule:disabled,
-.btn-store-hero:disabled,
-.btn-icon-circular:disabled {
-  color: var(--color-ink-muted-48);
-  cursor: not-allowed;
-  opacity: 0.6;
+.top-nav-brand-mark {
+  color: var(--color-accent);
 }
 
-/* Inline text links */
-.text-link {
-  color: var(--color-primary);
-  text-decoration: none;
-  font-weight: var(--font-weight-regular);
+/* "Signed in as <name>" cluster on the right of the nav. */
+.top-nav-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-secondary);
+  color: var(--color-ink-secondary);
 }
 
-.text-link:hover,
-.text-link:focus-visible {
-  text-decoration: underline;
+.top-nav-identity-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
 }
 
-.on-dark .text-link,
-.text-link-on-dark {
-  color: var(--color-primary-on-dark);
-}
+/* ----- Rail ----- */
 
-/* ====================================================================== */
-/* Cards                                                                   */
-/* ====================================================================== */
-
-.store-card {
-  background: var(--color-canvas);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  color: var(--color-ink);
+.rail {
+  grid-area: rail;
+  background: var(--color-surface-rail);
+  border-right: 1px solid var(--color-hairline-soft);
+  padding: var(--space-md);
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
 }
 
-.store-card.unread {
-  border-inline-start: 3px solid var(--color-primary);
+.rail-card {
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-card);
+  overflow: hidden;
 }
 
-.store-card-row {
-  background: var(--color-canvas);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  color: var(--color-ink);
+.rail-card-head {
+  padding: var(--space-sm) var(--space-sm) var(--space-xs);
+  font-size: var(--font-size-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+
+.rail-card-body {
+  padding: 0 var(--space-xs) var(--space-xs);
+}
+
+/* A label/value line in the rail (e.g. "RECEIVE LINKS  7"). Rendered as a
+   button or Link when it filters, as a plain div when it is just a count. */
+.rail-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-lg);
-}
-
-.store-card-grid {
-  display: grid;
-  gap: var(--space-lg);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-@media (max-width: 1068px) {
-  .store-card-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 640px) {
-  .store-card-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* ====================================================================== */
-/* Inputs                                                                  */
-/* ====================================================================== */
-
-.input-pill,
-.input-rect {
-  font-family: var(--font-family-text);
-  font-size: var(--font-size-body);
-  line-height: 1;
-  color: var(--color-ink);
-  background: var(--color-canvas);
-  border: 1px solid var(--color-hairline);
-  padding: 12px 20px;
-  min-block-size: 44px;
+  gap: var(--space-sm);
   width: 100%;
-  display: block;
+  padding: var(--space-xs) var(--space-xs);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  color: var(--color-ink-secondary);
+  font-size: var(--font-size-secondary);
+  text-align: left;
+  transition: background var(--motion-fast) ease;
 }
 
-.input-pill {
+a.rail-row:hover,
+button.rail-row:hover {
+  background: var(--color-surface-raised);
+}
+
+/* Selected filter. The accent border, not a fill, carries selection — a
+   filled row would out-shout the status dots in the table beside it. */
+.rail-row-active {
+  border-color: var(--color-accent-dim);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+}
+
+.rail-row-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-row-value {
+  flex: none;
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Count coloured by what it counts, so the rail reads at a glance. */
+.rail-row-value-accent {
+  color: var(--color-accent);
+}
+.rail-row-value-warning {
+  color: var(--color-warning);
+}
+.rail-row-value-danger {
+  color: var(--color-danger);
+}
+.rail-row-value-neutral {
+  color: var(--color-ink-muted);
+}
+
+/* Caps section heading between rail cards. */
+.rail-heading {
+  padding: var(--space-sm) var(--space-xs) var(--space-xxs);
+  font-size: var(--font-size-micro);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+
+/* ----- Workspace ----- */
+
+.workspace {
+  grid-area: workspace;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.workspace-body {
+  flex: 1;
+  padding: var(--space-lg);
+  min-width: 0;
+}
+
+.app-footer {
+  border-top: 1px solid var(--color-hairline-soft);
+  background: var(--color-surface-chrome);
+  padding: var(--space-sm) var(--space-lg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  font-size: var(--font-size-micro);
+  color: var(--color-ink-faint);
+}
+
+.app-footer a {
+  color: var(--color-ink-muted);
+}
+
+.app-footer a:hover {
+  color: var(--color-ink);
+}
+
+/* ===================================================================
+   2. Page head
+   ===================================================================
+   Every workspace screen opens with the same block: a back link (on
+   detail/form screens), a title, one line of purpose, and the action
+   cluster. Consistent placement is what makes the screens feel like one
+   application rather than a set of pages. */
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-lg);
+}
+
+.page-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
+  min-width: 0;
+}
+
+.page-head-sub {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-secondary);
+  line-height: var(--line-height-secondary);
+}
+
+/* Detail screens lead the subtitle with a direction chip. The chip is an
+   inline-flex box, so it needs explicit centring and its own trailing gap to
+   sit level with the text that follows it. */
+.page-head-sub .chip {
+  vertical-align: middle;
+  margin-right: var(--space-xs);
+}
+
+.page-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+/* "← Back to dashboard", above the title. */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-secondary);
+  margin-bottom: var(--space-sm);
+}
+
+.back-link:hover {
+  color: var(--color-accent);
+}
+
+/* ===================================================================
+   3. Containers
+   =================================================================== */
+
+.container {
+  max-width: var(--container-max);
+  margin-inline: auto;
+  width: 100%;
+}
+
+.container-form {
+  max-width: var(--container-form);
+  width: 100%;
+}
+
+.container-auth {
+  max-width: var(--container-auth);
+  width: 100%;
+}
+
+/* ===================================================================
+   4. Panels + cards
+   ===================================================================
+   `.panel` is the framed container that holds a table or a list;
+   `.card` is the lighter framed block used for forms and standalone
+   content. Both sit on the canvas at one elevation — the console has no
+   stacking. */
+
+.panel {
+  background: var(--color-surface-panel);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-hairline-soft);
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-label);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+
+/* The count badge beside a panel title. */
+.panel-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 1px var(--space-xxs);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-secondary);
+  font-size: var(--font-size-micro);
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-body {
+  padding: var(--space-md);
+}
+
+.panel-foot {
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--color-hairline-soft);
+  color: var(--color-ink-faint);
+  font-size: var(--font-size-micro);
+}
+
+.card {
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-card);
+  padding: var(--space-lg);
+}
+
+/* ===================================================================
+   5. Data tables
+   ===================================================================
+   Tables sit flush inside a `.panel` (no panel-body wrapper). Mono +
+   tabular numerals keep every column aligned, which is the whole reason
+   the console is monospaced. */
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-secondary);
+}
+
+.data-table thead th {
+  padding: var(--space-xs) var(--space-md);
+  border-bottom: 1px solid var(--color-hairline-soft);
+  background: var(--color-surface-chrome);
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-regular);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.data-table tbody td {
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-hairline-soft);
+  color: var(--color-ink-secondary);
+  vertical-align: middle;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.data-table tbody tr:hover td {
+  background: var(--color-surface-raised);
+}
+
+/* Numeric and time columns line up on the digit. */
+.data-table .num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The primary identifying cell in a row. */
+.cell-strong {
+  color: var(--color-ink);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Short code rendered as a data token. */
+.cell-code {
+  display: inline-block;
+  padding: 2px var(--space-xs);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-raised);
+  color: var(--color-accent);
+  font-size: var(--font-size-micro);
+  white-space: nowrap;
+}
+
+.cell-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Full-width message inside a table body (loading, error, no rows). */
+.data-table-message td {
+  padding: var(--space-xl) var(--space-md);
+  text-align: center;
+  color: var(--color-ink-muted);
+}
+
+/* ===================================================================
+   6. Meta strip
+   ===================================================================
+   The horizontal key/value band on detail screens — status, quota,
+   password, expiry. Columns are separated by hairlines rather than
+   boxed, so the strip reads as one instrument panel. */
+
+.meta-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.meta-item {
+  padding: var(--space-sm) var(--space-md);
+  border-right: 1px solid var(--color-hairline-soft);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
+  min-width: 0;
+}
+
+.meta-item:last-child {
+  border-right: 0;
+}
+
+/* Label may carry a leading glyph as well as its caps text. */
+.meta-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xxs);
+  font-size: var(--font-size-micro);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+
+.meta-value {
+  color: var(--color-ink);
+  font-size: var(--font-size-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.meta-sub {
+  font-size: var(--font-size-micro);
+  color: var(--color-ink-faint);
+}
+
+/* ===================================================================
+   7. Buttons
+   ===================================================================
+   Four button roles and no more: accent (the one primary action on a
+   screen), ghost (everything else), danger (destructive), icon (chrome).
+   Every one shares the same box so a row of mixed buttons aligns. */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-secondary);
+  line-height: 1.2;
+  white-space: nowrap;
+  transition:
+    background var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+}
+
+.btn-accent {
+  background: var(--color-accent-wash);
+  border-color: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+.btn-accent:not(:disabled):hover {
+  background: rgba(98, 199, 90, 0.2);
+  border-color: var(--color-accent);
+}
+
+.btn-ghost {
+  background: var(--color-surface-raised);
+  border-color: var(--color-hairline);
+  color: var(--color-ink-secondary);
+}
+
+.btn-ghost:not(:disabled):hover {
+  border-color: var(--color-ink-faint);
+  color: var(--color-ink);
+}
+
+.btn-danger {
+  background: var(--color-danger-wash);
+  border-color: rgba(226, 87, 63, 0.35);
+  color: var(--color-danger);
+}
+
+.btn-danger:not(:disabled):hover {
+  border-color: var(--color-danger);
+}
+
+.btn-sm {
+  padding: var(--space-xxs) var(--space-xs);
+  font-size: var(--font-size-micro);
+}
+
+/* Square icon-only control used in the nav and beside share URLs. */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-secondary);
+  position: relative;
+  flex: none;
+}
+
+.btn-icon:hover {
+  color: var(--color-ink);
+  border-color: var(--color-ink-faint);
+}
+
+/* Bare icon button for per-row actions in a table. */
+.btn-icon-bare {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  color: var(--color-ink-muted);
+}
+
+.btn-icon-bare:hover {
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+}
+
+.btn-icon-bare-accent:hover {
+  color: var(--color-accent);
+}
+
+.btn-icon-bare-danger:hover {
+  color: var(--color-danger);
+}
+
+/* Unread marker on the notification bell. */
+.unread-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
   border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-surface-raised);
 }
 
-.input-rect {
-  border-radius: var(--radius-md);
-}
+/* ===================================================================
+   8. Inputs
+   =================================================================== */
 
-.input-pill:focus-visible,
-.input-rect:focus-visible {
-  outline: 2px solid var(--color-primary-focus);
-  outline-offset: 1px;
-  border-color: transparent;
-}
-
-.input-label {
+.field {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
-  font-family: var(--font-family-text);
-  font-size: var(--font-size-caption-strong);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--line-height-caption-strong);
-  letter-spacing: var(--tracking-caption-strong);
-  color: var(--color-ink);
 }
 
-/* ====================================================================== */
-/* Global nav + sub-nav + footer                                           */
-/* ====================================================================== */
+.field-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  font-size: var(--font-size-micro);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
 
-.admin-shell {
+.field-hint {
+  font-size: var(--font-size-micro);
+  color: var(--color-ink-faint);
+}
+
+.field-error {
+  font-size: var(--font-size-micro);
+  color: var(--color-danger);
+}
+
+/* Two fields side by side; collapses to one column on narrow viewports. */
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-md);
+}
+
+.input,
+.textarea,
+.select {
+  width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-control);
+  color: var(--color-ink);
+  font-size: var(--font-size-secondary);
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--color-ink-faint);
+}
+
+.input:focus,
+.textarea:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--color-accent-dim);
+}
+
+.input:disabled,
+.textarea:disabled,
+.select:disabled {
+  opacity: 0.5;
+}
+
+.textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+/* Invalid state. Applied on submit failure, not while typing. */
+.input-invalid {
+  border-color: var(--color-danger);
+}
+
+/* ===================================================================
+   9. Status + chips
+   ===================================================================
+   One badge component covers all four policy states. The dot carries the
+   colour; the text stays legible rather than tinted to the point of
+   being hard to read on the near-black canvas. */
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-secondary);
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  flex: none;
+}
+
+.status-active {
+  color: var(--color-accent);
+}
+.status-active .status-dot {
+  background: var(--color-accent);
+}
+
+.status-expired {
+  color: var(--color-danger);
+}
+.status-expired .status-dot {
+  background: var(--color-danger);
+}
+
+.status-quota_exhausted {
+  color: var(--color-warning);
+}
+.status-quota_exhausted .status-dot {
+  background: var(--color-warning);
+}
+
+.status-disabled {
+  color: var(--color-ink-muted);
+}
+.status-disabled .status-dot {
+  background: var(--color-neutral);
+}
+
+/* Standalone dots, for places that show the status colour without the label
+   (the rail's filter rows). Same four colours as the badges above. */
+.status-active-dot {
+  background: var(--color-accent);
+}
+.status-expired-dot {
+  background: var(--color-danger);
+}
+.status-quota_exhausted-dot {
+  background: var(--color-warning);
+}
+.status-disabled-dot {
+  background: var(--color-neutral);
+}
+
+/* Direction chip — RECEIVE (green, inbound) vs SEND (blue, outbound).
+   The colour split lets a mixed list be read without parsing the word. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xxs);
+  padding: 2px var(--space-xs);
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  font-size: var(--font-size-micro);
+  letter-spacing: var(--tracking-caps-tight);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.chip-receive {
+  background: var(--color-accent-wash);
+  border-color: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+.chip-send {
+  background: var(--color-send-wash);
+  border-color: rgba(70, 153, 229, 0.4);
+  color: var(--color-send);
+}
+
+.chip-neutral {
+  background: var(--color-surface-raised);
+  border-color: var(--color-hairline);
+  color: var(--color-ink-muted);
+}
+
+/* ===================================================================
+   10. Share block
+   ===================================================================
+   The shareable URL is the payload of both detail screens, so it gets a
+   dedicated block rather than a line of body text. */
+
+.share-block {
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-card);
+  padding: var(--space-sm) var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.share-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.share-url {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline-soft);
+  border-radius: var(--radius-control);
+  color: var(--color-ink);
+  font-size: var(--font-size-secondary);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+/* The `/r/<code>` tail of the URL, highlighted so the code is findable. */
+.share-url-code {
+  color: var(--color-accent);
+}
+
+/* ===================================================================
+   11. Progress
+   =================================================================== */
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
+  min-width: 120px;
+}
+
+.progress-track {
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--color-hairline);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--color-accent);
+  transition: width var(--motion-medium) ease;
+}
+
+.progress-fill-warning {
+  background: var(--color-warning);
+}
+
+.progress-fill-danger {
+  background: var(--color-danger);
+}
+
+.progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  font-size: var(--font-size-micro);
+  color: var(--color-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===================================================================
+   12. Drop zone
+   =================================================================== */
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-xxl) var(--space-lg);
+  border: 1px dashed var(--color-hairline);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-panel);
+  text-align: center;
+  transition:
+    border-color var(--motion-fast) ease,
+    background var(--motion-fast) ease;
+}
+
+.dropzone:hover,
+.dropzone-active {
+  border-color: var(--color-accent-dim);
+  background: var(--color-accent-wash);
+}
+
+.dropzone-icon {
+  color: var(--color-accent);
+  margin-bottom: var(--space-xs);
+}
+
+.dropzone-title {
+  color: var(--color-ink);
+  font-size: var(--font-size-subheading);
+}
+
+.dropzone-hint {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-secondary);
+}
+
+/* Full-viewport sheet shown while files are dragged over the window. */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  background: rgba(9, 12, 14, 0.9);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.drop-overlay-frame {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xxl) var(--space-xxl);
+  border: 1px dashed var(--color-accent-dim);
+  border-radius: var(--radius-lg);
+  background: var(--color-accent-wash);
+}
+
+.drop-overlay-headline {
+  color: var(--color-ink);
+  font-size: var(--font-size-heading);
+}
+
+.drop-overlay-caption {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-secondary);
+}
+
+/* ===================================================================
+   13. File rows
+   ===================================================================
+   Used where a file list is not a full table (public pages, upload
+   queues). Same rhythm as a table row so the two never feel different. */
+
+.file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-hairline-soft);
+}
+
+.file-row:last-child {
+  border-bottom: 0;
+}
+
+.file-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.file-name {
+  color: var(--color-ink);
+  font-size: var(--font-size-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-meta {
+  color: var(--color-ink-faint);
+  font-size: var(--font-size-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.file-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xxs);
+  flex: none;
+}
+
+/* ===================================================================
+   14. Empty state
+   =================================================================== */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xxl) var(--space-lg);
+  text-align: center;
+}
+
+.empty-icon {
+  color: var(--color-ink-faint);
+}
+
+.empty-title {
+  color: var(--color-ink-secondary);
+  font-size: var(--font-size-subheading);
+}
+
+.empty-hint {
+  color: var(--color-ink-faint);
+  font-size: var(--font-size-secondary);
+  max-width: 46ch;
+}
+
+/* ===================================================================
+   15. Auth surfaces
+   ===================================================================
+   Sign-in and first-run setup render outside the shell: no rail, no
+   nav actions. Two columns on desktop — the form, and a quiet panel
+   stating what this instance is — collapsing to the form alone when
+   there is not room for both. */
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl) var(--space-lg);
+  background: var(--color-canvas);
+}
+
+.auth-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-xl);
+  width: 100%;
+  max-width: 920px;
+  align-items: center;
+}
+
+@media (min-width: 900px) {
+  .auth-layout {
+    grid-template-columns: minmax(0, 440px) minmax(0, 1fr);
+  }
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-lg);
+  color: var(--color-ink);
+  font-size: var(--font-size-heading);
+  letter-spacing: var(--tracking-caps-tight);
+  text-transform: uppercase;
+}
+
+.auth-panel {
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-card);
+  padding: var(--space-xl);
+}
+
+/* Right-hand column: what this instance is. Text only — no imagery. */
+.auth-aside {
+  display: none;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+@media (min-width: 900px) {
+  .auth-aside {
+    display: flex;
+  }
+}
+
+.auth-aside-item {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.auth-aside-icon {
+  color: var(--color-accent);
+  flex: none;
+  margin-top: 2px;
+}
+
+.auth-aside-title {
+  color: var(--color-ink);
+  font-size: var(--font-size-secondary);
+}
+
+.auth-aside-body {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-micro);
+  line-height: 1.6;
+}
+
+/* A framed notice above a form (e.g. "No administrator exists yet"). */
+.notice {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-accent-dim);
+  border-radius: var(--radius-card);
+  background: var(--color-accent-wash);
+  color: var(--color-ink-secondary);
+  font-size: var(--font-size-micro);
+  line-height: 1.6;
+}
+
+.notice-danger {
+  border-color: rgba(226, 87, 63, 0.35);
+  background: var(--color-danger-wash);
+}
+
+.notice-warning {
+  border-color: rgba(237, 183, 25, 0.35);
+  background: var(--color-warning-wash);
+}
+
+.notice-title {
+  display: block;
+  color: var(--color-ink);
+  font-size: var(--font-size-secondary);
+  margin-bottom: 2px;
+}
+
+/* ===================================================================
+   16. Public surfaces
+   ===================================================================
+   `/r/:code` and `/s/:code` are seen by people who have never met the
+   product. They wear the same skin but drop every operator affordance:
+   no rail, no counts, no admin nav. One centred column. */
+
+.public-page {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--color-canvas);
 }
 
-.admin-main {
+.public-nav {
+  border-bottom: 1px solid var(--color-hairline-soft);
+  background: var(--color-surface-chrome);
+}
+
+.public-nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  height: var(--nav-height);
+  padding: 0 var(--space-lg);
+  max-width: var(--container-max);
+  margin-inline: auto;
+  width: 100%;
+}
+
+.public-main {
   flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-xl) var(--space-lg);
+}
+
+.public-column {
   width: 100%;
-  max-width: var(--container-max-wide);
-  margin-inline: auto;
-  padding-inline: var(--space-lg);
-  padding-block: var(--space-xxl);
-}
-
-@media (max-width: 640px) {
-  .admin-main {
-    padding-block: var(--space-xl);
-  }
-}
-
-.global-nav {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  background: var(--color-surface-black);
-  color: var(--color-body-on-dark);
-  block-size: 44px;
+  max-width: 760px;
   display: flex;
-  align-items: center;
-}
-
-.global-nav-inner {
-  width: 100%;
-  max-width: var(--container-max-wide);
-  margin-inline: auto;
-  padding-inline: var(--space-lg);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-lg);
-  height: 100%;
-}
-
-.global-nav a,
-.global-nav .nav-link {
-  color: var(--color-body-on-dark);
-  text-decoration: none;
-  font-family: var(--font-family-text);
-  font-size: var(--font-size-nav-link);
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-nav-link);
-  letter-spacing: var(--tracking-nav-link);
-}
-
-.global-nav .brand {
-  font-size: var(--font-size-nav-link);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0;
-}
-
-.sub-nav {
-  position: sticky;
-  top: 44px;
-  z-index: 40;
-  background: color-mix(in srgb, var(--color-canvas-parchment) 80%, transparent);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  border-block-end: 1px solid var(--color-hairline);
-  min-block-size: 52px;
-  display: flex;
-  align-items: center;
-}
-
-.sub-nav-inner {
-  width: 100%;
-  max-width: var(--container-max-wide);
-  margin-inline: auto;
-  padding-inline: var(--space-lg);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: var(--space-lg);
 }
 
-.sub-nav-title {
-  font-family: var(--font-family-display);
-  font-size: var(--font-size-tagline);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--line-height-tagline);
-  letter-spacing: var(--tracking-tagline);
-  color: var(--color-ink);
+.public-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
 }
 
-.admin-footer {
-  background: var(--color-canvas-parchment);
-  color: var(--color-ink-muted-80);
-  padding-block: 64px;
-  border-block-start: 1px solid var(--color-hairline);
-  margin-block-start: var(--space-section);
+.public-footer {
+  border-top: 1px solid var(--color-hairline-soft);
+  padding: var(--space-sm) var(--space-lg);
+  text-align: center;
+  color: var(--color-ink-faint);
+  font-size: var(--font-size-micro);
 }
 
-.admin-footer-inner {
-  width: 100%;
-  max-width: var(--container-max-wide);
-  margin-inline: auto;
-  padding-inline: var(--space-lg);
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-xl);
+/* Locale picker in the public nav. */
+.lang-switch {
+  position: relative;
 }
 
-@media (max-width: 833px) {
-  .admin-footer-inner {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 480px) {
-  .admin-footer-inner {
-    grid-template-columns: 1fr;
-  }
-}
-
-.admin-footer-column h4 {
-  font-family: var(--font-family-text);
-  font-size: var(--font-size-caption-strong);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--line-height-caption-strong);
-  letter-spacing: var(--tracking-caption-strong);
-  color: var(--color-ink);
-  margin: 0 0 var(--space-sm) 0;
-}
-
-.admin-footer-column a,
-.admin-footer-column li {
-  display: block;
-  font-family: var(--font-family-text);
-  font-size: var(--font-size-dense-link);
-  line-height: var(--line-height-dense-link);
-  color: var(--color-ink-muted-80);
-  text-decoration: none;
-}
-
-.admin-footer-legal {
-  width: 100%;
-  max-width: var(--container-max-wide);
-  margin-inline: auto;
-  padding-inline: var(--space-lg);
-  padding-block-start: var(--space-lg);
-  margin-block-start: var(--space-lg);
-  border-block-start: 1px solid var(--color-hairline);
-  font-size: var(--font-size-fine-print);
-  line-height: var(--line-height-fine-print);
-  letter-spacing: var(--tracking-fine-print);
-  color: var(--color-ink-muted-48);
-}
-
-/* ====================================================================== */
-/* StatusBadge — configurator-option-chip grammar                          */
-/* ====================================================================== */
-
-.status-badge {
+.lang-trigger {
   display: inline-flex;
   align-items: center;
   gap: var(--space-xxs);
-  background: var(--color-canvas);
-  color: var(--color-ink);
+  padding: var(--space-xxs) var(--space-xs);
   border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-pill);
-  padding: 4px 12px;
-  font-family: var(--font-family-text);
-  font-size: var(--font-size-caption);
-  line-height: var(--line-height-caption);
-  letter-spacing: var(--tracking-caption);
-  white-space: nowrap;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-secondary);
+  font-size: var(--font-size-micro);
 }
 
-.status-badge-active {
-  color: var(--color-primary);
-  border-color: var(--color-primary);
+.lang-trigger:hover {
+  color: var(--color-ink);
 }
 
-.status-badge-disabled {
-  color: var(--color-ink-muted-48);
-  border-color: var(--color-hairline);
-}
-
-.status-badge-expired,
-.status-badge-quota_exhausted {
-  color: var(--color-ink-muted-80);
-  border-color: var(--color-hairline);
-}
-
-/* ====================================================================== */
-/* Unread indicator (notifications + similar)                              */
-/* ====================================================================== */
-
-.unread-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-full);
-  background: var(--color-primary);
+.lang-menu {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  min-width: 140px;
+  padding: var(--space-xxs);
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-panel);
+}
+
+.lang-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  width: 100%;
+  padding: var(--space-xs);
+  border-radius: var(--radius-xs);
+  text-align: left;
+  color: var(--color-ink-secondary);
+  font-size: var(--font-size-micro);
+}
+
+.lang-menu-item:hover {
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+}
+
+.lang-menu-item[aria-current='true'] {
+  color: var(--color-accent);
+}
+
+/* ===================================================================
+   Responsive
+   ===================================================================
+   Below 900px the rail stops being a column and becomes a strip above
+   the content: the counts are still worth seeing, the fixed column is
+   not. */
+
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'nav'
+      'rail'
+      'workspace';
+    grid-template-rows: var(--nav-height) auto minmax(0, 1fr);
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .rail {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-hairline-soft);
+  }
+
+  .rail-card {
+    flex: none;
+    min-width: 240px;
+  }
+
+  .workspace-body {
+    padding: var(--space-md);
+  }
 }

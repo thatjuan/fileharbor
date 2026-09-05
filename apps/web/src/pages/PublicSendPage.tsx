@@ -1,6 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useParams } from 'react-router-dom';
 
+import {
+  AnchorIcon,
+  ClockIcon,
+  DownloadIcon,
+  FileIcon,
+  LinkIcon,
+  LockIcon,
+} from '../components/Icons.js';
 import { LanguageSwitcher, Trans, selectPlural, useLocaleContext, useT } from '../i18n/index.js';
 import {
   confirmDownloadTicket,
@@ -32,6 +40,10 @@ import {
  *     copy. `quota_exhausted` returns a 403 with `error: 'quota_exhausted'`;
  *     the public listing GET keeps showing the link as "ok" until the cap
  *     is reached on a per-mint basis.
+ *
+ * Visually this is a public surface: the console skin without any operator
+ * affordance — no rail, no counts, no admin nav. One centred column under a
+ * nav that carries only the wordmark and the locale picker.
  */
 export function PublicSendPage(): JSX.Element {
   const params = useParams<{ code: string }>();
@@ -138,27 +150,22 @@ export function PublicSendPage(): JSX.Element {
 
   if (metaError) {
     return (
-      <main className="public-main tile tile-parchment">
-        <LanguageSwitcher />
-        <div className="container-narrow public-hero">
-          <h1>File Harbor</h1>
-          <p role="alert" className="error">
-            {t('send.notAvailable')}
-          </p>
+      <PublicShell>
+        <div className="public-header">
+          <h1>{t('send.title')}</h1>
         </div>
-        <PublicFooter />
-      </main>
+        <p role="alert" className="notice notice-danger">
+          {t('send.notAvailable')}
+        </p>
+      </PublicShell>
     );
   }
 
   if (!meta) {
     return (
-      <main className="public-main tile tile-parchment">
-        <LanguageSwitcher />
-        <div className="container-narrow public-hero">
-          <p className="muted">{t('common.loading')}</p>
-        </div>
-      </main>
+      <PublicShell>
+        <p className="muted">{t('common.loading')}</p>
+      </PublicShell>
     );
   }
 
@@ -173,121 +180,193 @@ export function PublicSendPage(): JSX.Element {
   })();
 
   return (
-    <main className="public-main tile tile-parchment">
-      <LanguageSwitcher />
-      <div className="container-narrow public-hero">
-        <h1>{t('send.title')}</h1>
-        <p className="lead">
+    <PublicShell>
+      <div className="public-header">
+        <h1>{meta.label}</h1>
+        <p className="muted">
           <Trans k="send.sentYou" components={{ label: <strong>{meta.label}</strong> }} />
         </p>
+      </div>
 
-        {remainingLine !== null && <p className="muted small">{remainingLine}</p>}
+      {/* Only the fields the public endpoint actually returns: the route the
+          recipient is on, whether a password stands in front of it, expiry,
+          the remaining-download budget, and the file count. */}
+      <div className="meta-strip">
+        <div className="meta-item">
+          <span className="meta-label">
+            <LinkIcon size={11} />
+            {t('meta.link')}
+          </span>
+          <span className="meta-value">/s/{code}</span>
+        </div>
 
-        {passwordGate ? (
-          <form
-            className="public-action"
-            onSubmit={(e) => {
-              e.preventDefault();
-              setError(null);
-              // Soft-unlock: hand the typed password to subsequent download
-              // mints. The real validation happens server-side on each call.
-              if (password.length > 0) setUnlockedPassword(password);
-            }}
-          >
-            <label className="input-label">
-              {t('receive.password')}
-              <input
-                type="password"
-                className="input-pill"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoFocus
-                required
-              />
-            </label>
-            {error && (
-              <p role="alert" className="error">
-                {error}
-              </p>
-            )}
-            <div className="row" style={{ justifyContent: 'center' }}>
-              <button type="submit" className="btn-primary" disabled={password.length === 0}>
-                {t('send.unlock')}
-              </button>
-            </div>
-          </form>
-        ) : meta.files.length === 0 ? (
-          // The link exists but the admin's upload hasn't finalized yet.
-          // Soft empty state with a hint to refresh.
-          <div className="public-action">
-            <div className="empty-state">
-              <HourglassGlyph />
-              <div className="empty-state-title">{t('send.noFilesYet')}</div>
-              <div className="empty-state-hint">{t('send.noFilesYetHint')}</div>
-            </div>
+        {meta.passwordRequired && (
+          <div className="meta-item">
+            <span className="meta-label">
+              <LockIcon size={11} />
+              {t('meta.password')}
+            </span>
+            <span className="meta-value">{t('receive.password')}</span>
           </div>
-        ) : (
-          <div className="public-action">
-            <ul className="list-reset stack">
-              {meta.files.map((file) => (
-                <li key={file.id} className="store-card-row">
-                  <div className="file-row-meta">
-                    <div className="file-row-name">{file.filename}</div>
-                    <div className="file-row-sub">
+        )}
+
+        {meta.expiresAt !== null && (
+          <div className="meta-item">
+            <span className="meta-label">
+              <ClockIcon size={11} />
+              {t('meta.expires')}
+            </span>
+            <span className="meta-value">{formatDateTime(meta.expiresAt, locale)}</span>
+          </div>
+        )}
+
+        {remainingLine !== null && (
+          <div className="meta-item">
+            <span className="meta-label">
+              <DownloadIcon size={11} />
+              {t('meta.downloads')}
+            </span>
+            <span className="meta-value">
+              {meta.remainingDownloads}
+              {meta.maxDownloads !== null ? ` / ${meta.maxDownloads}` : ''}
+            </span>
+            <span className="meta-sub">{remainingLine}</span>
+          </div>
+        )}
+
+        <div className="meta-item">
+          <span className="meta-label">
+            <FileIcon size={11} />
+            {t('meta.files')}
+          </span>
+          <span className="meta-value">{meta.files.length}</span>
+        </div>
+      </div>
+
+      {passwordGate ? (
+        <form
+          className="card stack"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setError(null);
+            // Soft-unlock: hand the typed password to subsequent download
+            // mints. The real validation happens server-side on each call.
+            if (password.length > 0) setUnlockedPassword(password);
+          }}
+        >
+          <label className="field">
+            <span className="field-label">{t('receive.password')}</span>
+            <input
+              type="password"
+              className="input"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoFocus
+              required
+            />
+          </label>
+          {error && (
+            <p role="alert" className="notice notice-danger">
+              {error}
+            </p>
+          )}
+          <div className="row-end">
+            <button type="submit" className="btn btn-accent" disabled={password.length === 0}>
+              <LockIcon size={13} />
+              {t('send.unlock')}
+            </button>
+          </div>
+        </form>
+      ) : meta.files.length === 0 ? (
+        // The link exists but the admin's upload hasn't finalized yet.
+        // Soft empty state with a hint to refresh.
+        <div className="panel">
+          <div className="empty">
+            <ClockIcon size={30} className="empty-icon" />
+            <p className="empty-title">{t('send.noFilesYet')}</p>
+            <p className="empty-hint">{t('send.noFilesYetHint')}</p>
+          </div>
+        </div>
+      ) : (
+        <div className="panel">
+          <div className="panel-head">
+            <span className="panel-title">
+              {t('send.download')}
+              <span className="panel-count">{meta.files.length}</span>
+            </span>
+          </div>
+          <ul className="list-reset">
+            {meta.files.map((file) => (
+              <li key={file.id} className="file-row">
+                <div className="row">
+                  <FileIcon size={16} className="faint" />
+                  <div className="file-row-main">
+                    <span className="file-name">{file.filename}</span>
+                    <span className="file-meta">
                       {formatBytes(file.size)} · {file.contentType}
-                    </div>
+                    </span>
                   </div>
+                </div>
+                <div className="file-actions">
                   <button
                     type="button"
-                    className="btn-primary"
+                    className="btn btn-ghost btn-sm"
                     onClick={() => void onDownload(file.id)}
                     disabled={busyFileId !== null}
                   >
+                    <DownloadIcon size={13} />
                     {busyFileId === file.id ? t('send.preparing') : t('send.download')}
                   </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-        {!passwordGate && error && (
-          <p role="alert" className="error">
-            {error}
-          </p>
-        )}
-      </div>
-      <PublicFooter />
-    </main>
+      {!passwordGate && error && (
+        <p role="alert" className="notice notice-danger">
+          {error}
+        </p>
+      )}
+    </PublicShell>
   );
 }
 
-/** Tiny quiet brand line so the page doesn't end on the action. */
-function PublicFooter(): JSX.Element {
+/**
+ * The public chrome: wordmark + locale picker over one centred column, and
+ * the quiet brand line at the foot so the page never ends on the action.
+ */
+function PublicShell({ children }: { children: ReactNode }): JSX.Element {
   const t = useT();
-  return <div className="public-footer">{t('footer.poweredBy')}</div>;
+  return (
+    <div className="public-page">
+      <nav className="public-nav">
+        <div className="public-nav-inner">
+          <span className="top-nav-brand">
+            <AnchorIcon size={16} className="top-nav-brand-mark" />
+            File Harbor
+          </span>
+          <LanguageSwitcher />
+        </div>
+      </nav>
+      <main className="public-main">
+        <div className="public-column">{children}</div>
+      </main>
+      <div className="public-footer">{t('footer.poweredBy')}</div>
+    </div>
+  );
 }
 
-/** Small hour-glass for the "files not ready yet" empty state. */
-function HourglassGlyph(): JSX.Element {
-  return (
-    <svg
-      className="empty-state-icon"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M7 3h10" />
-      <path d="M7 21h10" />
-      <path d="M7 3v3a5 5 0 0 0 10 0V3" />
-      <path d="M7 21v-3a5 5 0 0 1 10 0v3" />
-    </svg>
-  );
+/** Expiry is the one date a recipient acts on, so it carries the time too. */
+function formatDateTime(epochSeconds: number, locale: string): string {
+  return new Date(epochSeconds * 1000).toLocaleString(locale, {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function formatBytes(bytes: number): string {

@@ -56,6 +56,13 @@ export const FR_CATALOG: Catalog = {
     uploadObjectNotFound: "Le serveur n'a pas pu vérifier votre téléversement. Veuillez réessayer.",
     downloadStartFailed: 'Impossible de démarrer le téléchargement.',
   },
+  meta: {
+    link: 'Lien',
+    password: 'Mot de passe',
+    expires: 'Expire le',
+    downloads: 'Téléchargements',
+    files: 'Fichiers',
+  },
   switcher: {
     label: 'Langue',
     triggerAria: 'Changer de langue',

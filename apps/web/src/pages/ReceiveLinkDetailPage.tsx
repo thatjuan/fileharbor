@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
+import {
+  ArrowLeftIcon,
+  CopyIcon,
+  DownloadIcon,
+  FileIcon,
+  InboxIcon,
+  TrashIcon,
+} from '../components/Icons.js';
 import { StatusBadge } from '../components/StatusBadge.js';
-import { SubNav } from '../components/SubNav.js';
 import {
   deleteFile,
   deleteReceiveLink,
@@ -15,8 +22,13 @@ import {
 
 /**
  * Receive link detail. Shows the shareable URL (with a copy button), the
- * policy summary (password / quota / expiry), and lists the files that have
- * landed via this link.
+ * policy summary (status / quota / password / expiry) as a meta strip, and
+ * lists the files that have landed via this link.
+ *
+ * Deliberately the mirror image of `SendLinkDetailPage`: same order, same
+ * blocks, same wording. The two screens differ only where the data differs
+ * (uploads vs downloads, per-file actions vs none), so an operator who learns
+ * one has learned both.
  *
  * Admin actions:
  *   - Disable / Re-enable the link (toggles `status`).
@@ -58,8 +70,9 @@ export function ReceiveLinkDetailPage(): JSX.Element {
     };
   }, [id]);
 
-  const shareableUrl =
-    data && typeof window !== 'undefined' ? `${window.location.origin}/r/${data.link.code}` : '';
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const shareTail = data ? `/r/${data.link.code}` : '';
+  const shareableUrl = data && origin ? `${origin}${shareTail}` : '';
 
   const onCopy = async (): Promise<void> => {
     if (!shareableUrl) return;
@@ -69,8 +82,8 @@ export function ReceiveLinkDetailPage(): JSX.Element {
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       // Clipboard API can fail in HTTP / iframes. The shareable URL is still
-      // visible in the <code> next to the button — operators can select it
-      // manually as the fallback.
+      // visible in the `.share-url` next to the button — operators can select
+      // it manually as the fallback.
       setCopied(false);
     }
   };
@@ -143,151 +156,194 @@ export function ReceiveLinkDetailPage(): JSX.Element {
     }
   };
 
-  const title = data ? data.link.label : 'Receive link';
-  const remainingUses =
-    data && data.link.maxUploads !== null
-      ? Math.max(0, data.link.maxUploads - data.uploadsSoFar)
+  const maxUploads = data?.link.maxUploads ?? null;
+  const usedPercent =
+    data && maxUploads !== null && maxUploads > 0
+      ? Math.min(100, Math.round((data.uploadsSoFar / maxUploads) * 100))
       : null;
 
   return (
     <>
-      <SubNav
-        title={title}
-        actions={
-          <Link to="/" className="text-link">
-            Back to dashboard
-          </Link>
-        }
-      />
-      <div className="container-narrow stack-airy">
-        {error && (
-          <p role="alert" className="error">
-            {error}
-          </p>
-        )}
+      <Link to="/" className="back-link">
+        <ArrowLeftIcon size={13} />
+        Back to dashboard
+      </Link>
 
-        {!data && !error && <p className="muted">Loading…</p>}
+      {error !== null && (
+        <p role="alert" className="notice notice-danger">
+          {error}
+        </p>
+      )}
 
-        {data && (
-          <>
-            <section className="stack-airy">
+      {data === null && error === null && <p className="muted">Loading…</p>}
+
+      {data !== null && (
+        <>
+          <div className="page-head">
+            <div className="page-head-text">
               <h1>{data.link.label}</h1>
+              <p className="page-head-sub">
+                <span className="chip chip-receive">
+                  <DownloadIcon size={11} />
+                  receive
+                </span>
+                Created {formatDateTime(data.link.createdAt)}
+              </p>
+            </div>
+            <div className="page-head-actions">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void onToggleStatus()}
+                disabled={busy}
+              >
+                {data.link.status === 'active' ? 'Disable' : 'Re-enable'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => void onDeleteLink()}
+                disabled={busy}
+              >
+                <TrashIcon size={13} />
+                Revoke
+              </button>
+            </div>
+          </div>
 
-              <div className="row">
-                <code>{shareableUrl}</code>
-                <button
-                  type="button"
-                  className="btn-icon-circular"
-                  aria-label={copied ? 'Copied' : 'Copy URL'}
-                  onClick={() => void onCopy()}
-                >
-                  <CopyIcon />
-                </button>
+          <div className="share-block">
+            <span className="meta-label">Share this link</span>
+            <div className="share-row">
+              <div className="share-url">
+                {origin}
+                <span className="share-url-code">{shareTail}</span>
               </div>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                aria-label={copied ? 'Copied' : 'Copy URL'}
+                onClick={() => void onCopy()}
+              >
+                <CopyIcon size={13} />
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          </div>
 
-              <div className="row">
+          <div className="meta-strip">
+            <div className="meta-item">
+              <span className="meta-label">Status</span>
+              <span className="meta-value">
                 <StatusBadge status={data.link.displayStatus} />
-                <span className="small muted">
-                  {data.link.maxUploads !== null
-                    ? `${data.uploadsSoFar} of ${data.link.maxUploads} uploads used${
-                        remainingUses !== null ? ` · ${remainingUses} remaining` : ''
-                      }`
-                    : `${data.uploadsSoFar} uploads · unlimited`}
-                </span>
-                <span className="small muted">
-                  {data.link.passwordProtected ? 'Password protected' : 'No password'}
-                </span>
-                <span className="small">Expires {formatExpiry(data.link.expiresAt)}</span>
-              </div>
-
-              <div className="row">
-                <button
-                  type="button"
-                  className="btn-secondary-pill"
-                  onClick={() => void onToggleStatus()}
-                  disabled={busy}
-                >
-                  {data.link.status === 'active' ? 'Disable' : 'Re-enable'}
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary-pill"
-                  onClick={() => void onDeleteLink()}
-                  disabled={busy}
-                >
-                  Revoke
-                </button>
-              </div>
-
-              {actionError && (
-                <p role="alert" className="error">
-                  {actionError}
-                </p>
+              </span>
+            </div>
+            <div className="meta-item">
+              <span className="meta-label">Uploads</span>
+              <span className="meta-value">
+                {maxUploads === null
+                  ? `${data.uploadsSoFar} · unlimited`
+                  : `${data.uploadsSoFar} of ${maxUploads}`}
+              </span>
+              {usedPercent !== null && (
+                <div className="progress">
+                  <div className="progress-track">
+                    <div
+                      className={`progress-fill${usedPercent >= 100 ? ' progress-fill-danger' : ''}`}
+                      style={{ width: `${usedPercent}%` }}
+                    />
+                  </div>
+                  <span className="meta-sub">{usedPercent}% of the upload cap used</span>
+                </div>
               )}
-            </section>
+            </div>
+            <div className="meta-item">
+              <span className="meta-label">Password</span>
+              <span className="meta-value">
+                {data.link.passwordProtected ? 'Enabled' : 'Not set'}
+              </span>
+            </div>
+            <div className="meta-item">
+              <span className="meta-label">Expires</span>
+              <span className="meta-value">{formatExpiry(data.link.expiresAt)}</span>
+            </div>
+          </div>
 
-            <section className="stack">
-              <h2>Files</h2>
-              {data.files.length === 0 && <p className="muted">No files yet.</p>}
-              {data.files.length > 0 && (
-                <ul className="list-reset stack">
+          <div className="panel">
+            <div className="panel-head">
+              <span className="panel-title">
+                Files
+                <span className="panel-count">{data.files.length}</span>
+              </span>
+            </div>
+
+            {data.files.length === 0 ? (
+              <div className="empty">
+                <InboxIcon size={30} className="empty-icon" />
+                <p className="empty-title">No files yet</p>
+                <p className="empty-hint">
+                  Uploads made through this link will appear here as soon as they finish.
+                </p>
+              </div>
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Size</th>
+                    <th>Uploaded</th>
+                    <th aria-label="Actions" />
+                  </tr>
+                </thead>
+                <tbody>
                   {data.files.map((file) => (
-                    <li key={file.id} className="store-card-row">
-                      <div className="stack-tight">
-                        <span className="body-strong">{file.filename}</span>
-                        <span className="muted small">
-                          {file.contentType} · {formatBytes(file.size)}
+                    <tr key={file.id}>
+                      <td className="cell-strong">
+                        <span className="row">
+                          <FileIcon size={13} className="faint" />
+                          {file.filename}
                         </span>
-                        <span className="small">
-                          Uploaded {new Date(file.createdAt * 1000).toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="row">
+                      </td>
+                      <td className="muted">{file.contentType}</td>
+                      <td className="num">{formatBytes(file.size)}</td>
+                      <td className="num">{formatDateTime(file.createdAt)}</td>
+                      <td className="cell-actions">
                         <button
                           type="button"
-                          className="text-link"
+                          className="btn-icon-bare btn-icon-bare-accent"
+                          aria-label={`Download ${file.filename}`}
                           onClick={() => void onDownloadFile(file.id)}
                         >
-                          Download
+                          <DownloadIcon size={13} />
                         </button>
                         <button
                           type="button"
-                          className="btn-secondary-pill"
+                          className="btn-icon-bare btn-icon-bare-danger"
+                          aria-label={`Remove ${file.filename}`}
                           onClick={() => void onDeleteFile(file.id, file.filename)}
                         >
-                          Remove
+                          <TrashIcon size={13} />
                         </button>
-                      </div>
-                    </li>
+                      </td>
+                    </tr>
                   ))}
-                </ul>
-              )}
-            </section>
-          </>
-        )}
-      </div>
-    </>
-  );
-}
+                </tbody>
+              </table>
+            )}
+          </div>
 
-function CopyIcon(): JSX.Element {
-  // 18×18 outline copy glyph; inherits `currentColor` from the parent
-  // `.btn-icon-circular` (ink in light mode, white in dark via tokens).
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <rect x="9" y="9" width="11" height="11" rx="2" />
-      <path d="M5 15V5a2 2 0 0 1 2-2h10" />
-    </svg>
+          {actionError !== null && (
+            <p
+              role="alert"
+              className="notice notice-danger"
+              style={{ marginTop: 'var(--space-md)' }}
+            >
+              {actionError}
+            </p>
+          )}
+        </>
+      )}
+    </>
   );
 }
 
@@ -296,6 +352,11 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+/** Local-time timestamp for creation and per-file rows. */
+function formatDateTime(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toLocaleString();
 }
 
 /**

@@ -1,12 +1,12 @@
 import type { ReceiveLinkDisplayStatus } from '../lib/api.js';
 
 /**
- * Render a colour-coded badge for a receive link's policy-derived status.
+ * Colour-coded badge for a link's policy-derived status.
  *
- * The value comes from the server (`ReceiveLink.displayStatus`); the
- * component is pure and intentionally has no logic — just a label-and-class
- * lookup. Reusing the same component in the dashboard list and the link
- * detail view keeps the visual language consistent.
+ * The value comes from the server (`displayStatus`); this component is a pure
+ * label-and-class lookup with no logic of its own. Using the same component in
+ * the dashboard table and on both detail screens is what keeps "expired"
+ * looking identical everywhere it appears.
  */
 const LABELS: Record<ReceiveLinkDisplayStatus, string> = {
   active: 'Active',
@@ -17,8 +17,8 @@ const LABELS: Record<ReceiveLinkDisplayStatus, string> = {
 
 export function StatusBadge({ status }: { status: ReceiveLinkDisplayStatus }): JSX.Element {
   return (
-    <span className={`status-badge status-badge-${status}`}>
-      <span className="status-badge-dot" aria-hidden />
+    <span className={`status status-${status}`}>
+      <span className="status-dot" aria-hidden />
       {LABELS[status]}
     </span>
   );

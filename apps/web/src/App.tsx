@@ -60,8 +60,8 @@ export function App(): JSX.Element {
 
   if (setup.status === 'loading') {
     return (
-      <main className="page">
-        <p className="muted">Loading…</p>
+      <main className="boot-screen">
+        <p>Loading…</p>
       </main>
     );
   }
@@ -182,8 +182,8 @@ function RequireAuth({ children }: { children: ReactNode }): JSX.Element {
 
   if (isPending) {
     return (
-      <main className="page">
-        <p className="muted">Loading…</p>
+      <main className="boot-screen">
+        <p>Loading…</p>
       </main>
     );
   }
@@ -200,8 +200,8 @@ function RedirectIfAuthenticated({ children }: { children: ReactNode }): JSX.Ele
 
   if (isPending) {
     return (
-      <main className="page">
-        <p className="muted">Loading…</p>
+      <main className="boot-screen">
+        <p>Loading…</p>
       </main>
     );
   }

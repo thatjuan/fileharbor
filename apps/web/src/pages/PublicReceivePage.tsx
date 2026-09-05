@@ -4,9 +4,18 @@ import {
   useState,
   type ChangeEvent,
   type DragEvent,
+  type ReactNode,
 } from 'react';
 import { useParams } from 'react-router-dom';
 
+import {
+  AnchorIcon,
+  CheckIcon,
+  LinkIcon,
+  LockIcon,
+  UploadIcon,
+  XIcon,
+} from '../components/Icons.js';
 import { LanguageSwitcher, Trans, mapUploadErrorMessage, useT } from '../i18n/index.js';
 import {
   abortMultipartUploadTicket,
@@ -41,6 +50,10 @@ import { DEFAULT_UPLOAD_CONFIG, getUploadConfig, type UploadConfig } from '../li
  *   6. POST to the finalize endpoint with the same password. Server HEADs the
  *      bucket and re-validates the link.
  *   7. Show "complete" or the specific failure reason.
+ *
+ * Visually this is a public surface: the console skin without any operator
+ * affordance — no rail, no counts, no admin nav. One centred column under a
+ * nav that carries only the wordmark and the locale picker.
  */
 export function PublicReceivePage(): JSX.Element {
   const params = useParams<{ code: string }>();
@@ -375,27 +388,22 @@ export function PublicReceivePage(): JSX.Element {
 
   if (metaError) {
     return (
-      <main className="public-main tile tile-parchment">
-        <LanguageSwitcher />
-        <div className="container-narrow public-hero">
-          <h1>File Harbor</h1>
-          <p role="alert" className="error">
-            {t('receive.notAvailable')}
-          </p>
+      <PublicShell>
+        <div className="public-header">
+          <h1>{t('receive.title')}</h1>
         </div>
-        <PublicFooter />
-      </main>
+        <p role="alert" className="notice notice-danger">
+          {t('receive.notAvailable')}
+        </p>
+      </PublicShell>
     );
   }
 
   if (!meta || !uploadConfig) {
     return (
-      <main className="public-main tile tile-parchment">
-        <LanguageSwitcher />
-        <div className="container-narrow public-hero">
-          <p className="muted">{t('common.loading')}</p>
-        </div>
-      </main>
+      <PublicShell>
+        <p className="muted">{t('common.loading')}</p>
+      </PublicShell>
     );
   }
 
@@ -434,47 +442,71 @@ export function PublicReceivePage(): JSX.Element {
   };
 
   return (
-    <main className="public-main tile tile-parchment">
-      <LanguageSwitcher />
-      <div className="container-narrow public-hero">
-        <h1>{t('receive.title')}</h1>
-        <p className="lead">
+    <PublicShell>
+      <div className="public-header">
+        <h1>{meta.label}</h1>
+        <p className="muted">
           <Trans k="receive.invitedTo" components={{ label: <strong>{meta.label}</strong> }} />
         </p>
+      </div>
 
-        {phase === 'completed' && completedName && (
-          <div className="public-action success-block">
-            <SuccessCheck />
-            <p className="success" role="status">
+      {/* Only the fields the public endpoint actually returns: the route the
+          uploader is on, and whether a password stands in front of it. */}
+      <div className="meta-strip">
+        <div className="meta-item">
+          <span className="meta-label">
+            <LinkIcon size={11} />
+            {t('meta.link')}
+          </span>
+          <span className="meta-value">/r/{code}</span>
+        </div>
+
+        {meta.passwordRequired && (
+          <div className="meta-item">
+            <span className="meta-label">
+              <LockIcon size={11} />
+              {t('meta.password')}
+            </span>
+            <span className="meta-value">{t('receive.password')}</span>
+          </div>
+        )}
+      </div>
+
+      {phase === 'completed' && completedName && (
+        <div className="notice">
+          <CheckIcon size={16} className="accent" />
+          <div>
+            <p role="status">
               <Trans
                 k="receive.uploadComplete"
                 components={{ name: <strong>{completedName}</strong> }}
               />
             </p>
-            <div>
-              <button type="button" className="btn-primary" onClick={onReset}>
+            <div className="row" style={{ marginTop: 'var(--space-sm)' }}>
+              <button type="button" className="btn btn-accent" onClick={onReset}>
+                <UploadIcon size={13} />
                 {t('receive.uploadAnother')}
               </button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {phase === 'locked' && (
-          <div className="public-action">
-            <p role="alert" className="error">
-              {error ?? t('receive.lockedDefault')}
-            </p>
-          </div>
-        )}
+      {phase === 'locked' && (
+        <p role="alert" className="notice notice-warning">
+          {error ?? t('receive.lockedDefault')}
+        </p>
+      )}
 
-        {phase !== 'completed' && phase !== 'locked' && (
-          <div className="public-action">
-            {meta.passwordRequired && (
-              <label className="input-label">
-                {t('receive.password')}
+      {phase !== 'completed' && phase !== 'locked' && (
+        <div className="stack">
+          {meta.passwordRequired && (
+            <div className="card">
+              <label className="field">
+                <span className="field-label">{t('receive.password')}</span>
                 <input
                   type="password"
-                  className="input-pill"
+                  className="input"
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value);
@@ -488,100 +520,103 @@ export function PublicReceivePage(): JSX.Element {
                   autoFocus
                 />
               </label>
-            )}
+            </div>
+          )}
 
-            {phase !== 'uploading' && phase !== 'minting' && phase !== 'finalizing' && (
-              <label
-                className={`drop-card${isDragging ? ' is-dragging' : ''}`}
-                aria-disabled={pickerDisabled}
-                onDragOver={onDragOver}
-                onDragLeave={onDragLeave}
-                onDrop={onDrop}
-              >
-                <span className="drop-card-title">{t('receive.pickFile')}</span>
-                <span className="drop-card-hint">{t('receive.dropHint')}</span>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="sr-only"
-                  onChange={onFileChange}
-                  disabled={pickerDisabled}
-                />
-              </label>
-            )}
+          {phase !== 'uploading' && phase !== 'minting' && phase !== 'finalizing' && (
+            <label
+              className={`dropzone${isDragging ? ' dropzone-active' : ''}`}
+              aria-disabled={pickerDisabled}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+            >
+              <UploadIcon size={30} className="dropzone-icon" />
+              <span className="dropzone-title">{t('receive.pickFile')}</span>
+              <span className="dropzone-hint">{t('receive.dropHint')}</span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="sr-only"
+                onChange={onFileChange}
+                disabled={pickerDisabled}
+              />
+            </label>
+          )}
 
-            {phase === 'minting' && <p className="muted">{t('receive.preparing')}</p>}
+          {phase === 'minting' && <p className="muted small">{t('receive.preparing')}</p>}
 
-            {phase === 'uploading' && (
-              <div className="progress-block">
-                <div className="progress-percent">{progress}%</div>
-                <div className="progress-caption">{t('receive.uploadingPhase')}</div>
-                <progress value={progress} max={100} />
+          {phase === 'uploading' && (
+            <div className="progress">
+              <div className="progress-meta">
+                <span>{t('receive.uploadingPhase')}</span>
+                <span>{progress}%</span>
               </div>
-            )}
+              <div className="progress-track">
+                <div className="progress-fill" style={{ width: `${progress}%` }} />
+              </div>
+            </div>
+          )}
 
-            {phase === 'finalizing' && <p className="muted">{t('receive.confirming')}</p>}
+          {phase === 'finalizing' && <p className="muted small">{t('receive.confirming')}</p>}
 
-            {phase === 'cancelling' && <p className="muted">{t('receive.cancelling')}</p>}
+          {phase === 'cancelling' && <p className="muted small">{t('receive.cancelling')}</p>}
 
-            {phase === 'cancelled' && (
-              <div className="stack">
-                <p className="muted">{t('receive.cancelled')}</p>
-                <div className="row" style={{ justifyContent: 'center' }}>
-                  <button type="button" className="btn-primary" onClick={onRetryAfterCancel}>
+          {phase === 'cancelled' && (
+            <div className="notice notice-warning">
+              <div>
+                <p>{t('receive.cancelled')}</p>
+                <div className="row" style={{ marginTop: 'var(--space-sm)' }}>
+                  <button type="button" className="btn btn-ghost" onClick={onRetryAfterCancel}>
                     {t('common.tryAgain')}
                   </button>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {cancellable && (
-              <div className="row" style={{ justifyContent: 'center' }}>
-                <button type="button" className="btn-secondary-pill" onClick={onCancel}>
-                  {t('receive.cancelUpload')}
-                </button>
-              </div>
-            )}
+          {cancellable && (
+            <div className="row-end">
+              <button type="button" className="btn btn-ghost" onClick={onCancel}>
+                <XIcon size={13} />
+                {t('receive.cancelUpload')}
+              </button>
+            </div>
+          )}
 
-            {error && (
-              <p role="alert" className="error">
-                {error}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-      <PublicFooter />
-    </main>
+          {error && (
+            <p role="alert" className="notice notice-danger">
+              {error}
+            </p>
+          )}
+        </div>
+      )}
+    </PublicShell>
   );
 }
 
-/** Tiny quiet brand line so the page doesn't end on the action. */
-function PublicFooter(): JSX.Element {
-  const t = useT();
-  return <div className="public-footer">{t('footer.poweredBy')}</div>;
-}
-
 /**
- * Large Action-Blue checkmark for the success state. Inline SVG to avoid
- * any asset dependency and to pick up `currentColor` from the parent class.
+ * The public chrome: wordmark + locale picker over one centred column, and
+ * the quiet brand line at the foot so the page never ends on the action.
  */
-function SuccessCheck(): JSX.Element {
+function PublicShell({ children }: { children: ReactNode }): JSX.Element {
+  const t = useT();
   return (
-    <svg
-      className="success-check"
-      viewBox="0 0 56 56"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <circle cx="28" cy="28" r="24" />
-      <path d="M18 29l7 7 14-17" />
-    </svg>
+    <div className="public-page">
+      <nav className="public-nav">
+        <div className="public-nav-inner">
+          <span className="top-nav-brand">
+            <AnchorIcon size={16} className="top-nav-brand-mark" />
+            File Harbor
+          </span>
+          <LanguageSwitcher />
+        </div>
+      </nav>
+      <main className="public-main">
+        <div className="public-column">{children}</div>
+      </main>
+      <div className="public-footer">{t('footer.poweredBy')}</div>
+    </div>
   );
 }
 

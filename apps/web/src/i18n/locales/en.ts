@@ -52,6 +52,13 @@ export const EN_CATALOG = {
     uploadObjectNotFound: 'The server could not verify your upload. Please try again.',
     downloadStartFailed: 'Failed to start download.',
   },
+  meta: {
+    link: 'Link',
+    password: 'Password',
+    expires: 'Expires',
+    downloads: 'Downloads',
+    files: 'Files',
+  },
   switcher: {
     label: 'Language',
     triggerAria: 'Switch language',

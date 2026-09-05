@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { FileDropOverlay } from '../components/FileDropOverlay.js';
-import { SubNav } from '../components/SubNav.js';
+import { ArrowLeftIcon, UploadIcon, XIcon } from '../components/Icons.js';
 import {
   abortSendMultipartUploadTicket,
   addFileToSendLink,
@@ -301,196 +301,244 @@ export function NewSendLinkPage(): JSX.Element {
         headline="Drop to add files"
         itemCount={drop.itemCount}
       />
-      <SubNav
-        title="New send link"
-        actions={
-          <Link to="/" className="text-link">
-            Back to dashboard
-          </Link>
-        }
-      />
-      <section className="container-form">
-        <header className="stack-tight">
+      <Link to="/" className="back-link">
+        <ArrowLeftIcon size={13} />
+        Back to dashboard
+      </Link>
+
+      <div className="page-head">
+        <div className="page-head-text">
           <h1>New send link</h1>
-          <p className="lead">
+          <p className="page-head-sub">
             A send link lets others download files you upload. Share the URL (and password, if you
             set one) out-of-band.
           </p>
-        </header>
-        <form onSubmit={onSubmit} className="stack-airy">
-          <label className="input-label">
-            Label
-            <input
-              type="text"
-              className="input-pill"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. Q3 audit pack"
-              required
-              maxLength={256}
-              autoFocus
-              disabled={busy}
-            />
-          </label>
+        </div>
+      </div>
 
-          <label className="input-label">
-            Password <span className="muted small">(optional)</span>
-            {/*
-              Plain `text` (not `password`) for the same reason as the receive
-              form: the admin shares this out-of-band and wants to see it.
-            */}
-            <input
-              type="text"
-              className="input-pill"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Leave blank for no password"
-              autoComplete="off"
-              disabled={busy}
-            />
-          </label>
-
-          <label className="input-label">
-            Max downloads <span className="muted small">(optional)</span>
-            <input
-              type="number"
-              className="input-pill"
-              value={maxDownloads}
-              onChange={(e) => setMaxDownloads(e.target.value)}
-              placeholder="Leave blank for unlimited"
-              min={1}
-              step={1}
-              disabled={busy}
-            />
-          </label>
-
-          <label className="input-label">
-            Expires at <span className="muted small">(optional, local time)</span>
-            <input
-              type="datetime-local"
-              className="input-pill"
-              value={expiresAt}
-              onChange={(e) => setExpiresAt(e.target.value)}
-              disabled={busy}
-            />
-          </label>
-
-          <div className="stack-tight">
-            <span className="input-label">Files</span>
-            {/*
-              Visually a `.btn-secondary-pill` label; the native `<input
-              type="file">` lives inside it, kept in the DOM (focusable for
-              keyboard users) but visually hidden with the inline style below.
-              `aria-label` makes the file picker self-describing for assistive
-              tech since the label text is decorative.
-            */}
-            <label
-              className="btn-secondary-pill"
-              style={{ alignSelf: 'flex-start', cursor: busy ? 'not-allowed' : 'pointer' }}
-            >
-              {filesPicked.length === 0 ? 'Choose files…' : 'Choose different files…'}
+      <section className="container-form">
+        <form onSubmit={onSubmit} className="stack">
+          <div className="card stack">
+            <h4>Link details</h4>
+            <label className="field">
+              <span className="field-label">Label</span>
               <input
-                type="file"
-                multiple
-                onChange={onFilesChange}
+                type="text"
+                className="input"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="e.g. Q3 audit pack"
+                required
+                maxLength={256}
+                autoFocus
                 disabled={busy}
-                aria-label="Choose files to upload"
-                style={{
-                  position: 'absolute',
-                  width: 1,
-                  height: 1,
-                  padding: 0,
-                  margin: -1,
-                  overflow: 'hidden',
-                  clip: 'rect(0, 0, 0, 0)',
-                  whiteSpace: 'nowrap',
-                  border: 0,
-                }}
               />
-            </label>
-            {foldersSkipped > 0 && (
-              <span className="muted small" role="status">
-                Folders are not supported yet. Drop the files inside instead.
+              <span className="field-hint">
+                How this link appears on the dashboard. Only you see it.
               </span>
-            )}
-            {filesPicked.length > 0 && (
-              <div className="stack" style={{ marginBlockStart: 'var(--space-sm)' }}>
-                {filesPicked.map((file, i) => (
-                  <div className="store-card-row" key={`${file.name}-${i}`}>
-                    <div className="stack-tight">
-                      <span className="body-strong">{file.name}</span>
-                      <span className="muted small">
-                        {formatBytes(file.size)}
-                        {file.type ? ` · ${file.type}` : ''}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn-icon-circular"
-                      onClick={() => onRemoveFile(i)}
-                      disabled={busy}
-                      aria-label={`Remove ${file.name}`}
-                      title={`Remove ${file.name}`}
-                    >
-                      <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        aria-hidden="true"
-                      >
-                        <path
-                          d="M3 3 L13 13 M13 3 L3 13"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                ))}
-                {filesPicked.length > 1 && (
-                  <span className="muted small">
-                    {filesPicked.length} files selected. They will upload one at a time.
-                  </span>
+            </label>
+          </div>
+
+          <div className="panel">
+            <div className="panel-head">
+              <span className="panel-title">
+                Attach files
+                {filesPicked.length > 0 && (
+                  <span className="panel-count">{filesPicked.length}</span>
                 )}
-              </div>
+              </span>
+            </div>
+            <div className="panel-body stack-sm">
+              {/*
+                The drop target is the whole window (`useFileDropZone` above),
+                so this zone is the visible affordance plus the click-to-browse
+                control: the native `<input type="file">` lives inside it, kept
+                in the DOM (focusable for keyboard users) but visually hidden
+                with the inline style below. `aria-label` makes the file picker
+                self-describing for assistive tech since the surrounding text is
+                decorative.
+              */}
+              <label
+                className={`dropzone${drop.isDragging ? ' dropzone-active' : ''}`}
+                style={{ cursor: busy ? 'not-allowed' : 'pointer' }}
+              >
+                <UploadIcon size={28} className="dropzone-icon" />
+                <span className="dropzone-title">Drag and drop files here</span>
+                <span className="dropzone-hint">
+                  {filesPicked.length === 0
+                    ? 'or click to choose files'
+                    : 'or click to replace the current selection'}
+                </span>
+                <input
+                  type="file"
+                  multiple
+                  onChange={onFilesChange}
+                  disabled={busy}
+                  aria-label="Choose files to upload"
+                  style={{
+                    position: 'absolute',
+                    width: 1,
+                    height: 1,
+                    padding: 0,
+                    margin: -1,
+                    overflow: 'hidden',
+                    clip: 'rect(0, 0, 0, 0)',
+                    whiteSpace: 'nowrap',
+                    border: 0,
+                  }}
+                />
+              </label>
+
+              {foldersSkipped > 0 && (
+                <span className="field-hint" role="status">
+                  Folders are not supported yet. Drop the files inside instead.
+                </span>
+              )}
+            </div>
+
+            {filesPicked.length > 0 && (
+              <>
+                <ul className="list-reset">
+                  {filesPicked.map((file, i) => (
+                    <li className="file-row" key={`${file.name}-${i}`}>
+                      <div className="file-row-main">
+                        <span className="file-name">{file.name}</span>
+                        <span className="file-meta">
+                          {formatBytes(file.size)}
+                          {file.type ? ` · ${file.type}` : ''}
+                        </span>
+                      </div>
+                      <div className="file-actions">
+                        {busy && (
+                          <FileProgress index={i} current={currentFileIndex} value={progress} />
+                        )}
+                        <button
+                          type="button"
+                          className="btn-icon-bare btn-icon-bare-danger"
+                          onClick={() => onRemoveFile(i)}
+                          disabled={busy}
+                          aria-label={`Remove ${file.name}`}
+                          title={`Remove ${file.name}`}
+                        >
+                          <XIcon size={13} />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                <div className="panel-foot">
+                  {filesPicked.length === 1
+                    ? '1 file selected.'
+                    : `${filesPicked.length} files selected. They upload one at a time.`}
+                </div>
+              </>
             )}
           </div>
 
-          {phase === 'creating' && <p className="muted">Preparing link…</p>}
+          <div className="card stack">
+            <h4>Access</h4>
+            <label className="field">
+              <span className="field-label">
+                Password <span className="faint">(optional)</span>
+              </span>
+              {/*
+                Plain `text` (not `password`) for the same reason as the receive
+                form: the admin shares this out-of-band and wants to see it.
+              */}
+              <input
+                type="text"
+                className="input"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Leave blank for no password"
+                autoComplete="off"
+                disabled={busy}
+              />
+              <span className="field-hint">
+                Recipients must enter this before they can download. Shown in plain text so you can
+                copy it accurately.
+              </span>
+            </label>
+          </div>
+
+          <div className="card stack">
+            <h4>Limits</h4>
+            <div className="field-row">
+              <label className="field">
+                <span className="field-label">
+                  Max downloads <span className="faint">(optional)</span>
+                </span>
+                <input
+                  type="number"
+                  className="input"
+                  value={maxDownloads}
+                  onChange={(e) => setMaxDownloads(e.target.value)}
+                  placeholder="Unlimited"
+                  min={1}
+                  step={1}
+                  disabled={busy}
+                />
+                <span className="field-hint">Leave blank for unlimited downloads.</span>
+              </label>
+
+              <label className="field">
+                <span className="field-label">
+                  Expires at <span className="faint">(optional)</span>
+                </span>
+                <input
+                  type="datetime-local"
+                  className="input"
+                  value={expiresAt}
+                  onChange={(e) => setExpiresAt(e.target.value)}
+                  disabled={busy}
+                />
+                <span className="field-hint">
+                  Your local time. Blank means the link never expires.
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {phase === 'creating' && <p className="notice">Preparing link…</p>}
           {(phase === 'uploading' || phase === 'finalizing') && filesPicked.length > 0 && (
-            <div className="stack-tight">
-              <div className="muted small">
-                {phase === 'uploading' ? 'Uploading' : 'Confirming'} file {currentFileIndex + 1} of{' '}
-                {filesPicked.length}: <strong>{filesPicked[currentFileIndex]?.name}</strong>
+            <div className="notice">
+              <div className="progress">
+                <div className="progress-meta">
+                  <span>
+                    {phase === 'uploading' ? 'Uploading' : 'Confirming'} file {currentFileIndex + 1}{' '}
+                    of {filesPicked.length} · {filesPicked[currentFileIndex]?.name}
+                  </span>
+                  <span>{progress}%</span>
+                </div>
+                <div className="progress-track">
+                  <div className="progress-fill" style={{ width: `${progress}%` }} />
+                </div>
               </div>
-              <progress value={progress} max={100} />
-              <div className="muted small">{progress}%</div>
             </div>
           )}
 
-          {error && (
-            <p role="alert" className="muted">
+          {error !== null && (
+            <p role="alert" className="notice notice-danger">
               {error}
             </p>
           )}
-          <div className="row end">
+
+          <div className="row-end">
             {busy ? (
               // Cancel applies to the current submission: tears the in-flight
               // file's part XHRs, calls the server-side abort, and bails the
               // loop. Files already finalized stay attached to the new link.
-              <button type="button" className="btn-secondary-pill" onClick={onCancel}>
+              <button type="button" className="btn btn-ghost" onClick={onCancel}>
                 Cancel
               </button>
             ) : (
-              <Link to="/" className="btn-secondary-pill">
+              <Link to="/" className="btn btn-ghost">
                 Cancel
               </Link>
             )}
             <button
               type="submit"
-              className="btn-primary"
+              className="btn btn-accent"
               disabled={
                 busy ||
                 label.trim().length === 0 ||
@@ -504,6 +552,36 @@ export function NewSendLinkPage(): JSX.Element {
         </form>
       </section>
     </>
+  );
+}
+
+/**
+ * Per-row progress in the attach queue. Uploads run serially, so a row's
+ * state is fully determined by its position relative to the file currently
+ * in flight: everything before it is done, everything after it is queued.
+ */
+function FileProgress({
+  index,
+  current,
+  value,
+}: {
+  index: number;
+  current: number;
+  value: number;
+}): JSX.Element {
+  const percent = index < current ? 100 : index === current ? value : 0;
+  const label = index < current ? 'Done' : index === current ? 'Uploading' : 'Queued';
+
+  return (
+    <div className="progress">
+      <div className="progress-meta">
+        <span>{label}</span>
+        <span>{percent}%</span>
+      </div>
+      <div className="progress-track">
+        <div className="progress-fill" style={{ width: `${percent}%` }} />
+      </div>
+    </div>
   );
 }
 

@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
+import {
+  ArrowLeftIcon,
+  CopyIcon,
+  FileIcon,
+  InboxIcon,
+  TrashIcon,
+  UploadIcon,
+} from '../components/Icons.js';
 import { StatusBadge } from '../components/StatusBadge.js';
-import { SubNav } from '../components/SubNav.js';
 import {
   deleteSendLink,
   getSendLink,
@@ -12,8 +19,13 @@ import {
 } from '../lib/api.js';
 
 /**
- * Send link detail. Shows the shareable URL (with a copy button), the file(s)
- * the admin packaged into the link, and policy summary fields.
+ * Send link detail. Shows the shareable URL (with a copy button), the policy
+ * summary (status / download quota / password / expiry) as a meta strip, and
+ * the files the admin packaged into the link.
+ *
+ * Deliberately the mirror image of `ReceiveLinkDetailPage`: same order, same
+ * blocks, same wording. The files table has no per-row actions here — a send
+ * link's bundle is fixed at creation time.
  *
  * Admin actions (#12):
  *   - Disable / Re-enable the link (toggles `status`).
@@ -47,8 +59,9 @@ export function SendLinkDetailPage(): JSX.Element {
     };
   }, [id]);
 
-  const shareableUrl =
-    data && typeof window !== 'undefined' ? `${window.location.origin}/s/${data.link.code}` : '';
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const shareTail = data ? `/s/${data.link.code}` : '';
+  const shareableUrl = data && origin ? `${origin}${shareTail}` : '';
 
   const onCopy = async (): Promise<void> => {
     if (!shareableUrl) return;
@@ -57,6 +70,9 @@ export function SendLinkDetailPage(): JSX.Element {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
+      // Clipboard API can fail in HTTP / iframes. The shareable URL is still
+      // visible in the `.share-url` next to the button — operators can select
+      // it manually as the fallback.
       setCopied(false);
     }
   };
@@ -96,141 +112,182 @@ export function SendLinkDetailPage(): JSX.Element {
     }
   };
 
-  const title = data ? data.link.label : 'Send link';
-  const remainingDownloads =
-    data && data.link.maxDownloads !== null
-      ? Math.max(0, data.link.maxDownloads - data.link.downloadCount)
+  const maxDownloads = data?.link.maxDownloads ?? null;
+  const usedPercent =
+    data && maxDownloads !== null && maxDownloads > 0
+      ? Math.min(100, Math.round((data.link.downloadCount / maxDownloads) * 100))
       : null;
 
   return (
     <>
-      <SubNav
-        title={title}
-        actions={
-          <Link to="/" className="text-link">
-            Back to dashboard
-          </Link>
-        }
-      />
-      <div className="container-narrow stack-airy">
-        {error && (
-          <p role="alert" className="error">
-            {error}
-          </p>
-        )}
+      <Link to="/" className="back-link">
+        <ArrowLeftIcon size={13} />
+        Back to dashboard
+      </Link>
 
-        {!data && !error && <p className="muted">Loading…</p>}
+      {error !== null && (
+        <p role="alert" className="notice notice-danger">
+          {error}
+        </p>
+      )}
 
-        {data && (
-          <>
-            <section className="stack-airy">
+      {data === null && error === null && <p className="muted">Loading…</p>}
+
+      {data !== null && (
+        <>
+          <div className="page-head">
+            <div className="page-head-text">
               <h1>{data.link.label}</h1>
+              <p className="page-head-sub">
+                <span className="chip chip-send">
+                  <UploadIcon size={11} />
+                  send
+                </span>
+                Created {formatDateTime(data.link.createdAt)}
+              </p>
+            </div>
+            <div className="page-head-actions">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void onToggleStatus()}
+                disabled={busy}
+              >
+                {data.link.status === 'active' ? 'Disable' : 'Re-enable'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => void onDeleteLink()}
+                disabled={busy}
+              >
+                <TrashIcon size={13} />
+                Revoke
+              </button>
+            </div>
+          </div>
 
-              <div className="row">
-                <code>{shareableUrl}</code>
-                <button
-                  type="button"
-                  className="btn-icon-circular"
-                  aria-label={copied ? 'Copied' : 'Copy URL'}
-                  onClick={() => void onCopy()}
-                >
-                  <CopyIcon />
-                </button>
+          <div className="share-block">
+            <span className="meta-label">Share this link</span>
+            <div className="share-row">
+              <div className="share-url">
+                {origin}
+                <span className="share-url-code">{shareTail}</span>
               </div>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                aria-label={copied ? 'Copied' : 'Copy URL'}
+                onClick={() => void onCopy()}
+              >
+                <CopyIcon size={13} />
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          </div>
 
-              <div className="row">
+          <div className="meta-strip">
+            <div className="meta-item">
+              <span className="meta-label">Status</span>
+              <span className="meta-value">
                 <StatusBadge status={data.link.displayStatus} />
-                <span className="small muted">
-                  {data.link.maxDownloads !== null
-                    ? `${data.link.downloadCount} of ${data.link.maxDownloads} downloads used${
-                        remainingDownloads !== null ? ` · ${remainingDownloads} remaining` : ''
-                      }`
-                    : `${data.link.downloadCount} downloads · unlimited`}
-                </span>
-                <span className="small muted">
-                  {data.link.passwordProtected ? 'Password protected' : 'No password'}
-                </span>
-                <span className="small">Expires {formatExpiry(data.link.expiresAt)}</span>
-              </div>
+              </span>
+            </div>
+            <div className="meta-item">
+              <span className="meta-label">Downloads</span>
+              <span className="meta-value">
+                {maxDownloads === null
+                  ? `${data.link.downloadCount} · unlimited`
+                  : `${data.link.downloadCount} of ${maxDownloads}`}
+              </span>
+              {usedPercent !== null && (
+                <div className="progress">
+                  <div className="progress-track">
+                    <div
+                      className={`progress-fill${usedPercent >= 100 ? ' progress-fill-danger' : ''}`}
+                      style={{ width: `${usedPercent}%` }}
+                    />
+                  </div>
+                  <span className="meta-sub">{usedPercent}% of the download cap used</span>
+                </div>
+              )}
+            </div>
+            <div className="meta-item">
+              <span className="meta-label">Password</span>
+              <span className="meta-value">
+                {data.link.passwordProtected ? 'Enabled' : 'Not set'}
+              </span>
+            </div>
+            <div className="meta-item">
+              <span className="meta-label">Expires</span>
+              <span className="meta-value">{formatExpiry(data.link.expiresAt)}</span>
+            </div>
+          </div>
 
-              <div className="row">
-                <button
-                  type="button"
-                  className="btn-secondary-pill"
-                  onClick={() => void onToggleStatus()}
-                  disabled={busy}
-                >
-                  {data.link.status === 'active' ? 'Disable' : 'Re-enable'}
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary-pill"
-                  onClick={() => void onDeleteLink()}
-                  disabled={busy}
-                >
-                  Revoke
-                </button>
-              </div>
+          <div className="panel">
+            <div className="panel-head">
+              <span className="panel-title">
+                Files
+                <span className="panel-count">{data.files.length}</span>
+              </span>
+            </div>
 
-              {actionError && (
-                <p role="alert" className="error">
-                  {actionError}
+            {data.files.length === 0 ? (
+              // The link is created the moment the admin POSTs `/api/send-links`,
+              // but the file row only appears after the finalize call returns.
+              // If the user navigates here mid-upload (or the upload failed),
+              // they'll see this — and Revoke above is the recovery path.
+              <div className="empty">
+                <InboxIcon size={30} className="empty-icon" />
+                <p className="empty-title">No files yet</p>
+                <p className="empty-hint">
+                  The upload may still be finalizing. If it failed, revoke this link and create a
+                  new one.
                 </p>
-              )}
-            </section>
-
-            <section className="stack">
-              <h2>Files</h2>
-              {data.files.length === 0 && (
-                // The link is created the moment the admin POSTs `/api/send-links`,
-                // but the file row only appears after the finalize call returns.
-                // If the user navigates here mid-upload (or the upload failed),
-                // they'll see this — and Revoke above is the recovery path.
-                <p className="muted">No files yet. The upload may still be finalizing.</p>
-              )}
-              {data.files.length > 0 && (
-                <ul className="list-reset stack">
+              </div>
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Size</th>
+                    <th>Added</th>
+                    <th aria-label="Actions" />
+                  </tr>
+                </thead>
+                <tbody>
                   {data.files.map((file) => (
-                    <li key={file.id} className="store-card-row">
-                      <div className="stack-tight">
-                        <span className="body-strong">{file.filename}</span>
-                        <span className="muted small">
-                          {file.contentType} · {formatBytes(file.size)}
+                    <tr key={file.id}>
+                      <td className="cell-strong">
+                        <span className="row">
+                          <FileIcon size={13} className="faint" />
+                          {file.filename}
                         </span>
-                        <span className="small">
-                          Added {new Date(file.createdAt * 1000).toLocaleString()}
-                        </span>
-                      </div>
-                    </li>
+                      </td>
+                      <td className="muted">{file.contentType}</td>
+                      <td className="num">{formatBytes(file.size)}</td>
+                      <td className="num">{formatDateTime(file.createdAt)}</td>
+                      <td className="cell-actions" />
+                    </tr>
                   ))}
-                </ul>
-              )}
-            </section>
-          </>
-        )}
-      </div>
-    </>
-  );
-}
+                </tbody>
+              </table>
+            )}
+          </div>
 
-function CopyIcon(): JSX.Element {
-  // 18×18 outline copy glyph; inherits `currentColor` from the parent
-  // `.btn-icon-circular` (ink in light mode, white in dark via tokens).
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <rect x="9" y="9" width="11" height="11" rx="2" />
-      <path d="M5 15V5a2 2 0 0 1 2-2h10" />
-    </svg>
+          {actionError !== null && (
+            <p
+              role="alert"
+              className="notice notice-danger"
+              style={{ marginTop: 'var(--space-md)' }}
+            >
+              {actionError}
+            </p>
+          )}
+        </>
+      )}
+    </>
   );
 }
 
@@ -239,6 +296,11 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+/** Local-time timestamp for creation and per-file rows. */
+function formatDateTime(epochSeconds: number): string {
+  return new Date(epochSeconds * 1000).toLocaleString();
 }
 
 /**

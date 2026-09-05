@@ -15,8 +15,8 @@ import { useT } from './useT.js';
  *     `aria-checked` reflecting the active locale.
  *   - Escape closes and restores focus to the trigger.
  *   - Outside `pointerdown` closes (registered only while open).
- *   - Active locale is signalled by an inline Action Blue check glyph
- *     (single-accent rule); no background fills.
+ *   - Active locale is signalled by an accent check glyph on the selected
+ *     item; no background fills.
  */
 export function LanguageSwitcher(): JSX.Element {
   const { locale, setLocale } = useLocaleContext();
@@ -74,6 +74,7 @@ export function LanguageSwitcher(): JSX.Element {
         onKeyDown={onTriggerKey}
       >
         <GlobeGlyph />
+        {locale.toUpperCase()}
       </button>
       {open && (
         <ul className="lang-menu" role="menu" aria-label={t('switcher.label')}>
@@ -89,7 +90,7 @@ export function LanguageSwitcher(): JSX.Element {
                   onClick={() => onSelect(code)}
                 >
                   <span>{t(`switcher.${code}`)}</span>
-                  <CheckGlyph />
+                  {active && <CheckGlyph />}
                 </button>
               </li>
             );
@@ -103,6 +104,8 @@ export function LanguageSwitcher(): JSX.Element {
 function GlobeGlyph(): JSX.Element {
   return (
     <svg
+      width="13"
+      height="13"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -122,6 +125,8 @@ function GlobeGlyph(): JSX.Element {
 function CheckGlyph(): JSX.Element {
   return (
     <svg
+      width="12"
+      height="12"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

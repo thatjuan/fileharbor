@@ -1,189 +1,134 @@
 /*
- * Design tokens — DESIGN.md (Apple-inspired refined minimal).
+ * Design tokens — DESIGN.md ("Harbor Console").
  *
- * Every value in this file is sourced from DESIGN.md. Naming mirrors the
- * DESIGN.md keys (e.g. `--color-primary` ← `{colors.primary}`,
- * `--font-size-body` ← `{typography.body}`).
+ * Every value here is sourced from DESIGN.md; the naming mirrors the DESIGN.md
+ * keys (`--color-accent` ← `{colors.accent}`, `--font-size-body` ←
+ * `{typography.body}`, `--radius-card` ← `{rounded.card}`).
  *
- * Light-dominant by default (DESIGN.md "Known Gaps" admits dark counterparts
- * for cards/inputs aren't surfaced). Dark mode below extrapolates the rule
- * documented in apps/web/src/styles/README.md.
- *
- * Interactive accent (--color-primary) stays Action Blue across light and
- * dark modes per DESIGN.md "single accent is non-negotiable".
+ * The console is dark-only by design: it is an operator surface built to be
+ * read for long stretches, and the near-black canvas is load-bearing for the
+ * status colours. There is no `prefers-color-scheme` branch — see
+ * apps/web/src/styles/README.md for why.
  */
 
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
 
-  /* ===== Brand & accent ===== */
-  --color-primary: #0066cc;
-  --color-primary-focus: #0071e3;
-  --color-primary-on-dark: #2997ff;
-  --color-on-primary: #ffffff;
+  /* ===== Surfaces =====
+     A six-step near-black ladder. Steps are deliberately 1-3 points apart:
+     depth reads as a change in weight, never as a change in hue. */
+  --color-canvas: #090c0e; /* the page itself */
+  --color-surface-rail: #0c1012; /* left rail column */
+  --color-surface-chrome: #0d1113; /* top nav, footer */
+  --color-surface-panel: #0e1315; /* table + panel containers */
+  --color-surface-card: #0f1416; /* rail cards, form cards, stat blocks */
+  --color-surface-raised: #131719; /* inputs, chips, hovered rows */
 
-  /* ===== Surfaces ===== */
-  --color-canvas: #ffffff;
-  --color-canvas-parchment: #f5f5f7;
-  --color-surface-pearl: #fafafc;
-  --color-surface-tile-1: #272729;
-  --color-surface-tile-2: #2a2a2c;
-  --color-surface-tile-3: #252527;
-  --color-surface-black: #000000;
-  --color-surface-chip-translucent: rgba(210, 210, 215, 0.64);
+  /* ===== Hairlines =====
+     Two weights only. `hairline` separates containers from the canvas;
+     `hairline-soft` separates rows inside a container. */
+  --color-hairline: #2a3032;
+  --color-hairline-soft: #1c2224;
 
-  /* ===== Text ===== */
-  --color-ink: #1d1d1f;
-  --color-body: #1d1d1f;
-  --color-body-on-dark: #ffffff;
-  --color-body-muted: #cccccc;
-  --color-ink-muted-80: #333333;
-  --color-ink-muted-48: #7a7a7a;
+  /* ===== Text =====
+     Four steps. Anything below `muted` is decoration, not content. */
+  --color-ink: #d8dad7; /* primary reading colour */
+  --color-ink-secondary: #aeb1b0; /* supporting copy, table cells */
+  --color-ink-muted: #909896; /* labels, captions, placeholders */
+  --color-ink-faint: #5d6664; /* disabled text, dividers-as-text */
 
-  /* ===== Hairlines / borders ===== */
-  --color-divider-soft: rgba(0, 0, 0, 0.04);
-  --color-hairline: #e0e0e0;
+  /* ===== Accent & status =====
+     Green is the single interactive accent. Blue marks the send/download
+     axis, so a row's direction is legible without reading the label. The
+     warm pair is reserved for policy states the operator must act on. */
+  --color-accent: #62c75a;
+  --color-accent-dim: #43833d;
+  --color-accent-wash: rgba(98, 199, 90, 0.12);
+  --color-on-accent: #06210b;
 
-  /* ===== Typography ladder ===== */
-  --font-family-display:
-    system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter Variable', 'Inter',
-    sans-serif;
-  --font-family-text:
-    system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter Variable', 'Inter',
-    sans-serif;
-  --font-family-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-send: #4699e5; /* send-link / download direction */
+  --color-send-wash: rgba(70, 153, 229, 0.12);
 
-  --font-weight-light: 300;
+  --color-warning: #edb719; /* quota exhausted */
+  --color-warning-wash: rgba(237, 183, 25, 0.12);
+
+  --color-danger: #e2573f; /* expired, destructive actions */
+  --color-danger-wash: rgba(226, 87, 63, 0.12);
+
+  --color-neutral: #6d7674; /* disabled links — absence of state */
+  --color-neutral-wash: rgba(109, 118, 116, 0.14);
+
+  /* ===== Typography =====
+     Monospace throughout. The console's whole voice is that short codes,
+     byte counts, timestamps and labels share one grid; a proportional face
+     for prose would break the column alignment that makes the tables
+     scannable. */
+  --font-family-mono:
+    'IBM Plex Mono', ui-monospace, SFMono-Regular, 'Roboto Mono', Menlo, monospace;
+
   --font-weight-regular: 400;
-  --font-weight-semibold: 600;
-  --font-weight-bold: 700;
+  --font-weight-medium: 500; /* emphasis */
+  --font-weight-semibold: 600; /* page titles only */
 
-  /* size / line-height / tracking — DESIGN.md "Hierarchy" table. */
-  --font-size-hero-display: 56px;
-  --line-height-hero-display: 1.07;
-  --tracking-hero-display: -0.28px;
+  /* Ladder. Mono runs visually large, so the body step sits at 14px and the
+     display steps stay restrained — a 20px title is a big title here. */
+  --font-size-title: 20px;
+  --line-height-title: 1.3;
 
-  --font-size-display-lg: 40px;
-  --line-height-display-lg: 1.1;
-  --tracking-display-lg: 0px;
+  --font-size-heading: 17px;
+  --line-height-heading: 1.35;
 
-  --font-size-display-md: 34px;
-  --line-height-display-md: 1.47;
-  --tracking-display-md: -0.374px;
+  --font-size-subheading: 15px;
+  --line-height-subheading: 1.4;
 
-  --font-size-lead: 28px;
-  --line-height-lead: 1.14;
-  --tracking-lead: 0.196px;
+  --font-size-body: 14px;
+  --line-height-body: 1.55;
 
-  --font-size-lead-airy: 24px;
-  --line-height-lead-airy: 1.5;
-  --tracking-lead-airy: 0px;
+  --font-size-secondary: 13px;
+  --line-height-secondary: 1.5;
 
-  --font-size-tagline: 21px;
-  --line-height-tagline: 1.19;
-  --tracking-tagline: 0.231px;
+  --font-size-label: 12px;
+  --line-height-label: 1.4;
 
-  --font-size-body: 17px;
-  --line-height-body: 1.47;
-  --tracking-body: -0.374px;
+  --font-size-micro: 11px;
+  --line-height-micro: 1.35;
 
-  --font-size-body-strong: 17px;
-  --line-height-body-strong: 1.24;
-  --tracking-body-strong: -0.374px;
+  /* Rail headings, table column heads, and field labels are set in caps with
+     open tracking — the one typographic gesture that separates chrome from
+     content. */
+  --tracking-caps: 0.08em;
+  --tracking-caps-tight: 0.05em;
 
-  --font-size-dense-link: 17px;
-  --line-height-dense-link: 2.41;
-  --tracking-dense-link: 0px;
-
-  --font-size-caption: 14px;
-  --line-height-caption: 1.43;
-  --tracking-caption: -0.224px;
-
-  --font-size-caption-strong: 14px;
-  --line-height-caption-strong: 1.29;
-  --tracking-caption-strong: -0.224px;
-
-  --font-size-button-large: 18px;
-  --line-height-button-large: 1;
-  --tracking-button-large: 0px;
-
-  --font-size-button-utility: 14px;
-  --line-height-button-utility: 1.29;
-  --tracking-button-utility: -0.224px;
-
-  --font-size-fine-print: 12px;
-  --line-height-fine-print: 1;
-  --tracking-fine-print: -0.12px;
-
-  --font-size-micro-legal: 10px;
-  --line-height-micro-legal: 1.3;
-  --tracking-micro-legal: -0.08px;
-
-  --font-size-nav-link: 12px;
-  --line-height-nav-link: 1;
-  --tracking-nav-link: -0.12px;
-
-  /* ===== Spacing scale (8px base) ===== */
+  /* ===== Spacing (4px base) ===== */
   --space-xxs: 4px;
   --space-xs: 8px;
   --space-sm: 12px;
-  --space-md: 17px;
+  --space-md: 16px;
   --space-lg: 24px;
   --space-xl: 32px;
   --space-xxl: 48px;
-  --space-section: 80px;
 
-  /* ===== Radius scale ===== */
-  --radius-none: 0;
-  --radius-xs: 5px;
-  --radius-sm: 8px;
-  --radius-md: 11px;
-  --radius-lg: 18px;
+  /* ===== Radius ===== */
+  --radius-xs: 4px;
+  --radius-sm: 5px;
+  --radius-card: 6px;
+  --radius-control: 7px;
+  --radius-lg: 8px;
   --radius-pill: 9999px;
-  --radius-full: 9999px;
 
-  /* ===== Elevation ===== */
-  --shadow-product: rgba(0, 0, 0, 0.22) 3px 5px 30px 0;
-  --shadow-card-hairline: 0 0 0 1px var(--color-hairline);
+  /* ===== Elevation =====
+     One shadow. Containers that float above the canvas use it; nothing else
+     casts a shadow. */
+  --shadow-panel: 0 7px 3px rgba(0, 0, 0, 0.4);
 
   /* ===== Layout ===== */
-  --container-max-wide: 1440px;
-  --container-max-narrow: 980px;
-  --container-max-form: 640px;
-  --container-max-auth: 480px;
+  --rail-width: 260px;
+  --nav-height: 52px;
+  --container-max: 1460px;
+  --container-form: 720px;
+  --container-auth: 460px;
 
   /* ===== Motion ===== */
-  --press-scale: 0.95;
   --motion-fast: 120ms;
-  --motion-medium: 220ms;
-}
-
-/*
- * Dark mode — DESIGN.md does not surface dark tokens for cards/inputs.
- * Mapping rule:
- *   - light surfaces (canvas / parchment / pearl) → near-black tile family
- *   - text inverts to body-on-dark; muted text uses translucent white
- *   - hairlines lift to translucent white
- *   - --color-primary stays Action Blue across modes (single-accent rule)
- *
- * See apps/web/src/styles/README.md for rationale.
- */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-canvas: #272729;
-    --color-canvas-parchment: #2a2a2c;
-    --color-surface-pearl: #252527;
-
-    --color-ink: #ffffff;
-    --color-body: #ffffff;
-    --color-ink-muted-80: rgba(255, 255, 255, 0.7);
-    --color-ink-muted-48: rgba(255, 255, 255, 0.45);
-
-    --color-hairline: rgba(255, 255, 255, 0.08);
-    --color-divider-soft: rgba(255, 255, 255, 0.04);
-
-    /* Inline links rendered on the now-dark canvas use the brighter Sky Link
-       Blue automatically. .text-link picks this up via the .on-dark scope
-       in components.css. */
-  }
+  --motion-medium: 200ms;
 }

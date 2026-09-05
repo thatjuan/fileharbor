@@ -1,70 +1,91 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
-import '../styles/polish-admin.css';
-import { AdminFooter } from './AdminFooter.js';
+import { signOut, useSession } from '../lib/auth-client.js';
+import { AnchorIcon } from './Icons.js';
+import { LinksProvider } from './LinksProvider.js';
 import { NotificationBell } from './NotificationBell.js';
+import { Rail } from './Rail.js';
 
 /**
- * Chrome wrapper for authed admin pages. Renders the DESIGN.md `global-nav`
- * (black 44px strip, brand on the left, NotificationBell on the right),
- * page content in a max-width 1440 container, then the admin footer.
+ * Chrome for every authed screen: a slim top nav, the left rail, and the
+ * scrolling workspace between them.
  *
- * Sub-nav (`{component.sub-nav-frosted}`) is opt-in per page — pages render
- * a `<SubNav>` themselves so they can supply context-appropriate title and
- * action cluster.
+ * The nav and rail are fixed; only `.workspace` scrolls. That is the point of
+ * the layout — the operator keeps the link counts and the create actions in
+ * view while reading a long table.
  *
- * Scoped to authed routes (mounted inside `RequireAuth`) so the bell never
- * polls on `/login`, `/setup`, or the public `/r|/s/:code` pages.
+ * Mounted inside `RequireAuth`, so the bell never polls and the rail never
+ * fetches on `/login`, `/setup`, or the public pages.
  */
 export function AdminShell({ children }: { children: ReactNode }): JSX.Element {
   return (
-    <div className="admin-shell">
-      <header className="global-nav">
-        <div className="global-nav-inner">
-          <div className="global-nav-left">
-            <Link to="/" className="brand global-nav-brand">
-              <AnchorMark />
-              <span>File Harbor</span>
-            </Link>
-            <Link to="/" className="global-nav-dashboard-link">
-              Dashboard
-            </Link>
-          </div>
-          <div className="global-nav-right">
-            <NotificationBell />
-          </div>
-        </div>
-      </header>
-      <main className="admin-main">{children}</main>
-      <AdminFooter />
-    </div>
+    <LinksProvider>
+      <div className="app-shell">
+        <TopNav />
+        <Rail />
+        <main className="workspace">
+          <div className="workspace-body">{children}</div>
+          <Footer />
+        </main>
+      </div>
+    </LinksProvider>
   );
 }
 
-/**
- * Tiny anchor glyph that sits to the left of the File Harbor wordmark.
- * 14px, currentColor, stroke 1.75 — matches the bell's stroke weight and the
- * nav-link voice. Inline SVG, no external asset.
- */
-function AnchorMark(): JSX.Element {
+function TopNav(): JSX.Element {
+  const { data: session } = useSession();
+  const navigate = useNavigate();
+
+  // better-auth's username plugin surfaces the display name under a couple of
+  // keys depending on how the account was created; fall back through them.
+  const displayName =
+    (session?.user as { displayUsername?: string | null } | undefined)?.displayUsername ??
+    (session?.user as { username?: string | null } | undefined)?.username ??
+    session?.user?.name ??
+    'admin';
+
+  const onSignOut = async (): Promise<void> => {
+    await signOut();
+    navigate('/login', { replace: true });
+  };
+
   return (
-    <svg
-      className="global-nav-brand-mark"
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <circle cx="12" cy="5" r="2" />
-      <line x1="12" y1="7" x2="12" y2="21" />
-      <line x1="8" y1="11" x2="16" y2="11" />
-      <path d="M4 14c0 4 3.5 7 8 7s8-3 8-7" />
-    </svg>
+    <header className="top-nav">
+      <div className="top-nav-inner">
+        <div className="top-nav-left">
+          <Link to="/" className="top-nav-brand">
+            <AnchorIcon size={16} className="top-nav-brand-mark" />
+            File Harbor
+          </Link>
+        </div>
+        <div className="top-nav-right">
+          <span className="top-nav-identity">
+            <span className="top-nav-identity-dot" aria-hidden />
+            {displayName}
+          </span>
+          <button type="button" className="text-link small" onClick={() => void onSignOut()}>
+            Sign out
+          </button>
+          <NotificationBell />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function Footer(): JSX.Element {
+  return (
+    <footer className="app-footer">
+      <span>File Harbor — self-hosted file send / receive. MIT licensed.</span>
+      <span className="row">
+        <a href="https://github.com/thatjuan/fileharbor" target="_blank" rel="noreferrer">
+          GitHub
+        </a>
+        <a href="https://github.com/thatjuan/fileharbor/issues" target="_blank" rel="noreferrer">
+          Report an issue
+        </a>
+      </span>
+    </footer>
   );
 }
