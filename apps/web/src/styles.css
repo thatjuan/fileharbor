@@ -62,6 +62,18 @@ select {
   color: inherit;
 }
 
+/* Checkboxes are the one native control we let the browser draw. Tinting it
+   with the accent keeps the dashboard's selection column in the system's
+   single interactive colour without a bespoke control. */
+input[type='checkbox'] {
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+input[type='checkbox']:disabled {
+  cursor: not-allowed;
+}
+
 code,
 kbd,
 pre {

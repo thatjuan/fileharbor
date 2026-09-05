@@ -13,7 +13,7 @@ import { StatusBadge } from '../components/StatusBadge.js';
 import {
   deleteSendLink,
   getSendLink,
-  updateSendLinkStatus,
+  updateSendLink,
   type FileRecord,
   type SendLink,
 } from '../lib/api.js';
@@ -83,7 +83,7 @@ export function SendLinkDetailPage(): JSX.Element {
     setBusy(true);
     setActionError(null);
     try {
-      const updated = await updateSendLinkStatus(data.link.id, next);
+      const updated = await updateSendLink(data.link.id, { status: next });
       setData({ ...data, link: updated });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to update link.');

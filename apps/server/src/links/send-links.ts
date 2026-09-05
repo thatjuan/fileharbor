@@ -48,9 +48,11 @@ export interface SendLinksModule {
   getById(id: string): Promise<SendLink | null>;
   list(): Promise<SendLink[]>;
   /**
-   * Update the mutable bits of a link. Currently just `status` (#12's
-   * disable / re-enable). Returns the updated row, or `null` when the id
-   * doesn't match an existing link.
+   * Update the mutable bits of a link: `status` (#12's disable / re-enable)
+   * and `expiresAt` (#68's bulk expiry change). Fields are independently
+   * optional — an absent key is left alone, an explicit `null` on
+   * `expiresAt` means "never expires". Returns the updated row, or `null`
+   * when the id doesn't match an existing link.
    */
   update(id: string, input: UpdateSendLinkInput): Promise<SendLink | null>;
   /**
@@ -75,6 +77,8 @@ export interface SendLinksModule {
 
 export interface UpdateSendLinkInput {
   status?: 'active' | 'disabled';
+  /** Unix epoch seconds, UTC. `null` clears the expiry. */
+  expiresAt?: number | null;
 }
 
 export interface CreateSendLinkInput {
@@ -197,6 +201,14 @@ export function createSendLinksModule(
           throw new Error('invalid_status');
         }
         patch.status = input.status;
+      }
+      // Mirrors `receive-links.update`: any integer (past included), or
+      // `null` to clear the expiry.
+      if (input.expiresAt !== undefined) {
+        if (input.expiresAt !== null && !Number.isInteger(input.expiresAt)) {
+          throw new Error('invalid_expires_at');
+        }
+        patch.expiresAt = input.expiresAt;
       }
 
       // No-op update: caller passed nothing actionable. Return the existing
