@@ -2,7 +2,7 @@
  * Admin chassis polish — DESIGN.md grammars at lower volume.
  *
  * Scope: AdminShell, AdminFooter, NotificationBell, SubNav, StatusBadge,
- * DashboardPage. Every value sourced from styles/tokens.css. No new colors,
+ * DashboardPage, FileDropOverlay. Every value sourced from styles/tokens.css. No new colors,
  * no gradients, no shadows (except the single ring exception called out in
  * the task for the notification dot — it sits on the black global-nav and
  * needs a 2px halo of that same black surface to lift off the bell glyph).
@@ -167,6 +167,46 @@
 .dashboard-empty-headline {
   margin: 0;
   color: var(--color-ink);
+}
+
+/* ====================================================================== */
+/* File drop overlay — frosted parchment sheet over the whole viewport     */
+/* ====================================================================== */
+
+/* Same recipe as `.sub-nav` (parchment 80% + saturate/blur). Sits above the
+   global nav (z 50). `pointer-events: none` so the drop reaches `document`. */
+.file-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  user-select: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-lg);
+  text-align: center;
+  background: color-mix(in srgb, var(--color-canvas-parchment) 80%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+.file-drop-overlay-headline {
+  font-family: var(--font-family-display);
+  font-size: var(--font-size-display-md);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-display-md);
+  letter-spacing: var(--tracking-display-md);
+  color: var(--color-ink);
+}
+
+.file-drop-overlay-caption {
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  letter-spacing: var(--tracking-caption);
+  color: var(--color-ink-muted-48);
 }
 
 /* ====================================================================== */

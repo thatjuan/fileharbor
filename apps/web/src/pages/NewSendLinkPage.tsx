@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
+import { FileDropOverlay } from '../components/FileDropOverlay.js';
 import { SubNav } from '../components/SubNav.js';
 import {
   abortSendMultipartUploadTicket,
@@ -12,8 +13,10 @@ import {
   finalizeUploadTicket,
   type FinalizeOutcome,
 } from '../lib/api.js';
+import { readNewSendLinkState } from '../lib/new-send-link-state.js';
 import { uploadFile, type UploadFinalizeOutcome } from '../lib/upload.js';
 import { DEFAULT_UPLOAD_CONFIG, getUploadConfig, type UploadConfig } from '../lib/upload-config.js';
+import { useFileDropZone } from '../lib/useFileDropZone.js';
 
 /**
  * Form to create a new send link. The #11 flow is:
@@ -34,14 +37,27 @@ import { DEFAULT_UPLOAD_CONFIG, getUploadConfig, type UploadConfig } from '../li
  * subsequent file uploads fail, the link still exists with the right
  * password/expiry/quota configured. The PRD and #11 explicitly accept an
  * empty link as a legitimate intermediate state.
+ *
+ * Files can arrive two more ways (#65): pre-attached via router state when
+ * the admin dropped them on the dashboard, and by dropping more onto this
+ * page, which appends to the list. Both feed the same `filesPicked` state,
+ * so the existing list, remove buttons, progress, and validation are
+ * untouched.
  */
 export function NewSendLinkPage(): JSX.Element {
   const navigate = useNavigate();
+  const location = useLocation();
+  // Dashboard drop hand-off. Read once in an initializer, then the history
+  // entry's state is cleared below so back-then-forward can't re-seed stale
+  // files. `null` after a reload (see new-send-link-state.ts).
+  const [handoff] = useState(() => readNewSendLinkState(location.state));
   const [label, setLabel] = useState('');
   const [password, setPassword] = useState('');
   const [maxDownloads, setMaxDownloads] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
-  const [filesPicked, setFilesPicked] = useState<File[]>([]);
+  const [filesPicked, setFilesPicked] = useState<File[]>(handoff?.files ?? []);
+  // Folders in the most recent drop; drives the "not supported" caption.
+  const [foldersSkipped, setFoldersSkipped] = useState(handoff?.foldersSkipped ?? 0);
   const [phase, setPhase] = useState<'idle' | 'creating' | 'uploading' | 'finalizing' | 'done'>(
     'idle',
   );
@@ -78,8 +94,16 @@ export function NewSendLinkPage(): JSX.Element {
     };
   }, []);
 
+  useEffect(() => {
+    if (handoff !== null) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+    // Runs once on mount by design; `handoff` is fixed for the component's lifetime.
+  }, []);
+
   const onFilesChange = (e: ChangeEvent<HTMLInputElement>): void => {
     setFilesPicked(Array.from(e.target.files ?? []));
+    setFoldersSkipped(0);
   };
 
   const onRemoveFile = (indexToRemove: number): void => {
@@ -262,8 +286,21 @@ export function NewSendLinkPage(): JSX.Element {
 
   const busy = phase !== 'idle' && phase !== 'done';
 
+  const drop = useFileDropZone({
+    disabled: busy,
+    onFiles: (dropped) => {
+      setFilesPicked((prev) => [...prev, ...dropped.files]);
+      setFoldersSkipped(dropped.foldersSkipped);
+    },
+  });
+
   return (
     <>
+      <FileDropOverlay
+        active={drop.isDragging}
+        headline="Drop to add files"
+        itemCount={drop.itemCount}
+      />
       <SubNav
         title="New send link"
         actions={
@@ -371,6 +408,11 @@ export function NewSendLinkPage(): JSX.Element {
                 }}
               />
             </label>
+            {foldersSkipped > 0 && (
+              <span className="muted small" role="status">
+                Folders are not supported yet. Drop the files inside instead.
+              </span>
+            )}
             {filesPicked.length > 0 && (
               <div className="stack" style={{ marginBlockStart: 'var(--space-sm)' }}>
                 {filesPicked.map((file, i) => (
