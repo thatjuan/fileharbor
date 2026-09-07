@@ -22,7 +22,7 @@ The resolver is a pure function in `resolveLocale.ts` so it can be unit-tested i
 ## Catalogs
 
 - `locales/en.ts` is the source of truth. `type Catalog` is derived from its shape with `string` value types, then `es.ts` / `fr.ts` are typed `Catalog` so missing keys fail at compile time. There is no runtime fallback to English — missing keys are a build error.
-- Keys are grouped by surface: `common.*`, `receive.*`, `send.*`, `errors.*`, `switcher.*`.
+- Keys are grouped by surface: `common.*`, `receive.*`, `send.*`, `errors.*`, `switcher.*`, `theme.*`.
 - Adding a new locale = a new file in `locales/`, registered in `LocaleProvider.tsx#CATALOGS`, plus the primary subtag added to `resolveLocale.ts`.
 
 ## Pluralization
@@ -47,4 +47,6 @@ The template is tokenised on `{name}` markers; matching `components[name]` are r
 
 - Byte-size units in `formatBytes` (`B / KB / MB / GB`) — these are standard SI symbols recognised across en/es/fr in computing contexts. Localizing them adds complexity without meaningful clarity gain.
 - Numeric progress percentages.
-- Admin/login/setup UI — out of scope.
+- Admin/login/setup UI — out of scope. The theme switcher is the one
+  exception: it uses this catalog on public routes and English copy
+  everywhere else.

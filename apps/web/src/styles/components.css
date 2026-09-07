@@ -544,7 +544,7 @@ button.rail-row:hover {
 }
 
 .btn-accent:not(:disabled):hover {
-  background: rgba(98, 199, 90, 0.2);
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
   border-color: var(--color-accent);
 }
 
@@ -561,7 +561,7 @@ button.rail-row:hover {
 
 .btn-danger {
   background: var(--color-danger-wash);
-  border-color: rgba(226, 87, 63, 0.35);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
   color: var(--color-danger);
 }
 
@@ -714,7 +714,7 @@ button.rail-row:hover {
    ===================================================================
    One badge component covers all four policy states. The dot carries the
    colour; the text stays legible rather than tinted to the point of
-   being hard to read on the near-black canvas. */
+   being hard to read on the canvas. */
 
 .status {
   display: inline-flex;
@@ -797,7 +797,7 @@ button.rail-row:hover {
 
 .chip-send {
   background: var(--color-send-wash);
-  border-color: rgba(70, 153, 229, 0.4);
+  border-color: color-mix(in srgb, var(--color-send) 40%, transparent);
   color: var(--color-send);
 }
 
@@ -940,7 +940,7 @@ button.rail-row:hover {
   align-items: center;
   justify-content: center;
   gap: var(--space-xs);
-  background: rgba(9, 12, 14, 0.9);
+  background: color-mix(in srgb, var(--color-canvas) 90%, transparent);
   backdrop-filter: blur(6px);
   pointer-events: none;
 }
@@ -1050,12 +1050,19 @@ button.rail-row:hover {
    there is not room for both. */
 
 .auth-page {
+  position: relative;
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--space-xl) var(--space-lg);
   background: var(--color-canvas);
+}
+
+.auth-theme {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-lg);
 }
 
 .auth-layout {
@@ -1140,12 +1147,12 @@ button.rail-row:hover {
 }
 
 .notice-danger {
-  border-color: rgba(226, 87, 63, 0.35);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
   background: var(--color-danger-wash);
 }
 
 .notice-warning {
-  border-color: rgba(237, 183, 25, 0.35);
+  border-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
   background: var(--color-warning-wash);
 }
 
@@ -1187,6 +1194,12 @@ button.rail-row:hover {
   width: 100%;
 }
 
+.public-nav-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
 .public-main {
   flex: 1;
   display: flex;
@@ -1216,7 +1229,8 @@ button.rail-row:hover {
   font-size: var(--font-size-micro);
 }
 
-/* Locale picker in the public nav. */
+/* Compact popovers used by the language and theme switchers. */
+.chrome-switch,
 .lang-switch {
   position: relative;
 }
@@ -1237,19 +1251,23 @@ button.rail-row:hover {
   color: var(--color-ink);
 }
 
+.chrome-menu,
 .lang-menu {
   position: absolute;
   right: 0;
   top: calc(100% + 4px);
   z-index: 20;
-  min-width: 140px;
+  min-width: 160px;
+  margin: 0;
   padding: var(--space-xxs);
+  list-style: none;
   background: var(--color-surface-card);
   border: 1px solid var(--color-hairline);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-panel);
 }
 
+.chrome-menu-item,
 .lang-menu-item {
   display: flex;
   align-items: center;
@@ -1263,13 +1281,21 @@ button.rail-row:hover {
   font-size: var(--font-size-micro);
 }
 
+.chrome-menu-item:hover,
 .lang-menu-item:hover {
   background: var(--color-surface-raised);
   color: var(--color-ink);
 }
 
-.lang-menu-item[aria-current='true'] {
+.chrome-menu-item[aria-checked='true'],
+.lang-menu-item[aria-checked='true'] {
   color: var(--color-accent);
+}
+
+.chrome-menu-item-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
 }
 
 /* ===================================================================

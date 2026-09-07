@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 
 import { AnchorIcon, LinkIcon, ServerIcon, ShieldIcon } from '../components/Icons.js';
 import { createAdmin } from '../lib/setup.js';
+import { ThemeSwitcher } from '../theme/ThemeSwitcher.js';
 
 /**
  * First-run admin creation. Only ever rendered when `GET /api/setup` returns
@@ -43,6 +44,9 @@ export function SetupPage(): JSX.Element {
 
   return (
     <main className="auth-page">
+      <div className="auth-theme">
+        <ThemeSwitcher />
+      </div>
       <div className="auth-layout">
         <div>
           <p className="auth-brand">

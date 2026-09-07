@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --import tsx --test src/theme/theme.test.ts"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",

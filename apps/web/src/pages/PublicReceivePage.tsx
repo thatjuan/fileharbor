@@ -17,6 +17,7 @@ import {
   XIcon,
 } from '../components/Icons.js';
 import { LanguageSwitcher, Trans, mapUploadErrorMessage, useT } from '../i18n/index.js';
+import { ThemeSwitcher } from '../theme/ThemeSwitcher.js';
 import {
   abortMultipartUploadTicket,
   completeMultipartUploadTicket,
@@ -596,8 +597,9 @@ export function PublicReceivePage(): JSX.Element {
 }
 
 /**
- * The public chrome: wordmark + locale picker over one centred column, and
- * the quiet brand line at the foot so the page never ends on the action.
+ * The public chrome: wordmark + theme/locale pickers over one centred
+ * column, and the quiet brand line at the foot so the page never ends on
+ * the action.
  */
 function PublicShell({ children }: { children: ReactNode }): JSX.Element {
   const t = useT();
@@ -609,7 +611,10 @@ function PublicShell({ children }: { children: ReactNode }): JSX.Element {
             <AnchorIcon size={16} className="top-nav-brand-mark" />
             File Harbor
           </span>
-          <LanguageSwitcher />
+          <div className="public-nav-tools">
+            <ThemeSwitcher />
+            <LanguageSwitcher />
+          </div>
         </div>
       </nav>
       <main className="public-main">

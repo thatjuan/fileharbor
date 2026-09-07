@@ -66,6 +66,13 @@ export const EN_CATALOG = {
     es: 'Español',
     fr: 'Français',
   },
+  theme: {
+    triggerAria: 'Color theme',
+    menu: 'Color theme',
+    system: 'System',
+    light: 'Light',
+    dark: 'Dark',
+  },
   footer: {
     poweredBy: 'Powered by File Harbor',
   },
