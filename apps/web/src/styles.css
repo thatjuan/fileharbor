@@ -27,6 +27,13 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Antialiased thinning is for light-on-dark. Dark ink on paper needs the
+   browser's default so strokes don't go anaemic. */
+[data-theme='light'] body {
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}
+
 /* The console is a fixed-chrome surface: the shell owns scrolling, not the
    document. Auth and public pages opt back out via `.scroll-page`. */
 #root {

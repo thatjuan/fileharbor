@@ -16,6 +16,7 @@
     "build:web": "npm --workspace @fileharbor/web run build",
     "build:server": "npm --workspace @fileharbor/server run build",
     "test:server": "npm --workspace @fileharbor/server run test",
+    "test:web": "npm --workspace @fileharbor/web run test",
     "start": "npm --workspace @fileharbor/server run start",
     "db:generate": "npm --workspace @fileharbor/server run db:generate",
     "lint": "eslint .",

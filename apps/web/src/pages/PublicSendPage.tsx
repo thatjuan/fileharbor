@@ -10,6 +10,7 @@ import {
   LockIcon,
 } from '../components/Icons.js';
 import { LanguageSwitcher, Trans, selectPlural, useLocaleContext, useT } from '../i18n/index.js';
+import { ThemeSwitcher } from '../theme/ThemeSwitcher.js';
 import {
   confirmDownloadTicket,
   createDownloadTicket,
@@ -334,8 +335,9 @@ export function PublicSendPage(): JSX.Element {
 }
 
 /**
- * The public chrome: wordmark + locale picker over one centred column, and
- * the quiet brand line at the foot so the page never ends on the action.
+ * The public chrome: wordmark + theme/locale pickers over one centred
+ * column, and the quiet brand line at the foot so the page never ends on
+ * the action.
  */
 function PublicShell({ children }: { children: ReactNode }): JSX.Element {
   const t = useT();
@@ -347,7 +349,10 @@ function PublicShell({ children }: { children: ReactNode }): JSX.Element {
             <AnchorIcon size={16} className="top-nav-brand-mark" />
             File Harbor
           </span>
-          <LanguageSwitcher />
+          <div className="public-nav-tools">
+            <ThemeSwitcher />
+            <LanguageSwitcher />
+          </div>
         </div>
       </nav>
       <main className="public-main">

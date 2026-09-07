@@ -3,7 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title>File Harbor</title>
+    <!-- Static file so this survives CSP script-src 'self'. Keep in lockstep with src/theme/theme.ts. -->
+    <script src="/theme-boot.js"></script>
+    <style>
+      html {
+        background: #090c0e;
+      }
+      html[data-theme='light'] {
+        background: #e8ece9;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

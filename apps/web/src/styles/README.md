@@ -33,14 +33,20 @@ codes, byte counts, timestamps and quota figures all sit in table columns,
 and a proportional face would break the alignment that makes those columns
 readable at a glance.
 
-## Dark only
+## Light and dark
 
-There is no `prefers-color-scheme` branch, and adding one is not a token
-swap. The four status colours are tuned against the #090c0e canvas, and the
-six-step surface ladder does the work that borders and shadows would
-otherwise do. A light counterpart needs all ten of those values re-tuned —
-that is a second design system, and the project does not currently want to
-carry two. See "Why dark only" in `DESIGN.md`.
+Color tokens live in two blocks in `tokens.css`: `:root, [data-theme='dark']`
+and `[data-theme='light']`. Dark is also the fallback if `data-theme` has
+not been stamped yet. Light is a separately tuned ladder in the same hue
+family, not an invert — status colours and hairlines are retuned so 14px
+labels stay legible on paper. See "Light and dark" in `DESIGN.md`.
+
+`data-theme` is written onto `<html>` by `/theme-boot.js` before first
+paint (a static file, so it survives CSP `script-src 'self'`), then
+re-applied by `ThemeProvider`. The stored preference is `fh:theme` =
+`system | light | dark`. Default is `system`, which follows
+`prefers-color-scheme`. The switcher lives in admin chrome, public nav,
+and auth pages.
 
 ## Component grammar
 
@@ -87,7 +93,6 @@ token style.
 
 ## What is intentionally NOT in this layer
 
-- **No light mode.** See above.
 - **No second accent.** Green is the only interactive colour. Blue marks the
   send/download direction and is never available for emphasis.
 - **No extra elevation.** `--shadow-panel` is the only shadow, on `.panel`

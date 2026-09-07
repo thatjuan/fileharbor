@@ -3,11 +3,11 @@
 ## Overview
 
 File Harbor is a tool an operator lives in, not a product they get sold. The
-interface is a **dark operator console**: a near-black canvas, monospace
-throughout, one green accent, and dense tables that stay legible after an
-hour of reading. Nothing on screen is decorative, and nothing on screen is
-invented — every number the console prints is one the server actually
-returned.
+interface is an **operator console**: a near-black or paper canvas in the
+same cool green-gray family, monospace throughout, one green accent, and
+dense tables that stay legible after an hour of reading. Nothing on screen
+is decorative, and nothing on screen is invented — every number the console
+prints is one the server actually returned.
 
 The chassis is fixed and the content scrolls. A slim top nav carries the
 wordmark and the operator's identity; a left rail carries the link inventory
@@ -19,23 +19,30 @@ of a long table without losing the counts or the create actions.
 
 - Monospace everywhere (IBM Plex Mono). Short codes, byte counts, timestamps
   and labels all share one grid, which is what makes the tables scannable.
-- A six-step near-black surface ladder, each step one to three points apart.
-  Depth reads as a change in weight, never as a change in hue.
+- A six-step surface ladder in one hue family, each step a few points apart.
+  Depth reads as a change in weight, never as a change in hue. Dark is
+  near-black; light is paper. Nearer surfaces are always lighter.
 - Green is the single interactive accent. Blue marks the send/download
   direction, so a mixed list is readable without parsing the word.
 - Caps and wide tracking mark chrome (column heads, field labels, rail
   headings). Content is never in caps.
 - One elevation. `.panel` casts the only shadow in the system.
 - No gradients, no imagery, no illustration, no second accent.
-- Dark only. There is no light mode — see "Why dark only" below.
+- Light and dark, switchable. Default follows the OS (`prefers-color-scheme`).
+  See "Light and dark" below.
 
 ## Colors
 
+Color tokens are theme-specific. Shared roles (canvas, rail, ink, accent)
+keep the same names; the hexes change with `data-theme` on `<html>`.
+
 ### Surfaces
 
-A ladder, not a palette. Every surface is a near-black in the same hue
-family; the steps are deliberately small so a nested container reads as
-_slightly nearer_ rather than as a different material.
+A ladder, not a palette. Every surface sits in the same cool green-gray
+hue family; the steps are small so a nested container reads as _slightly
+nearer_ rather than as a different material. Nearer is always lighter.
+
+Dark (near-black):
 
 - **Canvas** (`{colors.canvas}` — #090c0e): the page itself.
 - **Rail** (`{colors.surface-rail}` — #0c1012): the left column.
@@ -47,42 +54,58 @@ _slightly nearer_ rather than as a different material.
 - **Raised** (`{colors.surface-raised}` — #131719): inputs, chips, count
   badges, hovered rows.
 
+Light (paper):
+
+- **Canvas** — #e8ece9
+- **Rail** — #ecefed
+- **Chrome** — #eef1ee
+- **Panel** — #f3f6f3
+- **Card** — #f6f8f6
+- **Raised** — #fbfcfb
+
 ### Hairlines
 
 Two weights, and only two. More would turn a dense table into a grid of
-boxes.
+boxes. Light hairlines are a step stronger than dark ones, because paper
+needs more edge to separate surfaces that are only a few points apart.
 
-- **Hairline** (`{colors.hairline}` — #2a3032): separates a container from
-  the canvas.
-- **Hairline soft** (`{colors.hairline-soft}` — #1c2224): separates rows
-  inside a container.
+- **Hairline** (`{colors.hairline}`): separates a container from the canvas.
+  Dark #2a3032 · light #b7c0bb.
+- **Hairline soft** (`{colors.hairline-soft}`): separates rows inside a
+  container. Dark #1c2224 · light #d0d7d2.
 
 ### Text
 
-Four steps. Anything below `muted` is decoration, not content.
+Four steps. Anything below `muted` is decoration, not content. Neither
+theme uses pure white or pure black — those glare over a long session.
 
-- **Ink** (`{colors.ink}` — #d8dad7): primary reading colour. Not pure white
-  — white on near-black glares over a long session.
-- **Ink secondary** (`{colors.ink-secondary}` — #aeb1b0): table cells,
-  supporting copy.
-- **Ink muted** (`{colors.ink-muted}` — #909896): labels, captions,
-  placeholders.
-- **Ink faint** (`{colors.ink-faint}` — #5d6664): disabled text, fine print.
+- **Ink** (`{colors.ink}`): primary reading colour. Dark #d8dad7 · light
+  #1c221f.
+- **Ink secondary** (`{colors.ink-secondary}`): table cells, supporting
+  copy. Dark #aeb1b0 · light #3e4742.
+- **Ink muted** (`{colors.ink-muted}`): labels, captions, placeholders.
+  Dark #909896 · light #5e6863.
+- **Ink faint** (`{colors.ink-faint}`): disabled text, fine print. Dark
+  #5d6664 · light #8b948e.
 
 ### Accent and status
 
-- **Accent** (`{colors.accent}` — #62c75a): the single interactive colour.
-  Links, primary buttons, focus rings, active status. Dimmed
-  (`{colors.accent-dim}` — #43833d) for borders and washed
+The roles are identical in both themes. Light values are darkened so a
+14px label still clears contrast against the paper canvas.
+
+- **Accent** (`{colors.accent}`): the single interactive colour. Links,
+  primary buttons, focus rings, active status. Dark #62c75a · light
+  #247a30. Dimmed (`{colors.accent-dim}`) for borders and washed
   (`{colors.accent-wash}` — 12% alpha) for fills.
-- **Send** (`{colors.send}` — #4699e5): the send/download direction only. It
-  is an axis marker, not a second brand colour — it never appears on a
-  button or a link.
-- **Warning** (`{colors.warning}` — #edb719): quota exhausted.
-- **Danger** (`{colors.danger}` — #e2573f): expired links, destructive
-  actions.
-- **Neutral** (`{colors.neutral}` — #6d7674): disabled links — the absence of
-  a state rather than a state of its own.
+- **Send** (`{colors.send}`): the send/download direction only. It is an
+  axis marker, not a second brand colour — it never appears on a button
+  or a link. Dark #4699e5 · light #1a6fa8.
+- **Warning** (`{colors.warning}`): quota exhausted. Dark #edb719 · light
+  #8a6700.
+- **Danger** (`{colors.danger}`): expired links, destructive actions. Dark
+  #e2573f · light #c13c28.
+- **Neutral** (`{colors.neutral}`): disabled links — the absence of a
+  state rather than a state of its own. Dark #6d7674 · light #5c6562.
 
 Each status colour also has a 12–14% wash used for chip and button fills.
 Status text stays close to its hue but never so saturated that it becomes
@@ -158,9 +181,11 @@ is more rounded than 8px.
 
 ### Elevation
 
-One shadow: `0 7px 3px rgba(0, 0, 0, 0.4)`, applied to `.panel` and to
-floating menus. Cards, inputs, buttons and chips are flat — they are
-distinguished by their surface step and hairline, not by depth.
+One shadow, same offset in both themes, applied to `.panel` and to
+floating menus: dark `0 7px 3px rgba(0, 0, 0, 0.4)`, light
+`0 7px 3px rgba(28, 34, 31, 0.12)`. Cards, inputs, buttons and chips are
+flat — they are distinguished by their surface step and hairline, not by
+depth.
 
 ## Components
 
@@ -184,8 +209,10 @@ the single source of truth. In summary:
 - **Drop zone** — `.dropzone`, plus the full-viewport `.drop-overlay`
 - **Empty state** — `.empty` `.empty-title` `.empty-hint`
 - **Notice** — `.notice` `.notice-danger` `.notice-warning`
-- **Auth** — `.auth-page` `.auth-layout` `.auth-panel` `.auth-aside`
+- **Auth** — `.auth-page` `.auth-layout` `.auth-panel` `.auth-aside`, plus
+  `.auth-theme` for the theme switcher
 - **Public** — `.public-page` `.public-nav` `.public-column`
+- **Theme** — `<ThemeSwitcher>` (system / light / dark), default system
 
 ### Button grammar
 
@@ -222,14 +249,22 @@ They wear the same skin — same canvas, same type, same status colours — but
 have no rail, no counts, and no admin nav. One centred column, and only the
 information the visitor needs to complete their transfer.
 
-### Why dark only
+### Light and dark
 
-The console is a working surface read for long stretches, and the near-black
-canvas is load-bearing: the four status colours are tuned against #090c0e,
-and the six-step surface ladder does the work that borders and shadows would
-otherwise have to do. A light counterpart would need its own tuning of all
-ten of those values to stay legible, which is a second design system rather
-than a token swap. Until there is a reason to carry two, there is one.
+The console is a working surface read for long stretches. Dark was the
+original skin: a near-black canvas with status colours tuned against
+#090c0e, and a six-step ladder doing the work that borders and shadows
+would otherwise have to do. Light is not an invert of that — it is the
+same roles retuned against paper, so a 14px accent label and a hairline
+still separate. Both palettes live in `tokens.css`, switched by
+`data-theme` on `<html>`.
+
+The stored preference is `system | light | dark` under `fh:theme`.
+Default is `system`, which follows `prefers-color-scheme` and tracks it
+live. A blocking boot script (`/theme-boot.js`) stamps `data-theme`
+before CSS arrives so the first paint matches the OS (or the stored
+override). The switcher sits in admin chrome, public nav, and the auth
+pages — same three options everywhere.
 
 ## Iteration guide
 

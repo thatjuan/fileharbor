@@ -27,7 +27,7 @@ interface LocaleContextValue {
   setLocale: (next: Locale) => void;
 }
 
-const LocaleContext = createContext<LocaleContextValue | null>(null);
+export const LocaleContext = createContext<LocaleContextValue | null>(null);
 
 interface LocaleProviderProps {
   children: ReactNode;

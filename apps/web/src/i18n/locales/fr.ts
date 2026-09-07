@@ -70,6 +70,13 @@ export const FR_CATALOG: Catalog = {
     es: 'Español',
     fr: 'Français',
   },
+  theme: {
+    triggerAria: 'Thème de couleur',
+    menu: 'Thème de couleur',
+    system: 'Système',
+    light: 'Clair',
+    dark: 'Sombre',
+  },
   footer: {
     poweredBy: 'Propulsé par File Harbor',
   },

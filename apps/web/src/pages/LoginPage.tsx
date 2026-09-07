@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { AnchorIcon, LinkIcon, ServerIcon, ShieldIcon } from '../components/Icons.js';
 import { signIn } from '../lib/auth-client.js';
+import { ThemeSwitcher } from '../theme/ThemeSwitcher.js';
 
 /**
  * Login form. Username + password only — single-user, single-provider app.
@@ -38,6 +39,9 @@ export function LoginPage(): JSX.Element {
 
   return (
     <main className="auth-page">
+      <div className="auth-theme">
+        <ThemeSwitcher />
+      </div>
       <div className="auth-layout">
         <div>
           <p className="auth-brand">

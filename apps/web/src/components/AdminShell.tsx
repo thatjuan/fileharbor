@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { signOut, useSession } from '../lib/auth-client.js';
+import { ThemeSwitcher } from '../theme/ThemeSwitcher.js';
 import { AnchorIcon } from './Icons.js';
 import { LinksProvider } from './LinksProvider.js';
 import { NotificationBell } from './NotificationBell.js';
@@ -67,6 +68,7 @@ function TopNav(): JSX.Element {
           <button type="button" className="text-link small" onClick={() => void onSignOut()}>
             Sign out
           </button>
+          <ThemeSwitcher />
           <NotificationBell />
         </div>
       </div>
