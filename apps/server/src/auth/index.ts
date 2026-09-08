@@ -9,6 +9,15 @@ import { user } from '../db/schema.js';
 import * as schema from '../db/schema.js';
 import { selfTrustedOrigins } from '../security/origin.js';
 
+const SIMPLE_USERNAME_PATTERN = /^[a-zA-Z0-9_.]+$/;
+const EMAIL_USERNAME_PATTERN =
+  /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+
+/** Keep Better Auth's default username format, with ordinary email addresses also allowed. */
+function isValidUsername(username: string): boolean {
+  return SIMPLE_USERNAME_PATTERN.test(username) || EMAIL_USERNAME_PATTERN.test(username);
+}
+
 /**
  * The Better Auth instance, plus the helpers that the rest of the codebase
  * needs: a session check, a "is the system already set up" probe, an admin
@@ -104,6 +113,7 @@ export function createAuthModule(db: Db, config: AppConfig): AuthModule {
       usernamePlugin({
         minUsernameLength: 3,
         maxUsernameLength: 64,
+        usernameValidator: isValidUsername,
       }),
     ],
   };
