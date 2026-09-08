@@ -1,59 +1,43 @@
 /*
- * Design tokens — DESIGN.md ("Harbor Console").
+ * Design tokens — DESIGN.md.
  *
- * Every value here is sourced from DESIGN.md; the naming mirrors the DESIGN.md
- * keys (`--color-accent` ← `{colors.accent}`, `--font-size-body` ←
- * `{typography.body}`, `--radius-card` ← `{rounded.card}`).
+ * Values come from the approved 12ui dashboard (candidate A): Inter for
+ * reading, Roboto Mono only for short codes, a near-white canvas, and a
+ * forest-green accent. Dark is the same roles retuned for night, not the
+ * old CRT ladder.
  *
- * Color tokens are theme-specific. `data-theme` is stamped on `<html>` by
- * `/theme-boot.js` before first paint (and re-applied by ThemeProvider).
- * Dark remains the fallback if the boot script never runs. Light is a
- * separately tuned ladder, not an invert — see DESIGN.md.
+ * `data-theme` is stamped on `<html>` by `/theme-boot.js` before first paint.
  */
 
 :root {
-  /* ===== Typography =====
-     Monospace throughout. The console's whole voice is that short codes,
-     byte counts, timestamps and labels share one grid; a proportional face
-     for prose would break the column alignment that makes the tables
-     scannable. */
-  --font-family-mono:
-    'IBM Plex Mono', ui-monospace, SFMono-Regular, 'Roboto Mono', Menlo, monospace;
+  --font-family-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-family-mono: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --font-weight-regular: 400;
-  --font-weight-medium: 500; /* emphasis */
-  --font-weight-semibold: 600; /* page titles only */
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
 
-  /* Ladder. Mono runs visually large, so the body step sits at 14px and the
-     display steps stay restrained — a 20px title is a big title here. */
-  --font-size-title: 20px;
+  --font-size-title: 22px;
   --line-height-title: 1.3;
 
-  --font-size-heading: 17px;
+  --font-size-heading: 16px;
   --line-height-heading: 1.35;
 
   --font-size-subheading: 15px;
   --line-height-subheading: 1.4;
 
   --font-size-body: 14px;
-  --line-height-body: 1.55;
+  --line-height-body: 1.5;
 
-  --font-size-secondary: 13px;
-  --line-height-secondary: 1.5;
+  --font-size-secondary: 14px;
+  --line-height-secondary: 1.45;
 
-  --font-size-label: 12px;
+  --font-size-label: 13px;
   --line-height-label: 1.4;
 
-  --font-size-micro: 11px;
+  --font-size-micro: 12px;
   --line-height-micro: 1.35;
 
-  /* Rail headings, table column heads, and field labels are set in caps with
-     open tracking — the one typographic gesture that separates chrome from
-     content. */
-  --tracking-caps: 0.08em;
-  --tracking-caps-tight: 0.05em;
-
-  /* ===== Spacing (4px base) ===== */
   --space-xxs: 4px;
   --space-xs: 8px;
   --space-sm: 12px;
@@ -62,108 +46,100 @@
   --space-xl: 32px;
   --space-xxl: 48px;
 
-  /* ===== Radius ===== */
   --radius-xs: 4px;
-  --radius-sm: 5px;
-  --radius-card: 6px;
-  --radius-control: 7px;
-  --radius-lg: 8px;
+  --radius-sm: 6px;
+  --radius-card: 8px;
+  --radius-control: 8px;
+  --radius-lg: 10px;
   --radius-pill: 9999px;
 
-  /* ===== Layout ===== */
-  --rail-width: 260px;
-  --nav-height: 52px;
+  --rail-width: 280px;
+  --nav-height: 64px;
   --container-max: 1460px;
   --container-form: 720px;
   --container-auth: 460px;
 
-  /* ===== Motion ===== */
   --motion-fast: 120ms;
   --motion-medium: 200ms;
 }
 
-/* ===== Dark =====
-   Six-step near-black ladder. Steps are 1-3 points apart: depth reads as a
-   change in weight, never as a change in hue. Also the fallback when
-   `data-theme` has not been stamped yet. */
+/* Dark fallback if the boot script never stamps data-theme. */
 :root,
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --color-canvas: #090c0e; /* the page itself */
-  --color-surface-rail: #0c1012; /* left rail column */
-  --color-surface-chrome: #0d1113; /* top nav, footer */
-  --color-surface-panel: #0e1315; /* table + panel containers */
-  --color-surface-card: #0f1416; /* rail cards, form cards, stat blocks */
-  --color-surface-raised: #131719; /* inputs, chips, hovered rows */
+  --color-canvas: #111413;
+  --color-surface-rail: #161a18;
+  --color-surface-chrome: #161a18;
+  --color-surface-panel: #1c211e;
+  --color-surface-card: #1c211e;
+  --color-surface-raised: #242a27;
 
-  --color-hairline: #2a3032;
-  --color-hairline-soft: #1c2224;
+  --color-hairline: #2c3430;
+  --color-hairline-soft: #232a27;
 
-  --color-ink: #d8dad7; /* primary reading colour */
-  --color-ink-secondary: #aeb1b0; /* supporting copy, table cells */
-  --color-ink-muted: #909896; /* labels, captions, placeholders */
-  --color-ink-faint: #5d6664; /* disabled text, dividers-as-text */
+  --color-ink: #f2f4f2;
+  --color-ink-secondary: #c5cbc6;
+  --color-ink-muted: #8b938e;
+  --color-ink-faint: #6b746f;
 
-  --color-accent: #62c75a;
-  --color-accent-dim: #43833d;
-  --color-accent-wash: rgba(98, 199, 90, 0.12);
-  --color-on-accent: #06210b;
+  --color-accent: #3dba7a;
+  --color-accent-dim: #2a8f5c;
+  --color-accent-wash: rgba(61, 186, 122, 0.14);
+  --color-accent-solid: #137c43;
+  --color-on-accent: #ffffff;
 
-  --color-send: #4699e5; /* send-link / download direction */
-  --color-send-wash: rgba(70, 153, 229, 0.12);
+  --color-send: #6aa3d4;
+  --color-send-wash: rgba(106, 163, 212, 0.14);
 
-  --color-warning: #edb719; /* quota exhausted */
-  --color-warning-wash: rgba(237, 183, 25, 0.12);
+  --color-warning: #e0a04a;
+  --color-warning-wash: rgba(224, 160, 74, 0.14);
 
-  --color-danger: #e2573f; /* expired, destructive actions */
-  --color-danger-wash: rgba(226, 87, 63, 0.12);
+  --color-danger: #e24b3c;
+  --color-danger-wash: rgba(226, 75, 60, 0.14);
 
-  --color-neutral: #6d7674; /* disabled links — absence of state */
-  --color-neutral-wash: rgba(109, 118, 116, 0.14);
+  --color-neutral: #7a847f;
+  --color-neutral-wash: rgba(122, 132, 127, 0.16);
 
-  --shadow-panel: 0 7px 3px rgba(0, 0, 0, 0.4);
+  --shadow-panel: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
-/* ===== Light =====
-   Same hue family and the same ladder roles, retuned so status text and
-   hairlines stay legible on paper. Nearer surfaces are lighter, the way
-   nearer surfaces are lighter in dark. Accent/status are darkened until
-   they clear small-text contrast against the canvas. */
+/* Light — 12ui candidate A. Near-white canvas, white cards, forest green. */
 [data-theme='light'] {
   color-scheme: light;
 
-  --color-canvas: #e8ece9;
-  --color-surface-rail: #ecefed;
-  --color-surface-chrome: #eef1ee;
-  --color-surface-panel: #f3f6f3;
-  --color-surface-card: #f6f8f6;
-  --color-surface-raised: #fbfcfb;
+  --color-canvas: #fefdfd;
+  --color-surface-rail: #ffffff;
+  --color-surface-chrome: #ffffff;
+  --color-surface-panel: #ffffff;
+  --color-surface-card: #ffffff;
+  --color-surface-raised: #fafafa;
 
-  --color-hairline: #b7c0bb;
-  --color-hairline-soft: #d0d7d2;
+  --color-hairline: #e7e7e7;
+  --color-hairline-soft: #ececec;
 
-  --color-ink: #1c221f;
-  --color-ink-secondary: #3e4742;
-  --color-ink-muted: #5e6863;
-  --color-ink-faint: #8b948e;
+  --color-ink: #191919;
+  --color-ink-secondary: #393939;
+  --color-ink-muted: #555555;
+  --color-ink-faint: #8b8b8b;
 
-  --color-accent: #247a30;
-  --color-accent-dim: #3d8a44;
-  --color-accent-wash: rgba(36, 122, 48, 0.12);
-  --color-on-accent: #f3faf3;
+  --color-accent: #28704d;
+  --color-accent-dim: #137c43;
+  --color-accent-wash: #e3f4e9;
+  --color-accent-solid: #137c43;
+  --color-on-accent: #ffffff;
 
-  --color-send: #1a6fa8;
-  --color-send-wash: rgba(26, 111, 168, 0.12);
+  --color-send: #3d6a8a;
+  --color-send-wash: #e8f1f6;
 
-  --color-warning: #8a6700;
-  --color-warning-wash: rgba(138, 103, 0, 0.12);
+  --color-warning: #c47b12;
+  --color-warning-wash: #fdf0dc;
 
-  --color-danger: #c13c28;
-  --color-danger-wash: rgba(193, 60, 40, 0.12);
+  --color-danger: #e24b3c;
+  --color-danger-wash: #fdeceb;
 
-  --color-neutral: #5c6562;
-  --color-neutral-wash: rgba(92, 101, 98, 0.14);
+  --color-neutral: #6b6b6b;
+  --color-neutral-wash: #f0f0f0;
 
-  --shadow-panel: 0 7px 3px rgba(28, 34, 31, 0.12);
+  --shadow-panel: 0 1px 3px rgba(0, 0, 0, 0.04);
 }

@@ -13,3 +13,4 @@ data/
 *.sqlite-journal
 .agents/
 .claude/
+.12ui/

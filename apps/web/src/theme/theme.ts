@@ -21,8 +21,8 @@ export type ResolvedTheme = 'light' | 'dark';
 
 /** Canvas hexes, used for `theme-color` and the first-paint fallback. */
 export const THEME_CANVAS: Record<ResolvedTheme, string> = {
-  dark: '#090c0e',
-  light: '#e8ece9',
+  dark: '#111413',
+  light: '#fefdfd',
 };
 
 export function isThemePreference(value: unknown): value is ThemePreference {

@@ -19,7 +19,7 @@ body {
   margin: 0;
   background: var(--color-canvas);
   color: var(--color-ink);
-  font-family: var(--font-family-mono);
+  font-family: var(--font-family-sans);
   font-size: var(--font-size-body);
   line-height: var(--line-height-body);
   font-weight: var(--font-weight-regular);
@@ -87,6 +87,12 @@ pre {
   font-family: var(--font-family-mono);
 }
 
+.cell-code,
+.mono-code,
+.share-url-code {
+  font-family: var(--font-family-mono);
+}
+
 /* Focus is a single accent ring everywhere. Mouse users never see it. */
 :focus-visible {
   outline: 2px solid var(--color-accent);
@@ -125,8 +131,7 @@ h3 {
 h4 {
   font-size: var(--font-size-label);
   line-height: var(--line-height-label);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
+  font-weight: var(--font-weight-medium);
   color: var(--color-ink-muted);
 }
 
@@ -157,14 +162,11 @@ p {
   line-height: var(--line-height-micro);
 }
 
-/* Caps-and-tracking. The console's one typographic gesture: it marks a
-   string as chrome (a column head, a field label, a rail heading) rather
-   than content. Never apply it to something the operator reads for meaning. */
+/* Quiet chrome label. Sentence case, slightly smaller than body. */
 .caps {
   font-size: var(--font-size-label);
   line-height: var(--line-height-label);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
+  font-weight: var(--font-weight-medium);
   color: var(--color-ink-muted);
 }
 

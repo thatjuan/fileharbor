@@ -185,7 +185,7 @@ export function ReceiveLinkDetailPage(): JSX.Element {
               <p className="page-head-sub">
                 <span className="chip chip-receive">
                   <DownloadIcon size={11} />
-                  receive
+                  Receive
                 </span>
                 Created {formatDateTime(data.link.createdAt)}
               </p>

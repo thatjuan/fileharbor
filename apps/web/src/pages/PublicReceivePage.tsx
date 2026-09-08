@@ -608,8 +608,11 @@ function PublicShell({ children }: { children: ReactNode }): JSX.Element {
       <nav className="public-nav">
         <div className="public-nav-inner">
           <span className="top-nav-brand">
-            <AnchorIcon size={16} className="top-nav-brand-mark" />
-            File Harbor
+            <AnchorIcon size={22} className="top-nav-brand-mark" />
+            <span className="top-nav-brand-text">
+              File Harbor
+              <span className="top-nav-brand-tag">self-hosted file send/receive</span>
+            </span>
           </span>
           <div className="public-nav-tools">
             <ThemeSwitcher />

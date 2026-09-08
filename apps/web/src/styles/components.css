@@ -61,17 +61,32 @@
   gap: var(--space-md);
 }
 
-/* Wordmark. Caps + wide tracking is the one place the brand is allowed to
-   be loud; everything else in the chrome is quieter than the content. */
 .top-nav-brand {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
+  gap: var(--space-sm);
   color: var(--color-ink);
   font-size: var(--font-size-heading);
-  font-weight: var(--font-weight-medium);
-  letter-spacing: var(--tracking-caps-tight);
-  text-transform: uppercase;
+  font-weight: var(--font-weight-semibold);
+}
+
+.top-nav-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.15;
+}
+
+.top-nav-brand-tag {
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-ink-faint);
+}
+
+@media (max-width: 720px) {
+  .top-nav-brand-tag {
+    display: none;
+  }
 }
 
 .top-nav-brand-mark {
@@ -84,14 +99,21 @@
   align-items: center;
   gap: var(--space-xs);
   font-size: var(--font-size-secondary);
+  font-weight: var(--font-weight-medium);
   color: var(--color-ink-secondary);
 }
 
-.top-nav-identity-dot {
-  width: 7px;
-  height: 7px;
+.top-nav-identity-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-pill);
-  background: var(--color-accent);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-secondary);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
 }
 
 /* ----- Rail ----- */
@@ -108,17 +130,16 @@
 }
 
 .rail-card {
-  background: var(--color-surface-card);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-card);
-  overflow: hidden;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
 }
 
 .rail-card-head {
-  padding: var(--space-sm) var(--space-sm) var(--space-xs);
+  padding: 0 var(--space-xs) var(--space-sm);
   font-size: var(--font-size-label);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
+  font-weight: var(--font-weight-medium);
   color: var(--color-ink-muted);
 }
 
@@ -148,12 +169,10 @@ button.rail-row:hover {
   background: var(--color-surface-raised);
 }
 
-/* Selected filter. The accent border, not a fill, carries selection — a
-   filled row would out-shout the status dots in the table beside it. */
 .rail-row-active {
-  border-color: var(--color-accent-dim);
-  background: var(--color-surface-raised);
-  color: var(--color-ink);
+  border-color: transparent;
+  background: var(--color-accent-wash);
+  color: var(--color-accent);
 }
 
 .rail-row-label {
@@ -186,13 +205,21 @@ button.rail-row:hover {
   color: var(--color-ink-muted);
 }
 
-/* Caps section heading between rail cards. */
 .rail-heading {
-  padding: var(--space-sm) var(--space-xs) var(--space-xxs);
-  font-size: var(--font-size-micro);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-  color: var(--color-ink-faint);
+  padding: var(--space-sm) var(--space-xs) var(--space-xs);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-ink-muted);
+}
+
+.rail > .btn {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.rail > .btn-ghost {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 30%, var(--color-hairline));
 }
 
 /* ----- Workspace ----- */
@@ -342,8 +369,7 @@ button.rail-row:hover {
   align-items: center;
   gap: var(--space-xs);
   font-size: var(--font-size-label);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
+  font-weight: var(--font-weight-medium);
   color: var(--color-ink-muted);
 }
 
@@ -384,9 +410,8 @@ button.rail-row:hover {
 /* ===================================================================
    5. Data tables
    ===================================================================
-   Tables sit flush inside a `.panel` (no panel-body wrapper). Mono +
-   tabular numerals keep every column aligned, which is the whole reason
-   the console is monospaced. */
+   Tables sit flush inside a `.panel` (no panel-body wrapper). Tabular
+   numerals keep count columns aligned; short codes use the mono face. */
 
 .data-table {
   width: 100%;
@@ -395,20 +420,18 @@ button.rail-row:hover {
 }
 
 .data-table thead th {
-  padding: var(--space-xs) var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   border-bottom: 1px solid var(--color-hairline-soft);
-  background: var(--color-surface-chrome);
+  background: var(--color-surface-panel);
   color: var(--color-ink-muted);
   font-size: var(--font-size-micro);
-  font-weight: var(--font-weight-regular);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
+  font-weight: var(--font-weight-medium);
   text-align: left;
   white-space: nowrap;
 }
 
 .data-table tbody td {
-  padding: var(--space-sm) var(--space-md);
+  padding: 14px var(--space-md);
   border-bottom: 1px solid var(--color-hairline-soft);
   color: var(--color-ink-secondary);
   vertical-align: middle;
@@ -441,8 +464,10 @@ button.rail-row:hover {
   border: 1px solid var(--color-hairline);
   border-radius: var(--radius-xs);
   background: var(--color-surface-raised);
-  color: var(--color-accent);
+  color: var(--color-ink);
+  font-family: var(--font-family-mono);
   font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
 }
 
@@ -493,8 +518,7 @@ button.rail-row:hover {
   align-items: center;
   gap: var(--space-xxs);
   font-size: var(--font-size-micro);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
+  font-weight: var(--font-weight-medium);
   color: var(--color-ink-muted);
 }
 
@@ -538,18 +562,30 @@ button.rail-row:hover {
 }
 
 .btn-accent {
-  background: var(--color-accent-wash);
-  border-color: var(--color-accent-dim);
-  color: var(--color-accent);
+  background: var(--color-accent-solid);
+  border-color: var(--color-accent-solid);
+  color: var(--color-on-accent);
+  font-weight: var(--font-weight-medium);
 }
 
 .btn-accent:not(:disabled):hover {
-  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
-  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent-solid) 88%, black);
+  border-color: color-mix(in srgb, var(--color-accent-solid) 88%, black);
+}
+
+.btn-soft {
+  background: var(--color-accent-wash);
+  border-color: transparent;
+  color: var(--color-accent);
+  font-weight: var(--font-weight-medium);
+}
+
+.btn-soft:not(:disabled):hover {
+  background: color-mix(in srgb, var(--color-accent) 22%, var(--color-surface-panel));
 }
 
 .btn-ghost {
-  background: var(--color-surface-raised);
+  background: var(--color-surface-panel);
   border-color: var(--color-hairline);
   color: var(--color-ink-secondary);
 }
@@ -646,10 +682,9 @@ button.rail-row:hover {
   display: flex;
   align-items: baseline;
   gap: var(--space-xs);
-  font-size: var(--font-size-micro);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-  color: var(--color-ink-muted);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-ink-secondary);
 }
 
 .field-hint {
@@ -673,8 +708,8 @@ button.rail-row:hover {
 .textarea,
 .select {
   width: 100%;
-  padding: var(--space-xs) var(--space-sm);
-  background: var(--color-canvas);
+  padding: 10px var(--space-sm);
+  background: var(--color-surface-panel);
   border: 1px solid var(--color-hairline);
   border-radius: var(--radius-control);
   color: var(--color-ink);
@@ -780,12 +815,11 @@ button.rail-row:hover {
   display: inline-flex;
   align-items: center;
   gap: var(--space-xxs);
-  padding: 2px var(--space-xs);
+  padding: 3px 8px;
   border: 1px solid transparent;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   font-size: var(--font-size-micro);
-  letter-spacing: var(--tracking-caps-tight);
-  text-transform: uppercase;
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
 }
 
@@ -1087,8 +1121,7 @@ button.rail-row:hover {
   margin-bottom: var(--space-lg);
   color: var(--color-ink);
   font-size: var(--font-size-heading);
-  letter-spacing: var(--tracking-caps-tight);
-  text-transform: uppercase;
+  font-weight: var(--font-weight-semibold);
 }
 
 .auth-panel {
