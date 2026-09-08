@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "runId": "crt-830999f17f0716771192da52a2b3b41fa98c0644",
+  "phase": "terminal",
+  "startedAt": "2026-09-08T00:02:04.286Z",
+  "updatedAt": "2026-09-08T00:11:23.291Z",
+  "screens": [
+    {
+      "slot": "a",
+      "status": "succeeded",
+      "pageIndex": 1,
+      "viewportOrdinal": 1
+    },
+    {
+      "slot": "b",
+      "status": "succeeded",
+      "pageIndex": 2,
+      "viewportOrdinal": 1
+    },
+    {
+      "slot": "c",
+      "status": "succeeded",
+      "pageIndex": 3,
+      "viewportOrdinal": 1
+    },
+    {
+      "slot": "d",
+      "status": "succeeded",
+      "pageIndex": 4,
+      "viewportOrdinal": 1
+    }
+  ],
+  "pageCount": 5,
+  "logicalPageCount": 5,
+  "packages": [
+    {
+      "pageId": "p0-all-links",
+      "stage": "succeeded",
+      "updatedAt": "2026-09-08T00:06:57.845Z"
+    },
+    {
+      "pageId": "p4-new-send-link",
+      "stage": "succeeded",
+      "updatedAt": "2026-09-08T00:07:06.801Z"
+    },
+    {
+      "pageId": "p1-sign-in",
+      "stage": "succeeded",
+      "updatedAt": "2026-09-08T00:05:39.122Z"
+    },
+    {
+      "pageId": "p2-new-receive-link",
+      "stage": "succeeded",
+      "updatedAt": "2026-09-08T00:10:41.663Z"
+    },
+    {
+      "pageId": "p3-receive-link-press-kit",
+      "stage": "succeeded",
+      "updatedAt": "2026-09-08T00:11:22.023Z"
+    }
+  ]
+}

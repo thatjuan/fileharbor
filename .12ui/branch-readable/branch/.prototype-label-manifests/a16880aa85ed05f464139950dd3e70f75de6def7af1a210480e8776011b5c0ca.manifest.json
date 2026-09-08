@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "revision": "prototype-label-artifact-v1",
+  "runId": "crt-830999f17f0716771192da52a2b3b41fa98c0644",
+  "labelKey": "a16880aa85ed05f464139950dd3e70f75de6def7af1a210480e8776011b5c0ca",
+  "screenId": "new-send-link",
+  "actions": [
+    {
+      "id": "viewport-1-d-header-account-button",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-d-header-account-button-2",
+      "action": "navigate",
+      "target": "sign-in",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-d-sidebar-create-receive-button",
+      "action": "navigate",
+      "target": "new-receive-link",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-d-sidebar-create-send-button",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-d-main-link-settings-password-button",
+      "action": "modal",
+      "target": null,
+      "options": null,
+      "modal": {
+        "title": "Generate password",
+        "body": "Generate a secure password for this send link.",
+        "confirm": "Generate"
+      }
+    },
+    {
+      "id": "viewport-1-d-main-actions-button",
+      "action": "navigate",
+      "target": "all-links",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-d-main-actions-button-2",
+      "action": "modal",
+      "target": null,
+      "options": null,
+      "modal": {
+        "title": "Create send link",
+        "body": "Create this send link with the selected files and access policy?",
+        "confirm": "Create send link"
+      }
+    },
+    {
+      "id": "viewport-1-d-main-link-settings-download-limit",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-d-sidebar-inventory-send-links-text",
+      "action": "navigate",
+      "target": "all-links",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-d-sidebar-status-all-text",
+      "action": "navigate",
+      "target": "all-links",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-d-sidebar-status-active-text",
+      "action": "navigate",
+      "target": "holding:Active",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-d-sidebar-status-expired-text",
+      "action": "navigate",
+      "target": "holding:Expired",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-d-sidebar-status-disabled-text",
+      "action": "navigate",
+      "target": "holding:Disabled",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-d-sidebar-status-quota-exhausted-text",
+      "action": "navigate",
+      "target": "holding:Quota exhausted",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-d-sidebar-create-text",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    }
+  ],
+  "model": "gpt-5.6-luna",
+  "providerRequestId": "req_969c8a5aaa22404eaf19d350fab31ce0",
+  "costMicros": 1014,
+  "replayed": false,
+  "settledAt": "2026-09-08T00:12:03.279Z"
+}

@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "revision": "prototype-label-artifact-v1",
+  "runId": "crt-830999f17f0716771192da52a2b3b41fa98c0644",
+  "labelKey": "1b4e7af576bb956419b04a6bcb9a947203fd7e067bd2e4b1ec32137a08ae4d69",
+  "screenId": "sign-in",
+  "actions": [
+    {
+      "id": "viewport-1-a-signin-button",
+      "action": "modal",
+      "target": null,
+      "options": null,
+      "modal": {
+        "title": "Sign in",
+        "body": "Authenticate to access File Harbor.",
+        "confirm": "Sign in"
+      }
+    },
+    {
+      "id": "viewport-1-a-nav-account",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-a-nav-account-text-2",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-a-signin-heading",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-a-signin-username-icon",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    }
+  ],
+  "model": "gpt-5.6-luna",
+  "providerRequestId": "req_1b187c8eec0a415799b0bde2ecfd3216",
+  "costMicros": 495,
+  "replayed": false,
+  "settledAt": "2026-09-08T00:11:38.808Z"
+}

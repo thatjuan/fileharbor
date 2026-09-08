@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "runId": "crt-ad2ee88c4b81dc30652517ae87fdae2fd10859f5",
+  "completedAt": "2026-09-08T00:00:41.613Z",
+  "candidates": [
+    {
+      "slot": "a",
+      "path": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/candidates/A.png",
+      "sha256": "efa94edf500f173f58b5f5abb7c304232ac09cebde186701244021012dbe4526",
+      "bytes": 1168306
+    },
+    {
+      "slot": "b",
+      "path": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/candidates/B.png",
+      "sha256": "3ff20bd2e05a90b473009ed63e73e96c7344baf199347d4f5fe18b75b93642f7",
+      "bytes": 1190878
+    },
+    {
+      "slot": "c",
+      "path": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/candidates/C.png",
+      "sha256": "f30930991fb33e752cccc5ea689342518fcc9295d3cc6898d1d719972a989adb",
+      "bytes": 1424134
+    },
+    {
+      "slot": "d",
+      "path": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/candidates/D.png",
+      "sha256": "790a4870733342e1ac668d9f399e9f0eb1c6b0fef91d3764306f7fafbca962a2",
+      "bytes": 1210142
+    }
+  ]
+}

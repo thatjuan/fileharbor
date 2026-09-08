@@ -13,4 +13,6 @@ data/
 *.sqlite-journal
 .agents/
 .claude/
-.12ui/
+.12ui/**/.prototype-work/
+.12ui/**/.prototype-failed/
+.12ui/**/original-run-dir.txt

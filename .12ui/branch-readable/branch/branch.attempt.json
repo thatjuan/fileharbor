@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "workflowRevision": "branch-execute-v2",
+  "status": "succeeded",
+  "runKey": "branch:v1:img-efa94edf500f173f58b5f5abb7c30423:-:81c3a154a1a1cf35:site:branch-execute-v2",
+  "origin": "https://12ui.com",
+  "scope": "site",
+  "concept": "Same visual language as the approved File Harbor dashboard. Cover the rest of the product. No illustration, avatars, storage totals, or fake analytics. Operator name is a text string. Theme control is system/light/dark. Admin shell stays: wordmark, operator identity, theme, sign out; left rail with inventory, status filters, create actions. Sibling screens: - Login: username and password, short aside on what File Harbor is (self-hosted, links not accounts, files go to your storage). - New receive link: label, optional password, max uploads, expiry. - New send link: label, optional password, max downloads, expiry, file picker/drop. - Receive link detail: share URL, status, policy, file list, disable, delete. - Send link detail: share URL, status, policy, files with download counts, disable, delete. - Notifications: list of upload/download events, mark read. - Public receive /r/7K2M: visitor uploads a file; password if required; progress; no admin chrome. - Public send /s/9QWX: visitor downloads files; password if required; remaining downloads; no admin chrome. Public pages drop the rail and counts. Keep proportional type, sentence-case, green accent, light-first.",
+  "conceptSha256": "81c3a154a1a1cf35aa59aeec7eae5931b78a2186f06a676eab51f253ce93a943",
+  "winner": {
+    "kind": "image",
+    "imagePath": "/Users/user/work/playground/fileharbor/.12ui/draft-readable/candidates/A.png",
+    "sha256": "efa94edf500f173f58b5f5abb7c304232ac09cebde186701244021012dbe4526",
+    "mediaType": "image/png",
+    "width": 1536,
+    "height": 1024
+  },
+  "generationCanvas": {
+    "provenance": "inherited-from-winner",
+    "winner": {
+      "width": 1536,
+      "height": 1024
+    }
+  },
+  "convert": {
+    "output": "html",
+    "model": "standard"
+  },
+  "prototype": true,
+  "createdAt": "2026-09-08T00:02:04.286Z",
+  "runId": "crt-830999f17f0716771192da52a2b3b41fa98c0644",
+  "completedAt": "2026-09-08T00:11:23.291Z",
+  "completionPath": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/branch.complete.json"
+}

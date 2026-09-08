@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "revision": "prototype-label-artifact-v1",
+  "runId": "crt-830999f17f0716771192da52a2b3b41fa98c0644",
+  "labelKey": "2c9113c56e0b3864d1624b3ae9cd5950ea384571d387233f4168e7cf1b8fb276",
+  "screenId": "receive-link-press-kit",
+  "actions": [
+    {
+      "id": "viewport-1-c-sidebar-create-receive-button",
+      "action": "navigate",
+      "target": "new-receive-link",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-c-sidebar-create-send-button",
+      "action": "navigate",
+      "target": "new-send-link",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-c-content-actions-copy-button",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-c-content-actions-disable-button",
+      "action": "modal",
+      "target": null,
+      "options": null,
+      "modal": {
+        "title": "Disable link",
+        "body": "Disable the Press kit receive link? New uploads will no longer be accepted.",
+        "confirm": "Disable link"
+      }
+    },
+    {
+      "id": "viewport-1-c-content-actions-delete-button",
+      "action": "modal",
+      "target": null,
+      "options": null,
+      "modal": {
+        "title": "Delete link",
+        "body": "Permanently delete the Press kit receive link and its submitted files? This cannot be undone.",
+        "confirm": "Delete link"
+      }
+    },
+    {
+      "id": "viewport-1-c-content-details-share-copy-button",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-c-content-files-actions-download-button",
+      "action": "modal",
+      "target": null,
+      "options": null,
+      "modal": {
+        "title": "Download all files",
+        "body": "Download all files submitted through the Press kit receive link.",
+        "confirm": "Download all"
+      }
+    },
+    {
+      "id": "viewport-1-c-content-files-test-upload-button",
+      "action": "modal",
+      "target": null,
+      "options": null,
+      "modal": {
+        "title": "Upload test file",
+        "body": "Choose a file to upload through the Press kit receive link.",
+        "confirm": "Upload"
+      }
+    },
+    {
+      "id": "viewport-1-c-header-account",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-c-header-account-text-2",
+      "action": "navigate",
+      "target": "sign-in",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-c-sidebar-send-links-text",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-c-sidebar-status-all-text",
+      "action": "navigate",
+      "target": "all-links",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-c-sidebar-status-active-text",
+      "action": "navigate",
+      "target": "holding:Active",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-c-sidebar-status-expired-text",
+      "action": "navigate",
+      "target": "holding:Expired",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-c-sidebar-status-disabled-text",
+      "action": "navigate",
+      "target": "holding:Disabled",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-c-sidebar-status-quota-text",
+      "action": "navigate",
+      "target": "holding:Quota exhausted",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-c-sidebar-create-text",
+      "action": "navigate",
+      "target": "new-receive-link",
+      "options": null,
+      "modal": null
+    }
+  ],
+  "model": "gpt-5.6-luna",
+  "providerRequestId": "req_4ea46475b3a84e05957e591b8b5fa2f6",
+  "costMicros": 1269,
+  "replayed": false,
+  "settledAt": "2026-09-08T00:11:55.472Z"
+}

@@ -1,0 +1,91 @@
+{
+  "version": 2,
+  "createdAt": "2026-09-07T23:59:44.938Z",
+  "runDir": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5",
+  "query": "File Harbor: self-hosted file send/receive. One operator manages receive links (people upload in) and send links (files go out). Visitors never make an account. First viewport: the signed-in dashboard. Top bar: File Harbor wordmark, operator name, theme, sign out. Left rail: inventory counts (total, receive, send), status filters (All, Active, Expired, Disabled, Quota exhausted) with real counts, and create actions (New receive link, New send link). Main area: mixed inventory table with type chip, label, short code, status, expiry, usage, created. Rows selectable for bulk delete or change expiry. Sample: Receive \"Press kit\" 7K2M Active 12 days left 3/10 uploads; Send \"Q3 footage\" 9QWX Expired. No fake storage totals. Leave the IBM Plex Mono CRT-console look. Readable for long sessions, less nerdy. Proportional type for words; monospace only for short codes. Sentence-case labels, not tracked caps. Taller rows, clearer hierarchy, human copy. Personality: a quiet harbor office, calm and maritime-practical. Not purple SaaS, not glassmorphism, not a marketing site, not a hacker terminal. Green as a quiet accent. Light-first.",
+  "mode": "new-interface",
+  "aspect": "landscape",
+  "referenceMode": "inspiration",
+  "retain": null,
+  "origin": "https://12ui.com",
+  "redesignSource": null,
+  "corpus": {
+    "query": "File Harbor: self-hosted file send/receive. One operator manages receive links (people upload in) and send links (files go out). Visitors never make an account. First viewport: the signed-in dashboard. Top bar: File Harbor wordmark, operator name, theme, sign out. Left rail: inventory counts (total, receive, send), status filters (All, Active, Expired, Disabled, Quota exhausted) with real counts, and create actions (New receive link, New send link). Main area: mixed inventory table with type chip, label, short code, status, expiry, usage, created. Rows selectable for bulk delete or change expiry. Sample: Receive \"Press kit\" 7K2M Active 12 days left 3/10 uploads; Send \"Q3 footage\" 9QWX Expired. No fake storage totals. Leave the IBM Plex Mono CRT-console look. Readable for long sessions, less nerdy. Proportional type for words; monospace only for short codes. Sentence-case labels, not tracked caps. Taller rows, clearer hierarchy, human copy. Personality: a quiet harbor office, calm and maritime-practical. Not purple SaaS, not glassmorphism, not a marketing site, not a hacker terminal. Green as a quiet accent. Light-first.",
+    "mode": "balanced",
+    "setId": "20260907-0",
+    "idempotencyKey": "draft-corpus:v1:1de25af8b66bc6c760450370",
+    "manifestPath": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/references/manifest.json",
+    "references": [
+      {
+        "ordinal": 1,
+        "id": "gen-rtrack-o47-s10-j102-direction-structural",
+        "path": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/references/01-gen-rtrack-o47-s10-j102-direction-structural.webp",
+        "sha256": "9a7d64cad93f9ccc3b446c7946f41129c6d5288b19f2301258c1e774862f46cb",
+        "aspect": "landscape"
+      },
+      {
+        "ordinal": 2,
+        "id": "gen-rtrack-o55-adaptive-qd-wave-1-b13-j020-open-text",
+        "path": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/references/02-gen-rtrack-o55-adaptive-qd-wave-1-b13-j020-open-text.webp",
+        "sha256": "ecdadfb0c938c50e61c34db1c2a37b3a6abcd3bb294a5a508b0e697e62702d42",
+        "aspect": "landscape"
+      },
+      {
+        "ordinal": 3,
+        "id": "gen-rtrack-o52-adaptive-qd-wave-1-b11-j072-open-text",
+        "path": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/references/03-gen-rtrack-o52-adaptive-qd-wave-1-b11-j072-open-text.webp",
+        "sha256": "28d0737567b7720e1a30c66b36f9a0057c9a298272188de327b07045a263814d",
+        "aspect": "landscape"
+      },
+      {
+        "ordinal": 4,
+        "id": "gen-rtrack-o47-s01-j128-direction-structural",
+        "path": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/references/04-gen-rtrack-o47-s01-j128-direction-structural.webp",
+        "sha256": "bc309b70382a31659e31e9d8019481a0a3b4fe192f717e0eec51b71043999eca",
+        "aspect": "landscape"
+      }
+    ]
+  },
+  "hosted": {
+    "runId": "crt-ad2ee88c4b81dc30652517ae87fdae2fd10859f5",
+    "idempotencyKey": "draft:hosted-v1:7c3057791c3b7bb81226de479564aae4",
+    "candidates": [
+      {
+        "id": "A",
+        "slot": "a",
+        "direction": "Dense operational dashboard, methodical and quietly capable",
+        "outputPath": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/candidates/A.png",
+        "referenceId": "gen-rtrack-o47-s10-j102-direction-structural",
+        "referencePath": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/references/01-gen-rtrack-o47-s10-j102-direction-structural.webp",
+        "referenceSha256": "9a7d64cad93f9ccc3b446c7946f41129c6d5288b19f2301258c1e774862f46cb"
+      },
+      {
+        "id": "B",
+        "slot": "b",
+        "direction": "Guided split-pane dashboard, clear and reassuring",
+        "outputPath": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/candidates/B.png",
+        "referenceId": "gen-rtrack-o55-adaptive-qd-wave-1-b13-j020-open-text",
+        "referencePath": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/references/02-gen-rtrack-o55-adaptive-qd-wave-1-b13-j020-open-text.webp",
+        "referenceSha256": "ecdadfb0c938c50e61c34db1c2a37b3a6abcd3bb294a5a508b0e697e62702d42"
+      },
+      {
+        "id": "C",
+        "slot": "c",
+        "direction": "Curated card-led inventory, composed and personable",
+        "outputPath": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/candidates/C.png",
+        "referenceId": "gen-rtrack-o52-adaptive-qd-wave-1-b11-j072-open-text",
+        "referencePath": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/references/03-gen-rtrack-o52-adaptive-qd-wave-1-b11-j072-open-text.webp",
+        "referenceSha256": "28d0737567b7720e1a30c66b36f9a0057c9a298272188de327b07045a263814d"
+      },
+      {
+        "id": "D",
+        "slot": "d",
+        "direction": "Single-column review table, deliberate and focused",
+        "outputPath": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/candidates/D.png",
+        "referenceId": "gen-rtrack-o47-s01-j128-direction-structural",
+        "referencePath": "/var/folders/9g/pvjk_ls12872q9k9m8vk01300000gn/T/12ui-file-harbor-self-hosted-fKWrw5/references/04-gen-rtrack-o47-s01-j128-direction-structural.webp",
+        "referenceSha256": "bc309b70382a31659e31e9d8019481a0a3b4fe192f717e0eec51b71043999eca"
+      }
+    ]
+  }
+}

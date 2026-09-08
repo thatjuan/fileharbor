@@ -1,0 +1,15 @@
+Same visual language as the approved File Harbor dashboard. Cover the rest of the product. No illustration, avatars, storage totals, or fake analytics. Operator name is a text string. Theme control is system/light/dark.
+
+Admin shell stays: wordmark, operator identity, theme, sign out; left rail with inventory, status filters, create actions.
+
+Sibling screens:
+- Login: username and password, short aside on what File Harbor is (self-hosted, links not accounts, files go to your storage).
+- New receive link: label, optional password, max uploads, expiry.
+- New send link: label, optional password, max downloads, expiry, file picker/drop.
+- Receive link detail: share URL, status, policy, file list, disable, delete.
+- Send link detail: share URL, status, policy, files with download counts, disable, delete.
+- Notifications: list of upload/download events, mark read.
+- Public receive /r/7K2M: visitor uploads a file; password if required; progress; no admin chrome.
+- Public send /s/9QWX: visitor downloads files; password if required; remaining downloads; no admin chrome.
+
+Public pages drop the rail and counts. Keep proportional type, sentence-case, green accent, light-first.
