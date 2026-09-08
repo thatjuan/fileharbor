@@ -115,7 +115,8 @@ h4 {
 h1 {
   font-size: var(--font-size-title);
   line-height: var(--line-height-title);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.03em;
 }
 
 h2 {
@@ -186,7 +187,7 @@ p {
 }
 
 .success {
-  color: var(--color-accent);
+  color: var(--color-positive);
   font-size: var(--font-size-secondary);
   line-height: var(--line-height-secondary);
 }

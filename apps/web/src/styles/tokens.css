@@ -1,10 +1,10 @@
 /*
  * Design tokens — DESIGN.md.
  *
- * Values come from the approved 12ui dashboard (candidate A): Inter for
- * reading, Roboto Mono only for short codes, a near-white canvas, and a
- * forest-green accent. Dark is the same roles retuned for night, not the
- * old CRT ladder.
+ * Values come from the approved 12ui dashboard (candidate A, 2026-09): Inter
+ * for reading, Roboto Mono only for short codes, a warm paper canvas, and a
+ * near-black primary. Green is a status colour, not the brand. Dark is the
+ * same roles retuned for night.
  *
  * `data-theme` is stamped on `<html>` by `/theme-boot.js` before first paint.
  */
@@ -16,9 +16,10 @@
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
+  --font-weight-bold: 700;
 
-  --font-size-title: 22px;
-  --line-height-title: 1.3;
+  --font-size-title: 36px;
+  --line-height-title: 1.15;
 
   --font-size-heading: 16px;
   --line-height-heading: 1.35;
@@ -47,14 +48,14 @@
   --space-xxl: 48px;
 
   --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-card: 8px;
-  --radius-control: 8px;
-  --radius-lg: 10px;
+  --radius-sm: 8px;
+  --radius-card: 14px;
+  --radius-control: 12px;
+  --radius-lg: 16px;
   --radius-pill: 9999px;
 
-  --rail-width: 280px;
-  --nav-height: 64px;
+  --rail-width: 300px;
+  --nav-height: 72px;
   --container-max: 1460px;
   --container-form: 720px;
   --container-auth: 460px;
@@ -63,34 +64,44 @@
   --motion-medium: 200ms;
 }
 
+@media (max-width: 720px) {
+  :root {
+    --font-size-title: 28px;
+    --nav-height: 64px;
+  }
+}
+
 /* Dark fallback if the boot script never stamps data-theme. */
 :root,
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --color-canvas: #111413;
-  --color-surface-rail: #161a18;
-  --color-surface-chrome: #161a18;
-  --color-surface-panel: #1c211e;
-  --color-surface-card: #1c211e;
-  --color-surface-raised: #242a27;
+  --color-canvas: #141311;
+  --color-surface-rail: #181614;
+  --color-surface-chrome: #1c1a18;
+  --color-surface-panel: #1f1d1b;
+  --color-surface-card: #1f1d1b;
+  --color-surface-raised: #262320;
 
-  --color-hairline: #2c3430;
-  --color-hairline-soft: #232a27;
+  --color-hairline: #3a3632;
+  --color-hairline-soft: #2c2926;
 
-  --color-ink: #f2f4f2;
-  --color-ink-secondary: #c5cbc6;
-  --color-ink-muted: #8b938e;
-  --color-ink-faint: #6b746f;
+  --color-ink: #f4f1ed;
+  --color-ink-secondary: #c9c3bb;
+  --color-ink-muted: #8e887f;
+  --color-ink-faint: #6b665f;
 
-  --color-accent: #3dba7a;
-  --color-accent-dim: #2a8f5c;
-  --color-accent-wash: rgba(61, 186, 122, 0.14);
-  --color-accent-solid: #137c43;
-  --color-on-accent: #ffffff;
+  --color-accent: #f4f1ed;
+  --color-accent-dim: #c9c3bb;
+  --color-accent-wash: rgba(244, 241, 237, 0.08);
+  --color-accent-solid: #f4f1ed;
+  --color-on-accent: #1a1917;
 
-  --color-send: #6aa3d4;
-  --color-send-wash: rgba(106, 163, 212, 0.14);
+  --color-positive: #3dba7a;
+  --color-positive-wash: rgba(61, 186, 122, 0.14);
+
+  --color-send: #e0a04a;
+  --color-send-wash: rgba(224, 160, 74, 0.14);
 
   --color-warning: #e0a04a;
   --color-warning-wash: rgba(224, 160, 74, 0.14);
@@ -104,33 +115,36 @@
   --shadow-panel: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
-/* Light — 12ui candidate A. Near-white canvas, white cards, forest green. */
+/* Light — 12ui candidate A. Warm paper, black primary, green as status. */
 [data-theme='light'] {
   color-scheme: light;
 
-  --color-canvas: #fefdfd;
-  --color-surface-rail: #ffffff;
+  --color-canvas: #fbf8f5;
+  --color-surface-rail: #fdfbf9;
   --color-surface-chrome: #ffffff;
   --color-surface-panel: #ffffff;
   --color-surface-card: #ffffff;
-  --color-surface-raised: #fafafa;
+  --color-surface-raised: #f0eeec;
 
-  --color-hairline: #e7e7e7;
-  --color-hairline-soft: #ececec;
+  --color-hairline: #e0ddda;
+  --color-hairline-soft: #ece9e6;
 
-  --color-ink: #191919;
-  --color-ink-secondary: #393939;
-  --color-ink-muted: #555555;
-  --color-ink-faint: #8b8b8b;
+  --color-ink: #1a1917;
+  --color-ink-secondary: #3d3a36;
+  --color-ink-muted: #6b6762;
+  --color-ink-faint: #9a958f;
 
-  --color-accent: #28704d;
-  --color-accent-dim: #137c43;
-  --color-accent-wash: #e3f4e9;
-  --color-accent-solid: #137c43;
+  --color-accent: #1a1917;
+  --color-accent-dim: #3d3a36;
+  --color-accent-wash: #f0eeec;
+  --color-accent-solid: #1a1917;
   --color-on-accent: #ffffff;
 
-  --color-send: #3d6a8a;
-  --color-send-wash: #e8f1f6;
+  --color-positive: #2a9f5c;
+  --color-positive-wash: #e6f6ec;
+
+  --color-send: #c4841a;
+  --color-send-wash: #f8edd6;
 
   --color-warning: #c47b12;
   --color-warning-wash: #fdf0dc;
@@ -139,7 +153,7 @@
   --color-danger-wash: #fdeceb;
 
   --color-neutral: #6b6b6b;
-  --color-neutral-wash: #f0f0f0;
+  --color-neutral-wash: #f0eeec;
 
-  --shadow-panel: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-panel: 0 1px 2px rgba(26, 25, 23, 0.04);
 }

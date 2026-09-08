@@ -17,9 +17,8 @@ import { BellIcon } from './Icons.js';
  * dropdown. Simpler, doesn't need outside-click handling, and the page can
  * own its own data lifecycle.
  *
- * Rendered as a `btn-icon` in the top-nav right cluster. Unread state is a
- * small accent dot in the corner — the console has no count chip, because the
- * exact number of unread items is never the thing the operator acts on.
+ * Rendered as a labelled nav item. Unread state is a count chip — the
+ * operator already has the number from the poll, so showing it costs nothing.
  */
 const POLL_INTERVAL_MS = 30_000;
 
@@ -54,9 +53,14 @@ export function NotificationBell(): JSX.Element {
   const label = unread === 0 ? 'Notifications' : `Notifications (${unread} unread)`;
 
   return (
-    <Link to="/notifications" className="btn-icon" aria-label={label}>
+    <Link to="/notifications" className="nav-item" aria-label={label}>
       <BellIcon size={16} />
-      {unread > 0 && <span className="unread-dot" aria-hidden />}
+      <span className="nav-item-label">Notifications</span>
+      {unread > 0 && (
+        <span className="unread-dot" aria-hidden>
+          {unread > 99 ? '99+' : unread}
+        </span>
+      )}
     </Link>
   );
 }

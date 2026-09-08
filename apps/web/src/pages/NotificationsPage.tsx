@@ -219,8 +219,8 @@ function NotificationItem({
           height: 30,
           borderRadius: 'var(--radius-sm)',
           border: '1px solid var(--color-hairline)',
-          background: isUpload ? 'var(--color-accent-wash)' : 'var(--color-warning-wash)',
-          color: isUpload ? 'var(--color-accent)' : 'var(--color-warning)',
+          background: isUpload ? 'var(--color-positive-wash)' : 'var(--color-warning-wash)',
+          color: isUpload ? 'var(--color-positive)' : 'var(--color-warning)',
         }}
       >
         {isUpload ? <UploadIcon size={14} /> : <AlertIcon size={14} />}
@@ -239,7 +239,7 @@ function NotificationItem({
                 width: 5,
                 height: 5,
                 borderRadius: 'var(--radius-pill)',
-                background: 'var(--color-accent)',
+                background: 'var(--color-positive)',
               }}
             />
           )}

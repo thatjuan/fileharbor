@@ -219,7 +219,7 @@ export function DashboardPage(): JSX.Element {
       {isEmpty ? (
         <EmptyInventory />
       ) : (
-        <div className="panel">
+        <div className="panel panel-plain">
           <div className="panel-head">
             <span className="panel-title">
               {statusFilter === null ? 'All links' : STATUS_LABELS[statusFilter]}

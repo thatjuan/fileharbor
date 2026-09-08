@@ -25,9 +25,9 @@ const STATUS_ROWS: ReadonlyArray<{
   tone: string;
 }> = [
   { status: 'active', label: 'Active', tone: 'rail-row-value-accent' },
-  { status: 'expired', label: 'Expired', tone: 'rail-row-value-danger' },
+  { status: 'expired', label: 'Expired', tone: 'rail-row-value-warning' },
   { status: 'disabled', label: 'Disabled', tone: 'rail-row-value-neutral' },
-  { status: 'quota_exhausted', label: 'Quota exhausted', tone: 'rail-row-value-warning' },
+  { status: 'quota_exhausted', label: 'Quota exhausted', tone: 'rail-row-value-danger' },
 ];
 
 export function Rail(): JSX.Element {
@@ -100,7 +100,7 @@ export function Rail(): JSX.Element {
       </div>
 
       <div className="rail-heading">Create new</div>
-      <Link to="/links/receive/new" className="btn btn-soft">
+      <Link to="/links/receive/new" className="btn btn-accent">
         <PlusIcon size={13} />
         New receive link
       </Link>

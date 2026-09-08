@@ -24,7 +24,7 @@ redefine tokens and do not add grammar.
 
 ## Fonts
 
-Inter at 400 / 500 / 600 for reading, self-hosted via `@fontsource/inter`.
+Inter at 400 / 500 / 600 / 700 for reading, self-hosted via `@fontsource/inter`.
 Roboto Mono at 400 / 500 only for short codes, via `@fontsource/roboto-mono`.
 
 A proportional face is the voice of the product. Mono is reserved for
@@ -90,8 +90,9 @@ token style.
 
 ## What is intentionally NOT in this layer
 
-- **No second accent.** Green is the only interactive colour. Blue marks the
-  send/download direction and is never available for emphasis.
+- **No second interactive colour.** Near-black is the only interactive
+  colour. Green marks Active / receive, amber marks send / expired, and
+  neither is available for buttons or links.
 - **No extra elevation.** `--shadow-panel` is the only shadow, on `.panel`
   and floating menus. Depth otherwise comes from the surface ladder.
 - **No gradients, no imagery, no illustration.**
