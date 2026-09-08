@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "revision": "prototype-label-artifact-v1",
+  "runId": "crt-830999f17f0716771192da52a2b3b41fa98c0644",
+  "labelKey": "b365dae660e187a82f605ff530e48cbdfab26fa2b38726d67d813b4e6a74079a",
+  "screenId": "all-links",
+  "actions": [
+    {
+      "id": "viewport-1-winner-sidebar-inventory-button",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-sidebar-create-button",
+      "action": "navigate",
+      "target": "new-receive-link",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-sidebar-create-button-2",
+      "action": "navigate",
+      "target": "new-send-link",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-main-actions-button",
+      "action": "modal",
+      "target": null,
+      "options": null,
+      "modal": {
+        "title": "Delete link",
+        "body": "Are you sure you want to delete this link?",
+        "confirm": "Delete"
+      }
+    },
+    {
+      "id": "viewport-1-winner-main-actions-button-2",
+      "action": "modal",
+      "target": null,
+      "options": null,
+      "modal": {
+        "title": "Change expiry",
+        "body": "Choose a new expiry for this link.",
+        "confirm": "Change expiry"
+      }
+    },
+    {
+      "id": "viewport-1-winner-table-pagination-button-2",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-table-pagination-button-3",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-table-pagination-button-4",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-main-actions",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-sidebar-status-input",
+      "action": "dropdown",
+      "target": null,
+      "options": [
+        "All",
+        "Active",
+        "Expired",
+        "Disabled",
+        "Quota exhausted"
+      ],
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-table-source-row-10",
+      "action": "navigate",
+      "target": "receive-link-press-kit",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-header-text",
+      "action": "navigate",
+      "target": "sign-in",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-sidebar-inventory-text-5",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-sidebar-status-input-2",
+      "action": "navigate",
+      "target": "holding:Active",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-sidebar-status-input-3",
+      "action": "navigate",
+      "target": "holding:Expired",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-sidebar-status-input-4",
+      "action": "navigate",
+      "target": "holding:Disabled",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-sidebar-status-input-5",
+      "action": "navigate",
+      "target": "holding:Quota exhausted",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-sidebar-create-text",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-winner-main-search-icon",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    }
+  ],
+  "model": "gpt-5.6-luna",
+  "providerRequestId": "req_d87cfa95b3ce451e85d94bd0ee15e04c",
+  "costMicros": 1434,
+  "replayed": false,
+  "settledAt": "2026-09-08T00:11:34.109Z"
+}

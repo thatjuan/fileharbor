@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "request": {
+    "q": "File Harbor: self-hosted file send/receive. One operator manages receive links (people upload in) and send links (files go out). Visitors never make an account. First viewport: the signed-in dashboard. Top bar: File Harbor wordmark, operator name, theme, sign out. Left rail: inventory counts (total, receive, send), status filters (All, Active, Expired, Disabled, Quota exhausted) with real counts, and create actions (New receive link, New send link). Main area: mixed inventory table with type chip, label, short code, status, expiry, usage, created. Rows selectable for bulk delete or change expiry. Sample: Receive \"Press kit\" 7K2M Active 12 days left 3/10 uploads; Send \"Q3 footage\" 9QWX Expired. No fake storage totals. Leave the IBM Plex Mono CRT-console look. Readable for long sessions, less nerdy. Proportional type for words; monospace only for short codes. Sentence-case labels, not tracked caps. Taller rows, clearer hierarchy, human copy. Personality: a quiet harbor office, calm and maritime-practical. Not purple SaaS, not glassmorphism, not a marketing site, not a hacker terminal. Green as a quiet accent. Light-first.",
+    "mode": "balanced",
+    "k": 4
+  },
+  "response": {
+    "setId": "20260907-0",
+    "query": "File Harbor: self-hosted file send/receive. One operator manages receive links (people upload in) and send links (files go out). Visitors never make an account. First viewport: the signed-in dashboard. Top bar: File Harbor wordmark, operator name, theme, sign out. Left rail: inventory counts (total, receive, send), status filters (All, Active, Expired, Disabled, Quota exhausted) with real counts, and create actions (New receive link, New send link). Main area: mixed inventory table with type chip, label, short code, status, expiry, usage, created. Rows selectable for bulk delete or change expiry. Sample: Receive \"Press kit\" 7K2M Active 12 days left 3/10 uploads; Send \"Q3 footage\" 9QWX Expired. No fake storage totals. Leave the IBM Plex Mono CRT-console look. Readable for long sessions, less nerdy. Proportional type for words; monospace only for short codes. Sentence-case labels, not tracked caps. Taller rows, clearer hierarchy, human copy. Personality: a quiet harbor office, calm and maritime-practical. Not purple SaaS, not glassmorphism, not a marketing site, not a hacker terminal. Green as a quiet accent. Light-first.",
+    "mode": "balanced",
+    "seed": 0,
+    "k": 4,
+    "poolSize": 1000,
+    "coverage": 0.8527110443777111,
+    "truncated": false,
+    "designType": {
+      "key": "dashboard",
+      "label": "dashboard",
+      "evidence": "status overview, prioritized metrics, navigation, actionable modules, and paths into detail",
+      "source": "query-grammar"
+    },
+    "items": [
+      {
+        "id": "gen-rtrack-o47-s10-j102-direction-structural",
+        "designId": "4b1e7e49aaf2670cebedb617",
+        "role": "consensus-head",
+        "phase": "preserved",
+        "arm": "combined-consensus",
+        "cell": "r-track-retrieval-clusters-v1:f357",
+        "aspect": "landscape",
+        "width": 1152,
+        "height": 880,
+        "uiType": "operations",
+        "description": null,
+        "relevance": 0.4485168347158835,
+        "relevancePercentile": 0.8527110443777111,
+        "qualityPercentile": 0.42242242242242245
+      },
+      {
+        "id": "gen-rtrack-o55-adaptive-qd-wave-1-b13-j020-open-text",
+        "designId": "3f65a4584dd7faadd7476f2f",
+        "role": "consensus-head",
+        "phase": "preserved",
+        "arm": "combined-consensus",
+        "cell": "r-track-retrieval-clusters-v1:f348",
+        "aspect": "landscape",
+        "width": 1152,
+        "height": 880,
+        "uiType": "explainer",
+        "description": null,
+        "relevance": 0.46795671120433285,
+        "relevancePercentile": 0.8403820487153819,
+        "qualityPercentile": 0.2992992992992993
+      },
+      {
+        "id": "gen-rtrack-o52-adaptive-qd-wave-1-b11-j072-open-text",
+        "designId": "8328034fbac8300f111033c2",
+        "role": "consensus-head",
+        "phase": "preserved",
+        "arm": "combined-consensus",
+        "cell": "r-track-retrieval-clusters-v1:f348",
+        "aspect": "landscape",
+        "width": 912,
+        "height": 768,
+        "uiType": "portfolio",
+        "description": null,
+        "relevance": 0.4603078991541068,
+        "relevancePercentile": 0.8398982315648982,
+        "qualityPercentile": 0.8098098098098098
+      },
+      {
+        "id": "gen-rtrack-o47-s01-j128-direction-structural",
+        "designId": "aa5eec68501721138855e45f",
+        "role": "consensus-head",
+        "phase": "preserved",
+        "arm": "combined-consensus",
+        "cell": "r-track-retrieval-clusters-v1:f253",
+        "aspect": "landscape",
+        "width": 1104,
+        "height": 736,
+        "uiType": "document_review",
+        "description": null,
+        "relevance": 0.44454162121520363,
+        "relevancePercentile": 0.8203536870203536,
+        "qualityPercentile": 0.4694694694694695
+      }
+    ]
+  }
+}

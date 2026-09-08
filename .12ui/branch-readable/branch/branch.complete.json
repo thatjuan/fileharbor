@@ -1,0 +1,268 @@
+{
+  "version": 1,
+  "status": "succeeded",
+  "runId": "crt-830999f17f0716771192da52a2b3b41fa98c0644",
+  "runKey": "branch:v1:img-efa94edf500f173f58b5f5abb7c30423:-:81c3a154a1a1cf35:site:branch-execute-v2",
+  "workflowRevision": "branch-execute-v2",
+  "scope": "site",
+  "concept": "Same visual language as the approved File Harbor dashboard. Cover the rest of the product. No illustration, avatars, storage totals, or fake analytics. Operator name is a text string. Theme control is system/light/dark. Admin shell stays: wordmark, operator identity, theme, sign out; left rail with inventory, status filters, create actions. Sibling screens: - Login: username and password, short aside on what File Harbor is (self-hosted, links not accounts, files go to your storage). - New receive link: label, optional password, max uploads, expiry. - New send link: label, optional password, max downloads, expiry, file picker/drop. - Receive link detail: share URL, status, policy, file list, disable, delete. - Send link detail: share URL, status, policy, files with download counts, disable, delete. - Notifications: list of upload/download events, mark read. - Public receive /r/7K2M: visitor uploads a file; password if required; progress; no admin chrome. - Public send /s/9QWX: visitor downloads files; password if required; remaining downloads; no admin chrome. Public pages drop the rail and counts. Keep proportional type, sentence-case, green accent, light-first.",
+  "conceptSha256": "81c3a154a1a1cf35aa59aeec7eae5931b78a2186f06a676eab51f253ce93a943",
+  "origin": "https://12ui.com",
+  "outDir": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch",
+  "attemptPath": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/branch.attempt.json",
+  "planPath": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/branch.plan.json",
+  "startedAt": "2026-09-08T00:02:04.286Z",
+  "completedAt": "2026-09-08T00:11:23.291Z",
+  "screenCount": 4,
+  "succeededCount": 4,
+  "failedCount": 0,
+  "blockedCount": 0,
+  "pageCount": 5,
+  "logicalPageCount": 5,
+  "convertedPageCount": 5,
+  "winner": {
+    "path": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/screens/winner.png",
+    "sha256": "efa94edf500f173f58b5f5abb7c304232ac09cebde186701244021012dbe4526",
+    "bytes": 1168306,
+    "width": 1536,
+    "height": 1024
+  },
+  "screens": [
+    {
+      "slot": "a",
+      "pageIndex": 1,
+      "pageId": "p1-sign-in",
+      "viewportOrdinal": 1,
+      "status": "succeeded",
+      "direction": "Sign in",
+      "path": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/screens/a.png",
+      "sha256": "4fa09371dc4ba884ce6339fe3bdad480a96975af3c19460cd83ae445ac10df1f",
+      "bytes": 1163323,
+      "width": 1536,
+      "height": 1024,
+      "canvasDecision": {
+        "provenance": "inherited-from-winner",
+        "sourceCanvas": {
+          "width": 1536,
+          "height": 1024
+        }
+      },
+      "footer": true
+    },
+    {
+      "slot": "b",
+      "pageIndex": 2,
+      "pageId": "p2-new-receive-link",
+      "viewportOrdinal": 1,
+      "status": "succeeded",
+      "direction": "New receive link",
+      "path": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/screens/b.png",
+      "sha256": "a53c20f8590c23445eb1de9594fcdd286f9151e0bdc91aca5d0b7449ce13b961",
+      "bytes": 1107411,
+      "width": 1536,
+      "height": 1024,
+      "canvasDecision": {
+        "provenance": "inherited-from-winner",
+        "sourceCanvas": {
+          "width": 1536,
+          "height": 1024
+        }
+      }
+    },
+    {
+      "slot": "c",
+      "pageIndex": 3,
+      "pageId": "p3-receive-link-press-kit",
+      "viewportOrdinal": 1,
+      "status": "succeeded",
+      "direction": "Receive link: Press kit",
+      "path": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/screens/c.png",
+      "sha256": "8f1100377a63fec186e3e567eda0e385520b96e38b8857f49491ff21232b3872",
+      "bytes": 1193447,
+      "width": 1536,
+      "height": 1024,
+      "canvasDecision": {
+        "provenance": "inherited-from-winner",
+        "sourceCanvas": {
+          "width": 1536,
+          "height": 1024
+        }
+      }
+    },
+    {
+      "slot": "d",
+      "pageIndex": 4,
+      "pageId": "p4-new-send-link",
+      "viewportOrdinal": 1,
+      "status": "succeeded",
+      "direction": "New send link",
+      "path": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/screens/d.png",
+      "sha256": "1799e8f0d3a7e6c9bb78e625e0c73d52600e774da77df4dd7cf0719fc4a33248",
+      "bytes": 1122812,
+      "width": 1536,
+      "height": 1024,
+      "canvasDecision": {
+        "provenance": "inherited-from-winner",
+        "sourceCanvas": {
+          "width": 1536,
+          "height": 1024
+        }
+      }
+    }
+  ],
+  "pages": [
+    {
+      "index": 0,
+      "id": "p0-all-links",
+      "kind": "source",
+      "title": "All links",
+      "slots": [],
+      "startsFromWinner": true,
+      "conversion": {
+        "status": "succeeded",
+        "packageId": "f9d99419-e7af-44af-9a71-ae85dc7d23b1",
+        "idempotencyKey": "branch-package:v1:crt-830999f17f0716771192da52a2b3b41fa98c0644:0:16ac82b1c0040b151ae26bee50d265e0:html:standard:default",
+        "output": "html",
+        "canonicalWidth": 1536,
+        "conversionId": "2413cdf6-2a46-44b9-ab6b-2b45777714d3",
+        "outFile": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/pages/p0-all-links.html",
+        "sha256": "bc9a45a29f63888c4d639fb386472428fd4f1aa7215edec2da2a83c811adc62f",
+        "bytes": 130567,
+        "viewports": [
+          {
+            "id": "winner",
+            "ordinal": 1,
+            "status": "succeeded",
+            "conversionId": "0a9f3872-3337-4b42-96a2-7187663bf1d6",
+            "sha256": "efa94edf500f173f58b5f5abb7c304232ac09cebde186701244021012dbe4526",
+            "bought": true
+          }
+        ]
+      }
+    },
+    {
+      "index": 1,
+      "id": "p1-sign-in",
+      "kind": "additional",
+      "title": "Sign in",
+      "slots": [
+        "a"
+      ],
+      "startsFromWinner": false,
+      "conversion": {
+        "status": "succeeded",
+        "packageId": "779da035-70dd-44bf-82fc-d615eaab03cf",
+        "idempotencyKey": "branch-package:v1:crt-830999f17f0716771192da52a2b3b41fa98c0644:1:476fb4cc814491c7dbee5ccec5b8bd4d:html:standard:default",
+        "output": "html",
+        "canonicalWidth": 1536,
+        "conversionId": "a0480a3c-cf35-4e5a-8ad3-779c3ed0b27e",
+        "outFile": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/pages/p1-sign-in.html",
+        "sha256": "327c945cef16eda844fe0e76050d1bf31e5c8b5fe2bbe11ddcc67c2232f858ad",
+        "bytes": 42667,
+        "viewports": [
+          {
+            "id": "a",
+            "ordinal": 1,
+            "status": "succeeded",
+            "conversionId": "971ecf21-8706-4e1a-8d45-3fc7fdf421a6",
+            "sha256": "4fa09371dc4ba884ce6339fe3bdad480a96975af3c19460cd83ae445ac10df1f",
+            "bought": true
+          }
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "id": "p2-new-receive-link",
+      "kind": "additional",
+      "title": "New receive link",
+      "slots": [
+        "b"
+      ],
+      "startsFromWinner": false,
+      "conversion": {
+        "status": "succeeded",
+        "packageId": "aa5ef260-ffa1-4564-acaa-635297699c06",
+        "idempotencyKey": "branch-package:v1:crt-830999f17f0716771192da52a2b3b41fa98c0644:2:724d8b8bc6696da779e183ccce82c4ca:html:standard:default",
+        "output": "html",
+        "canonicalWidth": 1536,
+        "conversionId": "4d6d79b3-8025-4f44-af72-2e52e87a8135",
+        "outFile": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/pages/p2-new-receive-link.html",
+        "sha256": "6c3ecd104faf2759f881ec852ca2ba450bb1bf27691fce2cd6fd911ec4d7ee46",
+        "bytes": 272043,
+        "viewports": [
+          {
+            "id": "b",
+            "ordinal": 1,
+            "status": "succeeded",
+            "conversionId": "e904657d-c6fe-4856-9e04-edc103dedf73",
+            "sha256": "a53c20f8590c23445eb1de9594fcdd286f9151e0bdc91aca5d0b7449ce13b961",
+            "bought": true
+          }
+        ]
+      }
+    },
+    {
+      "index": 3,
+      "id": "p3-receive-link-press-kit",
+      "kind": "additional",
+      "title": "Receive link: Press kit",
+      "slots": [
+        "c"
+      ],
+      "startsFromWinner": false,
+      "conversion": {
+        "status": "succeeded",
+        "packageId": "b6e21444-55ee-46c9-bba7-ffeedf4738ac",
+        "idempotencyKey": "branch-package:v1:crt-830999f17f0716771192da52a2b3b41fa98c0644:3:cfd3d830a2eed837be175e512aaa4aff:html:standard:default",
+        "output": "html",
+        "canonicalWidth": 1536,
+        "conversionId": "3f848d8b-883b-48e3-a1f1-f094ba85bbeb",
+        "outFile": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/pages/p3-receive-link-press-kit.html",
+        "sha256": "50b2153f2a694143c00b4ba757dbcd189a21cc93f7820e811b6efadb8a5227d3",
+        "bytes": 134750,
+        "viewports": [
+          {
+            "id": "c",
+            "ordinal": 1,
+            "status": "succeeded",
+            "conversionId": "0dcd8901-f25d-4ee9-b47a-acbc03766036",
+            "sha256": "8f1100377a63fec186e3e567eda0e385520b96e38b8857f49491ff21232b3872",
+            "bought": true
+          }
+        ]
+      }
+    },
+    {
+      "index": 4,
+      "id": "p4-new-send-link",
+      "kind": "additional",
+      "title": "New send link",
+      "slots": [
+        "d"
+      ],
+      "startsFromWinner": false,
+      "conversion": {
+        "status": "succeeded",
+        "packageId": "dea6acae-c549-4518-bfb9-70228711f50f",
+        "idempotencyKey": "branch-package:v1:crt-830999f17f0716771192da52a2b3b41fa98c0644:4:2155a0e230dff3a6bad14d21c1e15b8a:html:standard:default",
+        "output": "html",
+        "canonicalWidth": 1536,
+        "conversionId": "6e27ba40-5be1-4b1f-8335-b04822b9d352",
+        "outFile": "/Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/pages/p4-new-send-link.html",
+        "sha256": "7e5124352eeaf3c31a125367926a5b6ee2f018ea20ed401db62f24a37fd1e6e7",
+        "bytes": 159166,
+        "viewports": [
+          {
+            "id": "d",
+            "ordinal": 1,
+            "status": "succeeded",
+            "conversionId": "ec35999c-03f9-4de7-84c4-a0d45afb875e",
+            "sha256": "1799e8f0d3a7e6c9bb78e625e0c73d52600e774da77df4dd7cf0719fc4a33248",
+            "bought": true
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "revision": "prototype-label-artifact-v1",
+  "runId": "crt-830999f17f0716771192da52a2b3b41fa98c0644",
+  "labelKey": "46fe6a2c82cd8ae2c5324c0921d17a5a1de9812109b2551bb782da21e420cfb3",
+  "screenId": "new-receive-link",
+  "actions": [
+    {
+      "id": "viewport-1-b-sidebar-create-receive-button",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-b-sidebar-create-send-button",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-b-receive-form-actions-source-row-2-button",
+      "action": "navigate",
+      "target": "all-links",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-b-receive-form-actions-source-row-2-button-2",
+      "action": "modal",
+      "target": null,
+      "options": null,
+      "modal": {
+        "title": "Create receive link",
+        "body": "Create a receive link using the configured label, password, upload limit, expiry, and receive policy.",
+        "confirm": "Create receive link"
+      }
+    },
+    {
+      "id": "viewport-1-b-header-account",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-b-header-account-text-2",
+      "action": "navigate",
+      "target": "sign-in",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-b-sidebar-inventory-send-links-text",
+      "action": "navigate",
+      "target": "all-links",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-b-sidebar-status-all-text",
+      "action": "navigate",
+      "target": "all-links",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-b-sidebar-status-active-text",
+      "action": "navigate",
+      "target": "holding:Active",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-b-sidebar-status-expired-text",
+      "action": "navigate",
+      "target": "holding:Expired",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-b-sidebar-status-disabled-text",
+      "action": "navigate",
+      "target": "holding:Disabled",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-b-sidebar-status-quota-exhausted-text",
+      "action": "navigate",
+      "target": "holding:Quota exhausted",
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-b-sidebar-create-text",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    },
+    {
+      "id": "viewport-1-b-preview-access-text-2",
+      "action": "none",
+      "target": null,
+      "options": null,
+      "modal": null
+    }
+  ],
+  "model": "gpt-5.6-luna",
+  "providerRequestId": "req_722aa27e1ae5495e842149401ee88eec",
+  "costMicros": 1047,
+  "replayed": false,
+  "settledAt": "2026-09-08T00:11:47.715Z"
+}

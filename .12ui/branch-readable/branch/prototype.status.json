@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "pipelineRevision": "prototype-v7",
+  "runId": "crt-830999f17f0716771192da52a2b3b41fa98c0644",
+  "inputDigest": "2c7dc2387b3c45a6016ad07cb1b9d965eb867129d2d592caf0637c980b110403",
+  "attempt": 1,
+  "startedAt": "2026-09-08T00:11:23.295Z",
+  "updatedAt": "2026-09-08T00:12:14.684Z",
+  "status": "failed",
+  "error": {
+    "name": "Error",
+    "message": "Prototype product gate failed: Prototype runtime gate failed: 2 canonical shell consistency failure(s) Rejected prototype retained at /Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/.prototype-failed/91497308-2ce2-4a5c-a417-987cc9dfe8ba.",
+    "stack": "Error: Prototype product gate failed: Prototype runtime gate failed: 2 canonical shell consistency failure(s) Rejected prototype retained at /Users/user/work/playground/fileharbor/.12ui/branch-readable/branch/.prototype-failed/91497308-2ce2-4a5c-a417-987cc9dfe8ba.\n    at runPrototypePipeline (file:///Users/user/.local/share/12ui/versions/0.2.53/node_modules/@12ui/design/dist/prototype-runner.js:308:33)\n    at async runBranchCommand (file:///Users/user/.local/share/12ui/versions/0.2.53/node_modules/@12ui/design/dist/cli-branch-command.js:521:11)\n    at async dispatch (file:///Users/user/.local/share/12ui/versions/0.2.53/node_modules/@12ui/design/dist/cli-run.js:84:9)\n    at async runWithPendingAuthRedemption (file:///Users/user/.local/share/12ui/versions/0.2.53/node_modules/@12ui/design/dist/cli-pending-auth.js:169:16)\n    at async withRunJournal (file:///Users/user/.local/share/12ui/versions/0.2.53/node_modules/@12ui/design/dist/run-journal.js:540:24)\n    at async runCli (file:///Users/user/.local/share/12ui/versions/0.2.53/node_modules/@12ui/design/dist/cli-run.js:164:5)"
+  }
+}

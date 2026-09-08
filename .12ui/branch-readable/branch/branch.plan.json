@@ -1,0 +1,165 @@
+{
+  "version": 1,
+  "runId": "crt-830999f17f0716771192da52a2b3b41fa98c0644",
+  "concept": "Same visual language as the approved File Harbor dashboard. Cover the rest of the product. No illustration, avatars, storage totals, or fake analytics. Operator name is a text string. Theme control is system/light/dark. Admin shell stays: wordmark, operator identity, theme, sign out; left rail with inventory, status filters, create actions. Sibling screens: - Login: username and password, short aside on what File Harbor is (self-hosted, links not accounts, files go to your storage). - New receive link: label, optional password, max uploads, expiry. - New send link: label, optional password, max downloads, expiry, file picker/drop. - Receive link detail: share URL, status, policy, file list, disable, delete. - Send link detail: share URL, status, policy, files with download counts, disable, delete. - Notifications: list of upload/download events, mark read. - Public receive /r/7K2M: visitor uploads a file; password if required; progress; no admin chrome. - Public send /s/9QWX: visitor downloads files; password if required; remaining downloads; no admin chrome. Public pages drop the rail and counts. Keep proportional type, sentence-case, green accent, light-first.",
+  "aspect": "landscape",
+  "scope": "site",
+  "sitePurpose": "Create self-hosted links for collecting and delivering files through your own storage.",
+  "statusUpdate": "I’ll extend the dashboard into the essential link-creation, management, notification, sign-in, and visitor transfer routes. Together, these routes let operators configure file exchanges and let recipients upload or download without needing an account.",
+  "approvedScreenSummary": "The approved source shows the signed-in All links inventory, with link type, labels, codes, status, expiry, usage, and creation dates; filtering, search, bulk actions, status counts, and actions to create receive or send links are already present.",
+  "winnerCanvas": {
+    "width": 1536,
+    "height": 1024
+  },
+  "pages": [
+    {
+      "index": 0,
+      "id": "p0-all-links",
+      "kind": "source",
+      "title": "All links",
+      "pageType": "application",
+      "surfaceType": "web_app",
+      "purpose": "Give an operator a searchable, filterable inventory of existing receive and send links and entry points to create more.",
+      "startsFromWinner": true,
+      "slots": []
+    },
+    {
+      "index": 1,
+      "id": "p1-sign-in",
+      "kind": "additional",
+      "title": "Sign in",
+      "pageType": "application",
+      "surfaceType": "web_page",
+      "purpose": "Authenticate an operator and briefly explain the product’s self-hosted, link-based file exchange model.",
+      "startsFromWinner": false,
+      "slots": [
+        "a"
+      ]
+    },
+    {
+      "index": 2,
+      "id": "p2-new-receive-link",
+      "kind": "additional",
+      "title": "New receive link",
+      "pageType": "application",
+      "surfaceType": "web_app",
+      "purpose": "Configure a link that permits visitors to upload files into the operator’s storage.",
+      "startsFromWinner": false,
+      "slots": [
+        "b"
+      ]
+    },
+    {
+      "index": 3,
+      "id": "p3-receive-link-press-kit",
+      "kind": "additional",
+      "title": "Receive link: Press kit",
+      "pageType": "application",
+      "surfaceType": "web_app",
+      "purpose": "Manage the active Press kit receive link and review the files submitted through it.",
+      "startsFromWinner": false,
+      "slots": [
+        "c"
+      ]
+    },
+    {
+      "index": 4,
+      "id": "p4-new-send-link",
+      "kind": "additional",
+      "title": "New send link",
+      "pageType": "application",
+      "surfaceType": "web_app",
+      "purpose": "Prepare a controlled download link by selecting files and defining its access policy.",
+      "startsFromWinner": false,
+      "slots": [
+        "d"
+      ]
+    }
+  ],
+  "screens": [
+    {
+      "slot": "a",
+      "pageIndex": 1,
+      "viewportOrdinal": 1,
+      "status": "pending",
+      "direction": "Sign in",
+      "header": true,
+      "footer": true,
+      "pageEndsHere": true,
+      "dependsOnSlot": null,
+      "width": 1536,
+      "height": 1024,
+      "canvasDecision": {
+        "provenance": "inherited-from-winner",
+        "sourceCanvas": {
+          "width": 1536,
+          "height": 1024
+        }
+      },
+      "content": "Provide username and password fields, sign-in feedback, and a concise explanation that File Harbor creates links rather than user accounts and sends received files directly to the operator’s storage."
+    },
+    {
+      "slot": "b",
+      "pageIndex": 2,
+      "viewportOrdinal": 1,
+      "status": "pending",
+      "direction": "New receive link",
+      "header": null,
+      "footer": null,
+      "pageEndsHere": true,
+      "dependsOnSlot": null,
+      "width": 1536,
+      "height": 1024,
+      "canvasDecision": {
+        "provenance": "inherited-from-winner",
+        "sourceCanvas": {
+          "width": 1536,
+          "height": 1024
+        }
+      },
+      "content": "Collect a recognizable label, optional password, maximum upload count, and expiry choice. Confirm the intended receive policy before the operator creates the link."
+    },
+    {
+      "slot": "c",
+      "pageIndex": 3,
+      "viewportOrdinal": 1,
+      "status": "pending",
+      "direction": "Receive link: Press kit",
+      "header": null,
+      "footer": null,
+      "pageEndsHere": true,
+      "dependsOnSlot": null,
+      "width": 1536,
+      "height": 1024,
+      "canvasDecision": {
+        "provenance": "inherited-from-winner",
+        "sourceCanvas": {
+          "width": 1536,
+          "height": 1024
+        }
+      },
+      "content": "Show the share URL for code 7K2M, active status, expiry, password and upload-limit policy, and a file list with submitted press materials. Offer controls to copy the link, disable it, or permanently delete it."
+    },
+    {
+      "slot": "d",
+      "pageIndex": 4,
+      "viewportOrdinal": 1,
+      "status": "pending",
+      "direction": "New send link",
+      "header": null,
+      "footer": null,
+      "pageEndsHere": true,
+      "dependsOnSlot": null,
+      "width": 1536,
+      "height": 1024,
+      "canvasDecision": {
+        "provenance": "inherited-from-winner",
+        "sourceCanvas": {
+          "width": 1536,
+          "height": 1024
+        }
+      },
+      "content": "Collect a label, optional password, maximum download count, and expiry choice, then let the operator add files through a picker or drop area before creating the send link."
+    }
+  ]
+}

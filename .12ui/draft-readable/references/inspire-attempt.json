@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "createdAt": "2026-09-07T23:59:23.120Z",
+  "origin": "https://12ui.com",
+  "idempotencyKey": "draft-corpus:v1:1de25af8b66bc6c760450370",
+  "request": {
+    "q": "File Harbor: self-hosted file send/receive. One operator manages receive links (people upload in) and send links (files go out). Visitors never make an account. First viewport: the signed-in dashboard. Top bar: File Harbor wordmark, operator name, theme, sign out. Left rail: inventory counts (total, receive, send), status filters (All, Active, Expired, Disabled, Quota exhausted) with real counts, and create actions (New receive link, New send link). Main area: mixed inventory table with type chip, label, short code, status, expiry, usage, created. Rows selectable for bulk delete or change expiry. Sample: Receive \"Press kit\" 7K2M Active 12 days left 3/10 uploads; Send \"Q3 footage\" 9QWX Expired. No fake storage totals. Leave the IBM Plex Mono CRT-console look. Readable for long sessions, less nerdy. Proportional type for words; monospace only for short codes. Sentence-case labels, not tracked caps. Taller rows, clearer hierarchy, human copy. Personality: a quiet harbor office, calm and maritime-practical. Not purple SaaS, not glassmorphism, not a marketing site, not a hacker terminal. Green as a quiet accent. Light-first.",
+    "mode": "balanced",
+    "k": 4
+  }
+}
