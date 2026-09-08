@@ -64,30 +64,16 @@ function TopNav(): JSX.Element {
           </Link>
         </div>
         <div className="top-nav-right">
-          <span className="top-nav-identity">
-            <span className="top-nav-identity-badge" aria-hidden>
-              {initials(displayName)}
-            </span>
-            {displayName}
-          </span>
-          <button type="button" className="text-link small" onClick={() => void onSignOut()}>
+          <span className="nav-item">{displayName}</span>
+          <button type="button" className="nav-item" onClick={() => void onSignOut()}>
             Sign out
           </button>
-          <ThemeSwitcher />
           <NotificationBell />
+          <ThemeSwitcher />
         </div>
       </div>
     </header>
   );
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  const first = parts[0];
-  const last = parts[parts.length - 1];
-  if (first === undefined) return 'FH';
-  if (last === undefined || last === first) return first.slice(0, 2).toUpperCase();
-  return (first.slice(0, 1) + last.slice(0, 1)).toUpperCase();
 }
 
 function Footer(): JSX.Element {

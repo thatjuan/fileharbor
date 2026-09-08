@@ -79,7 +79,7 @@ export function ThemeSwitcher(): JSX.Element {
       <button
         ref={triggerRef}
         type="button"
-        className="btn-icon"
+        className="nav-item"
         aria-label={copy.triggerAria}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -87,6 +87,7 @@ export function ThemeSwitcher(): JSX.Element {
         onKeyDown={onTriggerKey}
       >
         <PreferenceIcon preference={preference} />
+        <span className="nav-item-label">{copy.menu}</span>
       </button>
       {open && (
         <ul className="chrome-menu" role="menu" aria-label={copy.menu}>

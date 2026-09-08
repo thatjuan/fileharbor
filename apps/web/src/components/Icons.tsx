@@ -32,15 +32,21 @@ function Svg({ size = 16, className, children }: IconProps & { children: ReactNo
   );
 }
 
-/** Brand mark. An anchor — the "harbor" in File Harbor. */
-export function AnchorIcon(props: IconProps): JSX.Element {
+/** Brand mark. A blocky F, matching the approved 12ui candidate A. */
+export function AnchorIcon({ size = 22, className }: IconProps): JSX.Element {
   return (
-    <Svg {...props}>
-      <circle cx="12" cy="5" r="2" />
-      <line x1="12" y1="7" x2="12" y2="21" />
-      <line x1="8" y1="11" x2="16" y2="11" />
-      <path d="M4 14c0 4 3.5 7 8 7s8-3 8-7" />
-    </Svg>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      className={className}
+      aria-hidden
+    >
+      <path
+        fill="currentColor"
+        d="M5 3.5h14v4.2H11.2v3.1h7.1v4H11.2V20.5H5V3.5z"
+      />
+    </svg>
   );
 }
 

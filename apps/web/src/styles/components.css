@@ -42,7 +42,7 @@
 .top-nav {
   grid-area: nav;
   background: var(--color-surface-chrome);
-  border-bottom: 1px solid var(--color-hairline-soft);
+  box-shadow: 0 1px 0 var(--color-hairline);
 }
 
 .top-nav-inner {
@@ -66,8 +66,8 @@
   align-items: center;
   gap: var(--space-sm);
   color: var(--color-ink);
-  font-size: var(--font-size-heading);
-  font-weight: var(--font-weight-semibold);
+  font-size: 18px;
+  font-weight: var(--font-weight-bold);
 }
 
 .top-nav-brand-text {
@@ -90,7 +90,7 @@
 }
 
 .top-nav-brand-mark {
-  color: var(--color-accent);
+  color: var(--color-ink);
 }
 
 /* "Signed in as <name>" cluster on the right of the nav. */
@@ -103,17 +103,25 @@
   color: var(--color-ink-secondary);
 }
 
-.top-nav-identity-badge {
+.nav-item {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-raised);
+  gap: var(--space-xs);
   color: var(--color-ink-secondary);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-secondary);
   font-weight: var(--font-weight-medium);
+  background: none;
+  border: 0;
+  padding: 0;
+  position: relative;
+}
+
+.nav-item:hover {
+  color: var(--color-ink);
+}
+
+.top-nav-right {
+  gap: var(--space-lg);
 }
 
 /* ----- Rail ----- */
@@ -121,8 +129,8 @@
 .rail {
   grid-area: rail;
   background: var(--color-surface-rail);
-  border-right: 1px solid var(--color-hairline-soft);
-  padding: var(--space-md);
+  border-right: 1px solid var(--color-hairline);
+  padding: var(--space-xl) var(--space-md) var(--space-lg);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -138,9 +146,11 @@
 
 .rail-card-head {
   padding: 0 var(--space-xs) var(--space-sm);
-  font-size: var(--font-size-label);
+  font-size: 11px;
   font-weight: var(--font-weight-medium);
-  color: var(--color-ink-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
 }
 
 .rail-card-body {
@@ -155,8 +165,8 @@
   justify-content: space-between;
   gap: var(--space-sm);
   width: 100%;
-  padding: var(--space-xs) var(--space-xs);
-  border-radius: var(--radius-sm);
+  padding: 10px var(--space-sm);
+  border-radius: var(--radius-control);
   border: 1px solid transparent;
   color: var(--color-ink-secondary);
   font-size: var(--font-size-secondary);
@@ -171,8 +181,8 @@ button.rail-row:hover {
 
 .rail-row-active {
   border-color: transparent;
-  background: var(--color-accent-wash);
-  color: var(--color-accent);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
 }
 
 .rail-row-label {
@@ -193,7 +203,7 @@ button.rail-row:hover {
 
 /* Count coloured by what it counts, so the rail reads at a glance. */
 .rail-row-value-accent {
-  color: var(--color-accent);
+  color: var(--color-positive);
 }
 .rail-row-value-warning {
   color: var(--color-warning);
@@ -207,19 +217,25 @@ button.rail-row:hover {
 
 .rail-heading {
   padding: var(--space-sm) var(--space-xs) var(--space-xs);
-  font-size: var(--font-size-label);
+  font-size: 11px;
   font-weight: var(--font-weight-medium);
-  color: var(--color-ink-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
 }
 
 .rail > .btn {
   width: 100%;
   justify-content: flex-start;
+  min-height: 48px;
+  padding-inline: var(--space-md);
+  border-radius: var(--radius-lg);
 }
 
 .rail > .btn-ghost {
-  color: var(--color-accent);
-  border-color: color-mix(in srgb, var(--color-accent) 30%, var(--color-hairline));
+  background: var(--color-surface-card);
+  color: var(--color-ink);
+  border-color: var(--color-hairline);
 }
 
 /* ----- Workspace ----- */
@@ -234,7 +250,7 @@ button.rail-row:hover {
 
 .workspace-body {
   flex: 1;
-  padding: var(--space-lg);
+  padding: var(--space-xl) var(--space-xl) var(--space-lg);
   min-width: 0;
 }
 
@@ -315,7 +331,7 @@ button.rail-row:hover {
 }
 
 .back-link:hover {
-  color: var(--color-accent);
+  color: var(--color-ink);
 }
 
 /* ===================================================================
@@ -352,6 +368,25 @@ button.rail-row:hover {
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-panel);
   overflow: hidden;
+}
+
+/* Inventory table sits on the canvas, not in a card. */
+.panel-plain {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.panel-plain .panel-head {
+  padding-left: 0;
+  padding-right: 0;
+  border-bottom: 0;
+}
+
+.panel-plain .data-table thead th {
+  background: transparent;
 }
 
 .panel-head {
@@ -431,7 +466,7 @@ button.rail-row:hover {
 }
 
 .data-table tbody td {
-  padding: 14px var(--space-md);
+  padding: 16px var(--space-md);
   border-bottom: 1px solid var(--color-hairline-soft);
   color: var(--color-ink-secondary);
   vertical-align: middle;
@@ -545,7 +580,7 @@ button.rail-row:hover {
   align-items: center;
   justify-content: center;
   gap: var(--space-xs);
-  padding: var(--space-xs) var(--space-sm);
+  padding: 10px 14px;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   font-size: var(--font-size-secondary);
@@ -569,19 +604,19 @@ button.rail-row:hover {
 }
 
 .btn-accent:not(:disabled):hover {
-  background: color-mix(in srgb, var(--color-accent-solid) 88%, black);
-  border-color: color-mix(in srgb, var(--color-accent-solid) 88%, black);
+  background: color-mix(in srgb, var(--color-accent-solid) 82%, var(--color-canvas));
+  border-color: color-mix(in srgb, var(--color-accent-solid) 82%, var(--color-canvas));
 }
 
 .btn-soft {
-  background: var(--color-accent-wash);
+  background: var(--color-surface-raised);
   border-color: transparent;
-  color: var(--color-accent);
+  color: var(--color-ink);
   font-weight: var(--font-weight-medium);
 }
 
 .btn-soft:not(:disabled):hover {
-  background: color-mix(in srgb, var(--color-accent) 22%, var(--color-surface-panel));
+  background: color-mix(in srgb, var(--color-ink) 8%, var(--color-surface-panel));
 }
 
 .btn-ghost {
@@ -658,14 +693,18 @@ button.rail-row:hover {
 
 /* Unread marker on the notification bell. */
 .unread-dot {
-  position: absolute;
-  top: 5px;
-  right: 5px;
-  width: 7px;
-  height: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   border-radius: var(--radius-pill);
-  background: var(--color-accent);
-  box-shadow: 0 0 0 2px var(--color-surface-raised);
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
 }
 
 /* ===================================================================
@@ -708,7 +747,7 @@ button.rail-row:hover {
 .textarea,
 .select {
   width: 100%;
-  padding: 10px var(--space-sm);
+  padding: 12px var(--space-md);
   background: var(--color-surface-panel);
   border: 1px solid var(--color-hairline);
   border-radius: var(--radius-control);
@@ -767,24 +806,24 @@ button.rail-row:hover {
 }
 
 .status-active {
-  color: var(--color-accent);
+  color: var(--color-positive);
 }
 .status-active .status-dot {
-  background: var(--color-accent);
+  background: var(--color-positive);
 }
 
 .status-expired {
-  color: var(--color-danger);
+  color: var(--color-warning);
 }
 .status-expired .status-dot {
-  background: var(--color-danger);
+  background: var(--color-warning);
 }
 
 .status-quota_exhausted {
-  color: var(--color-warning);
+  color: var(--color-danger);
 }
 .status-quota_exhausted .status-dot {
-  background: var(--color-warning);
+  background: var(--color-danger);
 }
 
 .status-disabled {
@@ -797,13 +836,13 @@ button.rail-row:hover {
 /* Standalone dots, for places that show the status colour without the label
    (the rail's filter rows). Same four colours as the badges above. */
 .status-active-dot {
-  background: var(--color-accent);
+  background: var(--color-positive);
 }
 .status-expired-dot {
-  background: var(--color-danger);
+  background: var(--color-warning);
 }
 .status-quota_exhausted-dot {
-  background: var(--color-warning);
+  background: var(--color-danger);
 }
 .status-disabled-dot {
   background: var(--color-neutral);
@@ -824,14 +863,14 @@ button.rail-row:hover {
 }
 
 .chip-receive {
-  background: var(--color-accent-wash);
-  border-color: var(--color-accent-dim);
-  color: var(--color-accent);
+  background: var(--color-positive-wash);
+  border-color: transparent;
+  color: var(--color-positive);
 }
 
 .chip-send {
   background: var(--color-send-wash);
-  border-color: color-mix(in srgb, var(--color-send) 40%, transparent);
+  border-color: transparent;
   color: var(--color-send);
 }
 
@@ -878,7 +917,7 @@ button.rail-row:hover {
 
 /* The `/r/<code>` tail of the URL, highlighted so the code is findable. */
 .share-url-code {
-  color: var(--color-accent);
+  color: var(--color-ink);
 }
 
 /* ===================================================================
@@ -893,7 +932,7 @@ button.rail-row:hover {
 }
 
 .progress-track {
-  height: 3px;
+  height: 4px;
   border-radius: var(--radius-pill);
   background: var(--color-hairline);
   overflow: hidden;
@@ -901,7 +940,7 @@ button.rail-row:hover {
 
 .progress-fill {
   height: 100%;
-  background: var(--color-accent);
+  background: var(--color-positive);
   transition: width var(--motion-medium) ease;
 }
 
@@ -945,12 +984,12 @@ button.rail-row:hover {
 
 .dropzone:hover,
 .dropzone-active {
-  border-color: var(--color-accent-dim);
-  background: var(--color-accent-wash);
+  border-color: var(--color-ink-faint);
+  background: var(--color-surface-raised);
 }
 
 .dropzone-icon {
-  color: var(--color-accent);
+  color: var(--color-ink);
   margin-bottom: var(--space-xs);
 }
 
@@ -985,9 +1024,9 @@ button.rail-row:hover {
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-xxl) var(--space-xxl);
-  border: 1px dashed var(--color-accent-dim);
+  border: 1px dashed var(--color-ink-faint);
   border-radius: var(--radius-lg);
-  background: var(--color-accent-wash);
+  background: var(--color-surface-raised);
 }
 
 .drop-overlay-headline {
@@ -1150,7 +1189,7 @@ button.rail-row:hover {
 }
 
 .auth-aside-icon {
-  color: var(--color-accent);
+  color: var(--color-ink);
   flex: none;
   margin-top: 2px;
 }
@@ -1171,9 +1210,9 @@ button.rail-row:hover {
   display: flex;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--color-accent-dim);
+  border: 1px solid var(--color-hairline);
   border-radius: var(--radius-card);
-  background: var(--color-accent-wash);
+  background: var(--color-surface-raised);
   color: var(--color-ink-secondary);
   font-size: var(--font-size-micro);
   line-height: 1.6;
@@ -1322,7 +1361,7 @@ button.rail-row:hover {
 
 .chrome-menu-item[aria-checked='true'],
 .lang-menu-item[aria-checked='true'] {
-  color: var(--color-accent);
+  color: var(--color-ink);
 }
 
 .chrome-menu-item-label {
@@ -1339,6 +1378,14 @@ button.rail-row:hover {
    not. */
 
 @media (max-width: 900px) {
+  .nav-item-label {
+    display: none;
+  }
+
+  .top-nav-right {
+    gap: var(--space-sm);
+  }
+
   .app-shell {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
