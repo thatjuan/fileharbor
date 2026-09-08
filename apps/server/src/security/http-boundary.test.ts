@@ -224,6 +224,31 @@ function authApp(config: AppConfig): Hono {
   return new Hono().all('/api/auth/*', (c) => authModule.auth.handler(c.req.raw));
 }
 
+test('email-address usernames can sign in after setup', async () => {
+  const db = openDatabase(
+    ':memory:',
+    resolve(dirname(fileURLToPath(import.meta.url)), '../../drizzle'),
+  );
+  const authModule = createAuthModule(db, authConfig());
+  const app = new Hono()
+    .route('/setup', createSetupRoute(authModule, security(), new FixedWindowRateLimiter(100)))
+    .all('/api/auth/*', (c) => authModule.auth.handler(c.req.raw));
+
+  const setup = await app.request('/setup', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: 'admin@example.com', password: 'password123' }),
+  });
+  assert.equal(setup.status, 200);
+
+  const signIn = await app.request('/api/auth/sign-in/username', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: 'admin@example.com', password: 'password123' }),
+  });
+  assert.equal(signIn.status, 200);
+});
+
 test('auth sign-out accepts the proxied public host when proxy headers are trusted', async () => {
   // The reported bug: BETTER_AUTH_URL resolves to the internal origin while the
   // browser posts from the tunnel's public host.
