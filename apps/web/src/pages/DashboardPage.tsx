@@ -448,7 +448,7 @@ function LinkRow({ row, selected, busy, onToggle }: LinkRowProps): JSX.Element {
       <td>
         <span className={`chip chip-${kind}`}>
           {kind === 'receive' ? <DownloadIcon size={11} /> : <UploadIcon size={11} />}
-          {kind}
+          {kind === 'receive' ? 'Receive' : 'Send'}
         </span>
       </td>
       <td>

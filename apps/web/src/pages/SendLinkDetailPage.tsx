@@ -141,7 +141,7 @@ export function SendLinkDetailPage(): JSX.Element {
               <p className="page-head-sub">
                 <span className="chip chip-send">
                   <UploadIcon size={11} />
-                  send
+                  Send
                 </span>
                 Created {formatDateTime(data.link.createdAt)}
               </p>

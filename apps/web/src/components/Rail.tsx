@@ -99,8 +99,8 @@ export function Rail(): JSX.Element {
         </div>
       </div>
 
-      <div className="rail-heading">Create</div>
-      <Link to="/links/receive/new" className="btn btn-ghost">
+      <div className="rail-heading">Create new</div>
+      <Link to="/links/receive/new" className="btn btn-soft">
         <PlusIcon size={13} />
         New receive link
       </Link>

@@ -1,12 +1,12 @@
-# File Harbor — Harbor Console
+# File Harbor
 
 ## Overview
 
 File Harbor is a tool an operator lives in, not a product they get sold. The
-interface is an **operator console**: a near-black or paper canvas in the
-same cool green-gray family, monospace throughout, one green accent, and
-dense tables that stay legible after an hour of reading. Nothing on screen
-is decorative, and nothing on screen is invented — every number the console
+interface is a **quiet harbor office**: Inter for reading, a near-white
+canvas with white cards, one forest-green accent, and tables with enough
+air that a long session does not feel like a terminal. Nothing on screen
+is decorative, and nothing on screen is invented — every number the product
 prints is one the server actually returned.
 
 The chassis is fixed and the content scrolls. A slim top nav carries the
@@ -17,19 +17,18 @@ of a long table without losing the counts or the create actions.
 
 **Key characteristics:**
 
-- Monospace everywhere (IBM Plex Mono). Short codes, byte counts, timestamps
-  and labels all share one grid, which is what makes the tables scannable.
-- A six-step surface ladder in one hue family, each step a few points apart.
-  Depth reads as a change in weight, never as a change in hue. Dark is
-  near-black; light is paper. Nearer surfaces are always lighter.
-- Green is the single interactive accent. Blue marks the send/download
-  direction, so a mixed list is readable without parsing the word.
-- Caps and wide tracking mark chrome (column heads, field labels, rail
-  headings). Content is never in caps.
-- One elevation. `.panel` casts the only shadow in the system.
+- Inter for words. Roboto Mono only for short codes. Tables stay scannable
+  because labels are sentence-case and rows are tall, not because every
+  glyph sits on a coding grid.
+- Light-first: `#fefdfd` canvas, white rail/nav/cards, `#e7e7e7` hairlines.
+  Dark is the same roles at night, not a CRT restyle.
+- Forest green (`#137c43` solid, `#28704d` text) is the single interactive
+  accent. A quieter blue marks the send/download direction.
+- Sentence-case chrome. Column heads, field labels, and rail headings read
+  as English, not as a mainframe panel.
+- One quiet elevation. `.panel` casts `0 1px 3px` and nothing else.
 - No gradients, no imagery, no illustration, no second accent.
 - Light and dark, switchable. Default follows the OS (`prefers-color-scheme`).
-  See "Light and dark" below.
 
 ## Colors
 
@@ -38,21 +37,22 @@ keep the same names; the hexes change with `data-theme` on `<html>`.
 
 ### Surfaces
 
-A ladder, not a palette. Every surface sits in the same cool green-gray
-hue family; the steps are small so a nested container reads as _slightly
-nearer_ rather than as a different material. Nearer is always lighter.
+Light is white cards on a near-white page. Dark is the same idea on a
+near-black page. Surfaces are distinguished by hairlines, not by a
+six-step CRT ladder.
 
-Dark (near-black):
+Light:
 
-- **Canvas** (`{colors.canvas}` — #090c0e): the page itself.
-- **Rail** (`{colors.surface-rail}` — #0c1012): the left column.
-- **Chrome** (`{colors.surface-chrome}` — #0d1113): top nav, footer, table
-  header rows.
-- **Panel** (`{colors.surface-panel}` — #0e1315): table and list containers.
-- **Card** (`{colors.surface-card}` — #0f1416): rail cards, form sections,
-  meta strips, share blocks.
-- **Raised** (`{colors.surface-raised}` — #131719): inputs, chips, count
-  badges, hovered rows.
+- **Canvas** (`{colors.canvas}` — #fefdfd): the page itself.
+- **Rail / chrome / panel / card** — #ffffff.
+- **Raised** (`{colors.surface-raised}` — #fafafa): hovered rows, chips.
+
+Dark:
+
+- **Canvas** — #111413.
+- **Rail / chrome** — #161a18.
+- **Panel / card** — #1c211e.
+- **Raised** — #242a27.
 
 Light (paper):
 
@@ -70,23 +70,23 @@ boxes. Light hairlines are a step stronger than dark ones, because paper
 needs more edge to separate surfaces that are only a few points apart.
 
 - **Hairline** (`{colors.hairline}`): separates a container from the canvas.
-  Dark #2a3032 · light #b7c0bb.
+  Light #e7e7e7 · dark #2c3430.
 - **Hairline soft** (`{colors.hairline-soft}`): separates rows inside a
-  container. Dark #1c2224 · light #d0d7d2.
+  container. Light #ececec · dark #232a27.
 
 ### Text
 
 Four steps. Anything below `muted` is decoration, not content. Neither
 theme uses pure white or pure black — those glare over a long session.
 
-- **Ink** (`{colors.ink}`): primary reading colour. Dark #d8dad7 · light
-  #1c221f.
+- **Ink** (`{colors.ink}`): primary reading colour. Light #191919 · dark
+  #f2f4f2.
 - **Ink secondary** (`{colors.ink-secondary}`): table cells, supporting
-  copy. Dark #aeb1b0 · light #3e4742.
+  copy. Light #393939 · dark #c5cbc6.
 - **Ink muted** (`{colors.ink-muted}`): labels, captions, placeholders.
-  Dark #909896 · light #5e6863.
-- **Ink faint** (`{colors.ink-faint}`): disabled text, fine print. Dark
-  #5d6664 · light #8b948e.
+  Light #555555 · dark #8b938e.
+- **Ink faint** (`{colors.ink-faint}`): disabled text, fine print. Light
+  #8b8b8b · dark #6b746f.
 
 ### Accent and status
 
@@ -94,18 +94,18 @@ The roles are identical in both themes. Light values are darkened so a
 14px label still clears contrast against the paper canvas.
 
 - **Accent** (`{colors.accent}`): the single interactive colour. Links,
-  primary buttons, focus rings, active status. Dark #62c75a · light
-  #247a30. Dimmed (`{colors.accent-dim}`) for borders and washed
-  (`{colors.accent-wash}` — 12% alpha) for fills.
+  focus rings, active status, quiet fills. Light #28704d · dark #3dba7a.
+  Solid buttons use `{colors.accent-solid}` (#137c43) with white type.
+  Washed (`{colors.accent-wash}`) for selected rail rows and receive chips.
 - **Send** (`{colors.send}`): the send/download direction only. It is an
   axis marker, not a second brand colour — it never appears on a button
-  or a link. Dark #4699e5 · light #1a6fa8.
-- **Warning** (`{colors.warning}`): quota exhausted. Dark #edb719 · light
-  #8a6700.
-- **Danger** (`{colors.danger}`): expired links, destructive actions. Dark
-  #e2573f · light #c13c28.
+  or a link. Light #3d6a8a · dark #6aa3d4.
+- **Warning** (`{colors.warning}`): quota exhausted. Light #c47b12 · dark
+  #e0a04a.
+- **Danger** (`{colors.danger}`): expired links, destructive actions. Light
+  #e24b3c · dark #e24b3c.
 - **Neutral** (`{colors.neutral}`): disabled links — the absence of a
-  state rather than a state of its own. Dark #6d7674 · light #5c6562.
+  state rather than a state of its own. Light #6b6b6b · dark #7a847f.
 
 Each status colour also has a 12–14% wash used for chip and button fills.
 Status text stays close to its hue but never so saturated that it becomes
@@ -116,39 +116,34 @@ carries the meaning.
 
 ### Font family
 
-`IBM Plex Mono`, falling back through `ui-monospace`, `SFMono-Regular`,
-`Roboto Mono`, `Menlo`. Self-hosted via `@fontsource/ibm-plex-mono` at
-weights 400, 500 and 600.
+`Inter` at 400 / 500 / 600 for everything an operator reads. `Roboto Mono`
+at 400 / 500 only for short codes. Both self-hosted via `@fontsource`.
 
-Monospace is the whole voice of the product. A proportional face for prose
-would break the column alignment that makes a link table readable at a
-glance, and the console has very little prose to begin with.
+A proportional face is the point: the old CRT look made every label feel
+like a syslog. Codes stay mono so they still look like data.
 
 ### Hierarchy
 
 | Token                     | Size | Line height | Use                                   |
 | ------------------------- | ---- | ----------- | ------------------------------------- |
-| `{typography.title}`      | 20px | 1.30        | Page title (`h1`), weight 600         |
-| `{typography.heading}`    | 17px | 1.35        | Section heading (`h2`), wordmark      |
+| `{typography.title}`      | 22px | 1.30        | Page title (`h1`), weight 600         |
+| `{typography.heading}`    | 16px | 1.35        | Section heading (`h2`), wordmark      |
 | `{typography.subheading}` | 15px | 1.40        | Sub-heading (`h3`), empty-state title |
-| `{typography.body}`       | 14px | 1.55        | Default body                          |
-| `{typography.secondary}`  | 13px | 1.50        | Table cells, buttons, inputs, links   |
-| `{typography.label}`      | 12px | 1.40        | Caps labels, panel titles             |
-| `{typography.micro}`      | 11px | 1.35        | Column heads, hints, fine print       |
+| `{typography.body}`       | 14px | 1.50        | Default body, table cells, buttons    |
+| `{typography.secondary}`  | 14px | 1.45        | Supporting copy                       |
+| `{typography.label}`      | 13px | 1.40        | Field labels, rail headings           |
+| `{typography.micro}`      | 12px | 1.35        | Column heads, hints, fine print       |
 
-Weights: 400 default, 500 for emphasis, 600 for page titles only.
+Weights: 400 default, 500 for labels and emphasis, 600 for titles and the
+wordmark.
 
 ### Principles
 
-- **Mono runs large.** The body step sits at 14px and the display steps stay
-  restrained: a 20px title is a big title here. Borrowing a proportional
-  type scale would make every screen shout.
-- **Caps + tracking (`0.08em`) marks chrome.** Column heads, field labels,
-  rail headings, panel titles. It signals "this is a name for the thing
-  below", never content the operator reads for meaning.
+- **Sentence case for chrome.** Column heads, field labels, rail headings.
+  Caps tracking is gone.
+- **Mono is a data face.** Short codes only. Not timestamps, not labels.
 - **Tabular numerals on anything countable.** Quota columns, byte counts,
-  dates and counts all carry `font-variant-numeric: tabular-nums` so digits
-  line up down the column.
+  dates and counts carry `font-variant-numeric: tabular-nums`.
 
 ## Layout
 
@@ -159,13 +154,13 @@ Weights: 400 default, 500 for emphasis, 600 for page titles only.
 `{spacing.xxl}` 48.
 
 Workspace padding is `lg`. Panel and card interiors are `md` and `lg`
-respectively. Table cells are `sm` vertical / `md` horizontal — the density
-that keeps twenty rows on screen without them touching.
+respectively. Table cells are 14px vertical / 16px horizontal — dense
+enough for a long inventory, tall enough to read.
 
 ### Shell
 
-- Top nav: 52px, fixed.
-- Left rail: 260px, fixed, scrolls independently.
+- Top nav: 64px, fixed.
+- Left rail: 280px, fixed, scrolls independently.
 - Workspace: the only scrolling region, max width 1460px.
 - Below 900px the rail stops being a column and becomes a horizontally
   scrolling strip above the content. The counts are still worth seeing; the
@@ -173,19 +168,16 @@ that keeps twenty rows on screen without them touching.
 
 ### Radius
 
-`{rounded.xs}` 4 · `{rounded.sm}` 5 · `{rounded.card}` 6 ·
-`{rounded.control}` 7 · `{rounded.lg}` 8 · `{rounded.pill}` full.
+`{rounded.xs}` 4 · `{rounded.sm}` 6 · `{rounded.card}` 8 ·
+`{rounded.control}` 8 · `{rounded.lg}` 10 · `{rounded.pill}` full.
 
-Containers use 6, controls use 7, and dots use full. Nothing in the console
-is more rounded than 8px.
+Cards and controls share 8px. Dots use full.
 
 ### Elevation
 
-One shadow, same offset in both themes, applied to `.panel` and to
-floating menus: dark `0 7px 3px rgba(0, 0, 0, 0.4)`, light
-`0 7px 3px rgba(28, 34, 31, 0.12)`. Cards, inputs, buttons and chips are
-flat — they are distinguished by their surface step and hairline, not by
-depth.
+One quiet shadow on `.panel` and floating menus: light
+`0 1px 3px rgba(0, 0, 0, 0.04)`, dark `0 1px 3px rgba(0, 0, 0, 0.35)`.
+Hairlines do the rest.
 
 ## Components
 
@@ -199,8 +191,8 @@ the single source of truth. In summary:
 - **Tables** — `.data-table` with `.num` `.cell-strong` `.cell-code`
   `.cell-actions` `.data-table-message`
 - **Meta strip** — `.meta-strip` `.meta-item` `.meta-label` `.meta-value`
-- **Buttons** — `.btn` × `.btn-accent` `.btn-ghost` `.btn-danger`, plus
-  `.btn-icon` and `.btn-icon-bare`
+- **Buttons** — `.btn` × `.btn-accent` `.btn-soft` `.btn-ghost` `.btn-danger`,
+  plus `.btn-icon` and `.btn-icon-bare`
 - **Inputs** — `.field` `.field-label` `.input` `.textarea` `.field-row`
 - **Status** — `<StatusBadge>` (`.status` + state), `.chip-receive`,
   `.chip-send`
@@ -218,8 +210,9 @@ the single source of truth. In summary:
 
 Four roles and no more:
 
-- **Accent** — the single primary action on a screen. If two buttons on one
-  screen are accent, one of them is wrong.
+- **Accent** — the single primary action on a screen (solid green, white
+  type). If two buttons on one screen are accent, one of them is wrong.
+- **Soft** — a quieter green fill, used for "New receive link" in the rail.
 - **Ghost** — everything else, including Cancel and secondary navigation.
 - **Danger** — destructive only (Revoke, Delete).
 - **Icon** — chrome (the notification bell) and per-row actions.
@@ -251,13 +244,9 @@ information the visitor needs to complete their transfer.
 
 ### Light and dark
 
-The console is a working surface read for long stretches. Dark was the
-original skin: a near-black canvas with status colours tuned against
-#090c0e, and a six-step ladder doing the work that borders and shadows
-would otherwise have to do. Light is not an invert of that — it is the
-same roles retuned against paper, so a 14px accent label and a hairline
-still separate. Both palettes live in `tokens.css`, switched by
-`data-theme` on `<html>`.
+Light is the designed default of this visual language (12ui candidate A).
+Dark keeps the same roles at night. Both palettes live in `tokens.css`,
+switched by `data-theme` on `<html>`.
 
 The stored preference is `system | light | dark` under `fh:theme`.
 Default is `system`, which follows `prefers-color-scheme` and tracks it
@@ -275,6 +264,6 @@ pages — same three options everywhere.
   step.
 - Do not add a second accent. Blue is the direction axis; it is not
   available for emphasis.
-- Do not add a shadow. Depth comes from the surface ladder.
+- Do not add a second shadow. `--shadow-panel` is the only elevation.
 - Keep hover states subtle: a surface step, a border tint. The focus ring is
   handled globally and should not be redefined per component.

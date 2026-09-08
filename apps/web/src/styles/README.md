@@ -24,14 +24,11 @@ redefine tokens and do not add grammar.
 
 ## Fonts
 
-IBM Plex Mono, self-hosted via `@fontsource/ibm-plex-mono` at weights 400,
-500 and 600 (imported in `main.tsx`). The stack falls back through
-`ui-monospace`, `SFMono-Regular`, `Roboto Mono`, `Menlo`.
+Inter at 400 / 500 / 600 for reading, self-hosted via `@fontsource/inter`.
+Roboto Mono at 400 / 500 only for short codes, via `@fontsource/roboto-mono`.
 
-The console is monospace end to end. That is not a stylistic tic: short
-codes, byte counts, timestamps and quota figures all sit in table columns,
-and a proportional face would break the alignment that makes those columns
-readable at a glance.
+A proportional face is the voice of the product. Mono is reserved for
+link codes so they still look like data.
 
 ## Light and dark
 

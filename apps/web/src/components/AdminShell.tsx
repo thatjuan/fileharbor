@@ -56,13 +56,18 @@ function TopNav(): JSX.Element {
       <div className="top-nav-inner">
         <div className="top-nav-left">
           <Link to="/" className="top-nav-brand">
-            <AnchorIcon size={16} className="top-nav-brand-mark" />
-            File Harbor
+            <AnchorIcon size={22} className="top-nav-brand-mark" />
+            <span className="top-nav-brand-text">
+              File Harbor
+              <span className="top-nav-brand-tag">self-hosted file send/receive</span>
+            </span>
           </Link>
         </div>
         <div className="top-nav-right">
           <span className="top-nav-identity">
-            <span className="top-nav-identity-dot" aria-hidden />
+            <span className="top-nav-identity-badge" aria-hidden>
+              {initials(displayName)}
+            </span>
             {displayName}
           </span>
           <button type="button" className="text-link small" onClick={() => void onSignOut()}>
@@ -76,10 +81,19 @@ function TopNav(): JSX.Element {
   );
 }
 
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  if (first === undefined) return 'FH';
+  if (last === undefined || last === first) return first.slice(0, 2).toUpperCase();
+  return (first.slice(0, 1) + last.slice(0, 1)).toUpperCase();
+}
+
 function Footer(): JSX.Element {
   return (
     <footer className="app-footer">
-      <span>File Harbor — self-hosted file send / receive. MIT licensed.</span>
+      <span>File Harbor. Self-hosted file send/receive. MIT licensed.</span>
       <span className="row">
         <a href="https://github.com/thatjuan/fileharbor" target="_blank" rel="noreferrer">
           GitHub
