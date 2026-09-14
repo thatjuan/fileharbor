@@ -1003,6 +1003,67 @@ button.rail-row:hover {
   font-size: var(--font-size-secondary);
 }
 
+.receive-batch-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.receive-progress-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.receive-upload-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-hairline-soft);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-panel);
+  list-style: none;
+  overflow: hidden;
+}
+
+.receive-upload-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  min-width: 0;
+  padding: var(--space-sm) var(--space-md);
+}
+
+.receive-upload-row + .receive-upload-row {
+  border-top: 1px solid var(--color-hairline-soft);
+}
+
+.receive-upload-name {
+  min-width: 0;
+  color: var(--color-ink);
+  font-size: var(--font-size-secondary);
+  overflow-wrap: anywhere;
+}
+
+.receive-upload-status {
+  flex: none;
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-micro);
+  white-space: nowrap;
+}
+
+.receive-upload-status-completed {
+  color: var(--color-positive);
+}
+
+.receive-upload-status-failed,
+.receive-upload-status-cancelled {
+  color: var(--color-danger);
+}
+
 /* Full-viewport sheet shown while files are dragged over the window. */
 .drop-overlay {
   position: fixed;
