@@ -15,10 +15,43 @@ import {
   deleteReceiveLink,
   getFileDownload,
   getReceiveLink,
+  receiveLinkArchiveUrl,
   updateReceiveLink,
   type FileRecord,
   type ReceiveLink,
 } from '../lib/api.js';
+
+export function ReceiveFilesDownloadAction(props: {
+  files: readonly FileRecord[];
+  receiveLinkId: string;
+  onDownloadFile: (fileId: string) => void;
+}): JSX.Element | null {
+  if (props.files.length === 0) return null;
+  if (props.files.length === 1) {
+    return (
+      <button
+        type="button"
+        className="btn btn-ghost"
+        onClick={() => props.onDownloadFile(props.files[0]!.id)}
+      >
+        <DownloadIcon size={13} />
+        Download file
+      </button>
+    );
+  }
+  return (
+    <a
+      className="btn btn-ghost"
+      href={receiveLinkArchiveUrl(props.receiveLinkId)}
+      target="_blank"
+      rel="noopener"
+      aria-label="Download all files as a ZIP; opens a new tab to start the download"
+    >
+      <DownloadIcon size={13} />
+      Download all as ZIP
+    </a>
+  );
+}
 
 /**
  * Receive link detail. Shows the shareable URL (with a copy button), the
@@ -274,6 +307,11 @@ export function ReceiveLinkDetailPage(): JSX.Element {
                 Files
                 <span className="panel-count">{data.files.length}</span>
               </span>
+              <ReceiveFilesDownloadAction
+                files={data.files}
+                receiveLinkId={data.link.id}
+                onDownloadFile={(fileId) => void onDownloadFile(fileId)}
+              />
             </div>
 
             {data.files.length === 0 ? (

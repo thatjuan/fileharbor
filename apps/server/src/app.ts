@@ -123,7 +123,10 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
     api.use(prefix, adminOriginGuard);
     api.use(`${prefix}/*`, adminOriginGuard);
   }
-  api.route('/receive-links', createReceiveLinksRoute(authModule, receiveLinksModule, filesModule));
+  api.route(
+    '/receive-links',
+    createReceiveLinksRoute(authModule, receiveLinksModule, filesModule, storage),
+  );
   api.route(
     '/send-links',
     createSendLinksRoute(authModule, sendLinksModule, uploadTicketsModule, filesModule),

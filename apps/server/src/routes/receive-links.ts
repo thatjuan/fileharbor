@@ -1,8 +1,13 @@
+import { Readable } from 'node:stream';
 import { Hono } from 'hono';
 
 import type { AuthModule } from '../auth/index.js';
 import { requireAdmin, type AdminContext } from '../auth/middleware.js';
 import type { FilesModule } from '../files/files.js';
+import {
+  ArchivePreparationError,
+  createReceiveLinkArchive,
+} from '../files/receive-link-archive.js';
 import { logServerError, messageFromAllowedError } from '../http/errors.js';
 import { evaluateReceiveLink } from '../links/policy/index.js';
 import type {
@@ -10,6 +15,7 @@ import type {
   ReceiveLinksModule,
   UpdateReceiveLinkInput,
 } from '../links/receive-links.js';
+import type { StorageProvider } from '../storage/index.js';
 
 interface CreateBody {
   label?: unknown;
@@ -131,10 +137,17 @@ export function createReceiveLinksRoute(
   authModule: AuthModule,
   receiveLinksModule: ReceiveLinksModule,
   filesModule: FilesModule,
+  storage: StorageProvider,
 ): Hono<AdminContext> {
   const route = new Hono<AdminContext>();
 
   route.use('*', requireAdmin(authModule));
+  route.use('/:id/download', async (c, next) => {
+    if (c.req.method === 'HEAD') {
+      return c.body(null, 405, { Allow: 'GET', 'Cache-Control': 'private, no-store' });
+    }
+    await next();
+  });
 
   route.post('/', async (c) => {
     let body: CreateBody;
@@ -173,6 +186,42 @@ export function createReceiveLinksRoute(
       }),
     );
     return c.json({ links: enriched });
+  });
+
+  route.get('/:id/download', async (c) => {
+    const id = c.req.param('id');
+    const link = await receiveLinksModule.getById(id);
+    if (!link) return c.json({ error: 'not_found' }, 404);
+
+    const files = (await filesModule.listForReceiveLink(link.id)).filter(
+      (file) => file.receiveLinkId === link.id,
+    );
+    if (files.length === 0) return c.json({ error: 'no_files' }, 409);
+
+    try {
+      const archive = await createReceiveLinkArchive({
+        receiveLinkId: link.id,
+        files,
+        storage,
+        signal: c.req.raw.signal,
+      });
+      return new Response(Readable.toWeb(archive), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename="receive-${link.code}.zip"`,
+          'Cache-Control': 'private, no-store',
+        },
+      });
+    } catch (error: unknown) {
+      if (error instanceof ArchivePreparationError) {
+        const status =
+          error.code === 'storage_unavailable' ? 503 : error.code === 'internal_error' ? 500 : 409;
+        return c.json({ error: error.code }, status);
+      }
+      logServerError('receive_links.archive_prepare_failed', 'internal_error', { id });
+      return c.json({ error: 'internal_error' }, 500);
+    }
   });
 
   route.get('/:id', async (c) => {
