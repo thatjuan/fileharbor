@@ -12,7 +12,9 @@ import { openDatabase } from '../db/client.js';
 import { createAdminOriginGuard } from './origin.js';
 import { FixedWindowRateLimiter } from './rate-limit.js';
 import { createSetupRoute } from '../routes/setup.js';
+import { createPublicReceiveLinksRoute } from '../routes/public-receive-links.js';
 import { createPublicUploadTicketsRoute } from '../routes/public-upload-tickets.js';
+import type { ReceiveLinksModule } from '../links/receive-links.js';
 import type { UploadTicketsModule } from '../tickets/upload-tickets.js';
 
 function security(overrides: Partial<SecurityConfig> = {}): SecurityConfig {
@@ -24,6 +26,7 @@ function security(overrides: Partial<SecurityConfig> = {}): SecurityConfig {
       auth: { max: 10, windowSeconds: 300 },
       setup: { max: 1, windowSeconds: 900 },
       publicLink: { max: 10, windowSeconds: 300 },
+      publicUpload: { max: 1_000, windowSeconds: 300 },
       publicTicket: { max: 10, windowSeconds: 60 },
       publicPartUrls: { max: 10, windowSeconds: 60 },
       publicConfirm: { max: 10, windowSeconds: 60 },
@@ -101,6 +104,128 @@ test('public multipart part URLs use body password and reject query password', a
   );
   assert.equal(get.status, 400);
   assert.deepEqual(await get.json(), { error: 'password_in_query_not_allowed' });
+});
+
+test('public receive links admit hundreds of successful upload tickets', async () => {
+  let created = 0;
+  const uploadTicketsModule = {
+    async createForReceiveLink() {
+      created += 1;
+      return {
+        kind: 'ok',
+        value: {
+          ticketId: `ticket-${created}`,
+          presignedPutUrl: 'https://storage.example/upload',
+          expiresAt: new Date(0),
+        },
+      };
+    },
+  } as unknown as UploadTicketsModule;
+  const route = createPublicReceiveLinksRoute(
+    {} as ReceiveLinksModule,
+    uploadTicketsModule,
+    security(),
+    new FixedWindowRateLimiter(2_000),
+  );
+  const app = new Hono().route('/receive-links', route);
+
+  for (let index = 0; index < 500; index += 1) {
+    const response = await app.request('/receive-links/BULK/upload-tickets', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        filename: `${index}.txt`,
+        contentType: 'text/plain',
+        size: 1,
+      }),
+    });
+    assert.equal(response.status, 200);
+  }
+  assert.equal(created, 500);
+});
+
+test('public receive links retain a bounded bulk-upload limit', async () => {
+  let created = 0;
+  const uploadTicketsModule = {
+    async createForReceiveLink() {
+      created += 1;
+      return {
+        kind: 'ok',
+        value: {
+          ticketId: `ticket-${created}`,
+          presignedPutUrl: 'https://storage.example/upload',
+          expiresAt: new Date(0),
+        },
+      };
+    },
+  } as unknown as UploadTicketsModule;
+  const config = security();
+  config.rateLimit.publicUpload = { max: 2, windowSeconds: 300 };
+  const route = createPublicReceiveLinksRoute(
+    {} as ReceiveLinksModule,
+    uploadTicketsModule,
+    config,
+    new FixedWindowRateLimiter(100),
+  );
+  const app = new Hono().route('/receive-links', route);
+  const request = async (): Promise<Response> =>
+    await app.request('/receive-links/BULK/upload-tickets', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ filename: 'file.txt', contentType: 'text/plain', size: 1 }),
+    });
+
+  assert.equal((await request()).status, 200);
+  assert.equal((await request()).status, 200);
+  assert.equal((await request()).status, 429);
+  assert.equal(created, 2);
+});
+
+test('successful uploads do not consume the password-failure limit', async () => {
+  let attempts = 0;
+  const uploadTicketsModule = {
+    async createForReceiveLink(input: Parameters<UploadTicketsModule['createForReceiveLink']>[0]) {
+      attempts += 1;
+      if (input.providedPassword === 'correct') {
+        return {
+          kind: 'ok',
+          value: {
+            ticketId: `ticket-${attempts}`,
+            presignedPutUrl: 'https://storage.example/upload',
+            expiresAt: new Date(0),
+          },
+        };
+      }
+      return { kind: 'policy_rejected', policy: { kind: 'password_wrong' } };
+    },
+  } as unknown as UploadTicketsModule;
+  const config = security();
+  config.rateLimit.publicLink = { max: 2, windowSeconds: 300 };
+  const route = createPublicReceiveLinksRoute(
+    {} as ReceiveLinksModule,
+    uploadTicketsModule,
+    config,
+    new FixedWindowRateLimiter(100),
+  );
+  const app = new Hono().route('/receive-links', route);
+  const request = async (password: string): Promise<Response> =>
+    await app.request('/receive-links/LOCKED/upload-tickets', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        filename: 'file.txt',
+        contentType: 'text/plain',
+        size: 1,
+        password,
+      }),
+    });
+
+  assert.equal((await request('correct')).status, 200);
+  assert.equal((await request('correct')).status, 200);
+  assert.equal((await request('wrong')).status, 403);
+  assert.equal((await request('wrong')).status, 403);
+  assert.equal((await request('wrong')).status, 429);
+  assert.equal(attempts, 4);
 });
 
 function originGuardConfig(

@@ -42,6 +42,7 @@ export interface RateLimitConfig {
   auth: WindowLimitConfig;
   setup: WindowLimitConfig;
   publicLink: WindowLimitConfig;
+  publicUpload: WindowLimitConfig;
   publicTicket: WindowLimitConfig;
   publicPartUrls: WindowLimitConfig;
   publicConfirm: WindowLimitConfig;
@@ -684,12 +685,21 @@ function resolveSecurityConfig(
         8,
         300,
       ),
+      // Receive links are intentionally capable of accepting large serial
+      // queues. Password failures still use the stricter publicLink bucket.
+      publicUpload: parseLimit(
+        env,
+        'RATE_LIMIT_PUBLIC_UPLOAD_MAX',
+        'RATE_LIMIT_PUBLIC_UPLOAD_WINDOW_SECONDS',
+        1_000,
+        300,
+      ),
       publicTicket: parseLimit(
         env,
         'RATE_LIMIT_PUBLIC_TICKET_MAX',
         'RATE_LIMIT_PUBLIC_TICKET_WINDOW_SECONDS',
-        60,
-        60,
+        2_000,
+        300,
       ),
       publicPartUrls: parseLimit(
         env,

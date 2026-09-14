@@ -30,6 +30,7 @@ function baseConfig(storage: AppConfig['storage']): AppConfig {
         auth: { max: 1, windowSeconds: 1 },
         setup: { max: 1, windowSeconds: 1 },
         publicLink: { max: 1, windowSeconds: 1 },
+        publicUpload: { max: 1, windowSeconds: 1 },
         publicTicket: { max: 1, windowSeconds: 1 },
         publicPartUrls: { max: 1, windowSeconds: 1 },
         publicConfirm: { max: 1, windowSeconds: 1 },
