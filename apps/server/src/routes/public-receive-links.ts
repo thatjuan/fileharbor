@@ -1,9 +1,13 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 
 import type { SecurityConfig } from '../config.js';
 import type { ReceiveLinksModule } from '../links/receive-links.js';
 import { clientIpFor } from '../security/client-ip.js';
-import { enforceRateLimit, type FixedWindowRateLimiter } from '../security/rate-limit.js';
+import {
+  enforceRateLimit,
+  rejectIfRateLimitReached,
+  type FixedWindowRateLimiter,
+} from '../security/rate-limit.js';
 import type { UploadTicketsModule } from '../tickets/upload-tickets.js';
 
 interface UploadTicketBody {
@@ -18,6 +22,44 @@ interface MultipartInitBody {
   contentType?: unknown;
   size?: unknown;
   password?: unknown;
+}
+
+function passwordFailureKey(ip: string, code: string): string {
+  return `public-upload-password:${ip}:${code}`;
+}
+
+/**
+ * Bulk uploads get a generous bounded bucket. The stricter per-link bucket is
+ * inspected without consuming it; only missing or wrong passwords consume it.
+ */
+function enforceUploadAdmission(
+  c: Context,
+  code: string,
+  security: SecurityConfig,
+  limiter: FixedWindowRateLimiter,
+): Response | null {
+  const ip = clientIpFor(c, security);
+  const bulkLimited = enforceRateLimit(c, security, limiter, [
+    { key: `public-upload:${ip}`, limit: security.rateLimit.publicUpload },
+    { key: `public-upload:${ip}:${code}`, limit: security.rateLimit.publicUpload },
+  ]);
+  if (bulkLimited) return bulkLimited;
+
+  return rejectIfRateLimitReached(c, security, limiter, [
+    { key: passwordFailureKey(ip, code), limit: security.rateLimit.publicLink },
+  ]);
+}
+
+function recordPasswordFailure(
+  c: Context,
+  code: string,
+  security: SecurityConfig,
+  limiter: FixedWindowRateLimiter,
+): Response | null {
+  const ip = clientIpFor(c, security);
+  return enforceRateLimit(c, security, limiter, [
+    { key: passwordFailureKey(ip, code), limit: security.rateLimit.publicLink },
+  ]);
 }
 
 /**
@@ -62,11 +104,7 @@ export function createPublicReceiveLinksRoute(
 
   route.post('/:code/upload-tickets', async (c) => {
     const code = c.req.param('code');
-    const ip = clientIpFor(c, security);
-    const limited = enforceRateLimit(c, security, limiter, [
-      { key: `public-link:${ip}:${code}`, limit: security.rateLimit.publicLink },
-      { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
-    ]);
+    const limited = enforceUploadAdmission(c, code, security, limiter);
     if (limited) return limited;
 
     let body: UploadTicketBody;
@@ -103,18 +141,22 @@ export function createPublicReceiveLinksRoute(
         return c.json({ error: 'not_found' }, 404);
       case 'invalid_input':
         return c.json({ error: 'invalid_input', message: outcome.reason }, 400);
-      case 'policy_rejected':
+      case 'policy_rejected': {
+        if (
+          outcome.policy.kind === 'password_required' ||
+          outcome.policy.kind === 'password_wrong'
+        ) {
+          const passwordLimited = recordPasswordFailure(c, code, security, limiter);
+          if (passwordLimited) return passwordLimited;
+        }
         return c.json({ error: outcome.policy.kind }, 403);
+      }
     }
   });
 
   route.post('/:code/upload/multipart/init', async (c) => {
     const code = c.req.param('code');
-    const ip = clientIpFor(c, security);
-    const limited = enforceRateLimit(c, security, limiter, [
-      { key: `public-link:${ip}:${code}`, limit: security.rateLimit.publicLink },
-      { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
-    ]);
+    const limited = enforceUploadAdmission(c, code, security, limiter);
     if (limited) return limited;
 
     let body: MultipartInitBody;
@@ -157,8 +199,16 @@ export function createPublicReceiveLinksRoute(
         return c.json({ error: 'not_found' }, 404);
       case 'invalid_input':
         return c.json({ error: 'invalid_input', message: outcome.reason }, 400);
-      case 'policy_rejected':
+      case 'policy_rejected': {
+        if (
+          outcome.policy.kind === 'password_required' ||
+          outcome.policy.kind === 'password_wrong'
+        ) {
+          const passwordLimited = recordPasswordFailure(c, code, security, limiter);
+          if (passwordLimited) return passwordLimited;
+        }
         return c.json({ error: outcome.policy.kind }, 403);
+      }
     }
   });
 

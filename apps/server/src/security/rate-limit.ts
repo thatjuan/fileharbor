@@ -40,6 +40,21 @@ export class FixedWindowRateLimiter {
     return { allowed: true, retryAfterSeconds };
   }
 
+  /** Checks a bucket without consuming capacity or creating a new bucket. */
+  public inspect(key: string, limit: WindowLimitConfig, nowMs = Date.now()): RateLimitResult {
+    this.pruneExpired(nowMs);
+
+    const existing = this.buckets.get(key);
+    if (!existing) {
+      return { allowed: true, retryAfterSeconds: limit.windowSeconds };
+    }
+
+    return {
+      allowed: existing.count < limit.max,
+      retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAtMs - nowMs) / 1000)),
+    };
+  }
+
   public size(): number {
     return this.buckets.size;
   }
@@ -108,6 +123,25 @@ export function enforceRateLimit(
 
   for (const check of checks) {
     const result = limiter.consume(check.key, check.limit);
+    if (!result.allowed) {
+      c.header('Retry-After', String(result.retryAfterSeconds));
+      return c.json(rateLimitedBody, 429);
+    }
+  }
+  return null;
+}
+
+/** Rejects a request only when a previously consumed bucket is already full. */
+export function rejectIfRateLimitReached(
+  c: Context,
+  security: SecurityConfig,
+  limiter: FixedWindowRateLimiter,
+  checks: RateLimitCheck[],
+): Response | null {
+  if (!security.rateLimit.enabled) return null;
+
+  for (const check of checks) {
+    const result = limiter.inspect(check.key, check.limit);
     if (!result.allowed) {
       c.header('Retry-After', String(result.retryAfterSeconds));
       return c.json(rateLimitedBody, 429);
