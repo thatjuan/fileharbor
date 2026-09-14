@@ -11,6 +11,7 @@ import {
   UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { Readable } from 'node:stream';
 
 import type { S3StorageConfig } from '../config.js';
 import type { PresignedUrl, StorageProvider } from './index.js';
@@ -21,16 +22,21 @@ import type { PresignedUrl, StorageProvider } from './index.js';
  * through the `StorageProvider` interface, so swapping provider, region, or
  * path-style behaviour is a single-file change.
  */
-export function createS3StorageProvider(config: S3StorageConfig): StorageProvider {
-  const client = new S3Client({
-    endpoint: config.endpoint,
-    region: config.region,
-    credentials: {
-      accessKeyId: config.accessKeyId,
-      secretAccessKey: config.secretAccessKey,
-    },
-    forcePathStyle: config.forcePathStyle,
-  });
+export function createS3StorageProvider(
+  config: S3StorageConfig,
+  clientOverride?: S3Client,
+): StorageProvider {
+  const client =
+    clientOverride ??
+    new S3Client({
+      endpoint: config.endpoint,
+      region: config.region,
+      credentials: {
+        accessKeyId: config.accessKeyId,
+        secretAccessKey: config.secretAccessKey,
+      },
+      forcePathStyle: config.forcePathStyle,
+    });
 
   const bucket = config.bucket;
   const defaultTtlSeconds = config.presignTtlSeconds;
@@ -46,10 +52,7 @@ export function createS3StorageProvider(config: S3StorageConfig): StorageProvide
    * so a cache miss is recoverable (just slower) — the storage layer itself
    * never reads it back.
    */
-  const sessions = new Map<
-    string,
-    { partSize: number; sizeHint: number; contentType: string }
-  >();
+  const sessions = new Map<string, { partSize: number; sizeHint: number; contentType: string }>();
 
   function ttlFor(override: number | undefined): number {
     return override ?? defaultTtlSeconds;
@@ -108,6 +111,24 @@ export function createS3StorageProvider(config: S3StorageConfig): StorageProvide
       }
     },
 
+    async openRead(key, options) {
+      try {
+        const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }), {
+          abortSignal: options?.signal,
+        });
+        if (!res.Body || typeof res.ContentLength !== 'number') {
+          throw new Error('s3_invalid_get_object_response');
+        }
+        if (!(res.Body instanceof Readable)) {
+          throw new Error('s3_get_object_body_not_node_readable');
+        }
+        return { body: res.Body, size: res.ContentLength };
+      } catch (err: unknown) {
+        if (isNotFoundError(err)) return null;
+        throw err;
+      }
+    },
+
     async deleteObject(key) {
       await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
     },
@@ -117,10 +138,7 @@ export function createS3StorageProvider(config: S3StorageConfig): StorageProvide
       // floor, and large enough to keep the part count <= 10_000 (S3's hard
       // cap). For files smaller than configuredFloor * 10_000 this is just
       // configuredFloor; for very large files it scales linearly.
-      const partSize = Math.max(
-        opts.partSizeBytes,
-        Math.ceil(opts.sizeHint / 10_000),
-      );
+      const partSize = Math.max(opts.partSizeBytes, Math.ceil(opts.sizeHint / 10_000));
       const expectedParts = Math.ceil(opts.sizeHint / partSize);
 
       const res = await client.send(
@@ -273,7 +291,10 @@ export async function verifyS3Storage(
 }
 
 function isNotFoundError(err: unknown): boolean {
-  return errorHttpStatus(err) === 404;
+  if (errorHttpStatus(err) === 404) return true;
+  if (typeof err !== 'object' || err === null) return false;
+  const name = (err as { name?: unknown }).name;
+  return name === 'NoSuchKey' || name === 'NotFound';
 }
 
 function errorHttpStatus(err: unknown): number | undefined {

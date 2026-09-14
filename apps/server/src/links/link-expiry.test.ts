@@ -42,7 +42,10 @@ const noFiles = {
 
 function receiveApp(db: Db): Hono {
   const module = createReceiveLinksModule(db, noStorage);
-  return new Hono().route('/receive-links', createReceiveLinksRoute(authModule, module, noFiles));
+  return new Hono().route(
+    '/receive-links',
+    createReceiveLinksRoute(authModule, module, noFiles, noStorage),
+  );
 }
 
 function sendApp(db: Db): Hono {

@@ -45,6 +45,9 @@ test('multipart completion rejects S3 object size mismatch before publishing fil
         lastModified: new Date(),
       };
     },
+    async openRead() {
+      throw new Error('unused');
+    },
     async deleteObject() {
       deleteObjectCalls += 1;
     },
@@ -250,6 +253,9 @@ test('concurrent single-PUT finalizes cannot exceed receive-link max_uploads', a
         lastModified: new Date(),
       };
     },
+    async openRead() {
+      throw new Error('unused');
+    },
     async deleteObject() {
       deleteObjectCalls += 1;
     },
@@ -356,6 +362,9 @@ test('concurrent multipart completes cannot exceed receive-link max_uploads', as
         etag: '"etag"',
         lastModified: new Date(),
       };
+    },
+    async openRead() {
+      throw new Error('unused');
     },
     async deleteObject() {
       deleteObjectCalls += 1;

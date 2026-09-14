@@ -151,6 +151,26 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
       }
     },
 
+    async openRead(key, options) {
+      if (!validateKey(key)) throw new Error('invalid_storage_key');
+      const filePath = resolveSafe(objectsDir, key);
+      if (filePath === null) throw new Error('invalid_storage_key');
+
+      let handle;
+      try {
+        handle = await fs.open(filePath, 'r');
+        const stat = await handle.stat();
+        if (!stat.isFile()) throw new Error('storage_object_not_regular_file');
+        if (options?.signal?.aborted) throw abortError();
+        const body = handle.createReadStream({ autoClose: true, signal: options?.signal });
+        return { body, size: stat.size };
+      } catch (err: unknown) {
+        if (handle) await handle.close().catch(() => undefined);
+        if (isEnoent(err)) return null;
+        throw err;
+      }
+    },
+
     async deleteObject(key) {
       if (!validateKey(key)) return;
       const filePath = resolveSafe(objectsDir, key);
@@ -167,10 +187,7 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
       }
     },
 
-    async initMultipart(
-      key: string,
-      opts: InitMultipartOptions,
-    ): Promise<InitMultipartResult> {
+    async initMultipart(key: string, opts: InitMultipartOptions): Promise<InitMultipartResult> {
       if (!validateKey(key)) {
         throw new Error(
           `invalid storage key for local backend: ${JSON.stringify(key)} ` +
@@ -182,10 +199,7 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
       }
       // Same resolution as S3: never below caller's configured floor, and
       // large enough to keep the part count <= 10_000.
-      const partSize = Math.max(
-        opts.partSizeBytes,
-        Math.ceil(opts.sizeHint / 10_000),
-      );
+      const partSize = Math.max(opts.partSizeBytes, Math.ceil(opts.sizeHint / 10_000));
       const expectedParts = Math.ceil(opts.sizeHint / partSize);
       const uploadId = randomUUID().replace(/-/g, '');
       const sessionDir = join(objectsDir, '.multipart', uploadId);
@@ -202,10 +216,7 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
       // Atomic write-then-rename so a crash mid-write doesn't leave a torn
       // JSON. `fs.writeFile` does NOT fsync — go through an open handle so
       // the bytes are durable on disk before the rename commits.
-      const metaTmp = join(
-        sessionDir,
-        `meta.json.tmp-${randomBytes(8).toString('hex')}`,
-      );
+      const metaTmp = join(sessionDir, `meta.json.tmp-${randomBytes(8).toString('hex')}`);
       const metaHandle = await fs.open(metaTmp, 'w');
       try {
         await metaHandle.writeFile(JSON.stringify(meta));
@@ -225,21 +236,13 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
       opts?: PresignUploadPartOptions,
     ): Promise<PresignedUrl> {
       if (!UPLOAD_ID_PATTERN.test(uploadId)) {
-        throw new Error(
-          `invalid uploadId for local backend: ${JSON.stringify(uploadId)}`,
-        );
+        throw new Error(`invalid uploadId for local backend: ${JSON.stringify(uploadId)}`);
       }
-      if (
-        !Number.isInteger(partNumber) ||
-        partNumber < 1 ||
-        partNumber > 10_000
-      ) {
+      if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10_000) {
         throw new Error(`partNumber out of range: ${partNumber}`);
       }
       if (!validateKey(key)) {
-        throw new Error(
-          `invalid storage key for local backend: ${JSON.stringify(key)}`,
-        );
+        throw new Error(`invalid storage key for local backend: ${JSON.stringify(key)}`);
       }
 
       const sessionDir = join(objectsDir, '.multipart', uploadId);
@@ -250,14 +253,10 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
       // recovers `key` from meta.json, but binding it into the signature
       // here means a leaked URL cannot be re-pointed.
       if (meta.key !== key) {
-        throw new Error(
-          `uploadId ${uploadId} does not belong to key=${JSON.stringify(key)}`,
-        );
+        throw new Error(`uploadId ${uploadId} does not belong to key=${JSON.stringify(key)}`);
       }
       if (partNumber > meta.expectedParts) {
-        throw new Error(
-          `partNumber ${partNumber} exceeds expectedParts ${meta.expectedParts}`,
-        );
+        throw new Error(`partNumber ${partNumber} exceeds expectedParts ${meta.expectedParts}`);
       }
 
       // Per-part Content-Length is server-derived from session state. Every
@@ -296,14 +295,10 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
       parts: CompletedPart[],
     ): Promise<CompleteMultipartResult> {
       if (!UPLOAD_ID_PATTERN.test(uploadId)) {
-        throw new Error(
-          `invalid uploadId for local backend: ${JSON.stringify(uploadId)}`,
-        );
+        throw new Error(`invalid uploadId for local backend: ${JSON.stringify(uploadId)}`);
       }
       if (!validateKey(key)) {
-        throw new Error(
-          `invalid storage key for local backend: ${JSON.stringify(key)}`,
-        );
+        throw new Error(`invalid storage key for local backend: ${JSON.stringify(key)}`);
       }
       if (parts.length === 0) {
         throw new Error(
@@ -316,16 +311,12 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
         await fs.readFile(join(sessionDir, 'meta.json'), 'utf8'),
       ) as MultipartMeta;
       if (meta.key !== key) {
-        throw new Error(
-          `uploadId ${uploadId} does not belong to key=${JSON.stringify(key)}`,
-        );
+        throw new Error(`uploadId ${uploadId} does not belong to key=${JSON.stringify(key)}`);
       }
 
       // Validate the parts list: ascending 1..N, no gaps, exact count.
       if (parts.length !== meta.expectedParts) {
-        throw new Error(
-          `part count mismatch: got ${parts.length}, expected ${meta.expectedParts}`,
-        );
+        throw new Error(`part count mismatch: got ${parts.length}, expected ${meta.expectedParts}`);
       }
       const sorted = [...parts].sort((a, b) => a.partNumber - b.partNumber);
       for (let i = 0; i < sorted.length; i++) {
@@ -379,9 +370,7 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
           }
         }
         if (totalBytes !== meta.sizeHint) {
-          throw new Error(
-            `total bytes ${totalBytes} != sizeHint ${meta.sizeHint}`,
-          );
+          throw new Error(`total bytes ${totalBytes} != sizeHint ${meta.sizeHint}`);
         }
         // fsync before rename — a crash between rename and fsync could
         // otherwise leave a zero-length file at the final path on certain
@@ -436,9 +425,7 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
       // the local backend identifies the session by `uploadId` alone — the
       // `.multipart/<uploadId>/` dir holds all state. Ignored here.
       if (!UPLOAD_ID_PATTERN.test(uploadId)) {
-        throw new Error(
-          `invalid uploadId for local backend: ${JSON.stringify(uploadId)}`,
-        );
+        throw new Error(`invalid uploadId for local backend: ${JSON.stringify(uploadId)}`);
       }
       const sessionDir = join(objectsDir, '.multipart', uploadId);
       // `force: true` swallows ENOENT — abort on a non-existent session is
@@ -495,6 +482,12 @@ export function resolveSafe(objectsDir: string, key: string): string | null {
 
 function isEnoent(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: string }).code === 'ENOENT';
+}
+
+function abortError(): Error {
+  const error = new Error('The operation was aborted');
+  error.name = 'AbortError';
+  return error;
 }
 
 function errCode(err: unknown): string {

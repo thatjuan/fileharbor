@@ -1,4 +1,5 @@
 import type { StorageConfig } from '../config.js';
+import type { Readable } from 'node:stream';
 import { createLocalStorageProvider, verifyLocalStorage } from './local.js';
 import { createS3StorageProvider, verifyS3Storage } from './s3.js';
 
@@ -46,6 +47,9 @@ export interface StorageProvider {
 
   /** Returns `null` when the object does not exist. Throws for other errors. */
   headObject(key: string): Promise<ObjectInfo | null>;
+
+  /** Open an object as a bounded-memory Node stream. `null` means missing. */
+  openRead(key: string, options?: { signal?: AbortSignal }): Promise<StorageRead | null>;
 
   deleteObject(key: string): Promise<void>;
 
@@ -113,6 +117,11 @@ export interface StorageProvider {
    * this from cleanup paths without try/catch noise.
    */
   abortMultipart(key: string, uploadId: string): Promise<void>;
+}
+
+export interface StorageRead {
+  body: Readable;
+  size: number;
 }
 
 export interface PresignedUrl {

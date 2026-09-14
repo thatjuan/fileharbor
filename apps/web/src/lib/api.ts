@@ -157,6 +157,11 @@ export async function getReceiveLink(
   return jsonOrThrow<{ link: ReceiveLink; files: FileRecord[]; uploadsSoFar: number }>(res);
 }
 
+/** Same-origin streamed ZIP endpoint for all files currently attached to a link. */
+export function receiveLinkArchiveUrl(id: string): string {
+  return `/api/receive-links/${encodeURIComponent(id)}/download`;
+}
+
 /**
  * The mutable fields of either link kind. Both are independently optional —
  * an absent key is left alone server-side, so the dashboard's bulk expiry
@@ -172,10 +177,7 @@ export interface UpdateLinkInput {
  * Patch a receive link. The server returns the updated row; `displayStatus`
  * is recomputed from policy at the same time.
  */
-export async function updateReceiveLink(
-  id: string,
-  patch: UpdateLinkInput,
-): Promise<ReceiveLink> {
+export async function updateReceiveLink(id: string, patch: UpdateLinkInput): Promise<ReceiveLink> {
   const res = await fetch(`/api/receive-links/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },

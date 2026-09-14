@@ -13,6 +13,7 @@ export default [
       '**/data/**',
       '**/drizzle/**',
       '**/.vite/**',
+      '**/.12ui/**',
       '**/*.tsbuildinfo',
     ],
   },
@@ -53,7 +54,7 @@ export default [
     },
   },
   {
-    files: ['apps/web/src/**/*.{ts,tsx}'],
+    files: ['apps/web/src/**/*.{ts,tsx}', 'apps/web/public/**/*.js'],
     languageOptions: {
       globals: {
         ...globals.browser,

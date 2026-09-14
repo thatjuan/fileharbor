@@ -27,6 +27,7 @@ Per-link policy, presigned uploads, optional Cloudflare Tunnel. No bucket requir
 ## Features
 
 - 📤 **Receive links** (`/r/<code>`) — others upload to you.
+- 🗜️ **Bulk receive downloads** — download every file on a receive link as one ZIP.
 - 📦 **Send links** (`/s/<code>`) — bundle files into a download link.
 - 🔒 **Per-link policy** — label, password, max-uploads quota, expiry.
 - ⚡ **Presigned uploads** — bytes go browser ↔ storage; server handles policy, not bytes.
@@ -163,20 +164,20 @@ Two options, pick one:
 
 Every value is env-driven. Authoritative list: [`apps/server/src/config.ts`](./apps/server/src/config.ts). Plain template: [`.env.example.clean`](./.env.example.clean). Commented template: [`.env.example`](./.env.example).
 
-| Variable                                            | Purpose                                                         |
-| --------------------------------------------------- | --------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`                                | Signs session cookies. Required in production.                  |
-| `BETTER_AUTH_URL`                                   | Public base URL. Auto-derived in tunnel mode.                   |
-| `STORAGE_BACKEND`                                   | `local` (default) or `s3`.                                      |
-| `STORAGE_SIGNING_SECRET`                            | HMAC for local presigned URLs. Required in production (local).  |
-| `DATA_DIR`                                          | SQLite + (local mode) bytes. Default `/data` in the image.      |
-| `LOCAL_OBJECTS_DIR`                                 | Split local object bytes onto a separate path.                  |
-| `S3_*`                                              | Endpoint, keys, bucket. Required when `STORAGE_BACKEND=s3`.     |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD`                 | Headless admin seed. Both or neither.                           |
-| `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_TUNNEL_DOMAIN` | Cloudflare Tunnel mode. Both or neither.                        |
-| `STORAGE_MULTIPART_THRESHOLD_BYTES`                 | Multipart cut-over. Default 100 MiB.                            |
-| `RATE_LIMIT_*`                                      | In-memory abuse limits for auth/setup/public surfaces.          |
-| `SECURITY_HEADERS_*`                                | Production security headers and HSTS controls.                  |
+| Variable                                            | Purpose                                                                                                                      |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                                | Signs session cookies. Required in production.                                                                               |
+| `BETTER_AUTH_URL`                                   | Public base URL. Auto-derived in tunnel mode.                                                                                |
+| `STORAGE_BACKEND`                                   | `local` (default) or `s3`.                                                                                                   |
+| `STORAGE_SIGNING_SECRET`                            | HMAC for local presigned URLs. Required in production (local).                                                               |
+| `DATA_DIR`                                          | SQLite + (local mode) bytes. Default `/data` in the image.                                                                   |
+| `LOCAL_OBJECTS_DIR`                                 | Split local object bytes onto a separate path.                                                                               |
+| `S3_*`                                              | Endpoint, keys, bucket. Required when `STORAGE_BACKEND=s3`.                                                                  |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD`                 | Headless admin seed. Both or neither.                                                                                        |
+| `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_TUNNEL_DOMAIN` | Cloudflare Tunnel mode. Both or neither.                                                                                     |
+| `STORAGE_MULTIPART_THRESHOLD_BYTES`                 | Multipart cut-over. Default 100 MiB.                                                                                         |
+| `RATE_LIMIT_*`                                      | In-memory abuse limits for auth/setup/public surfaces.                                                                       |
+| `SECURITY_HEADERS_*`                                | Production security headers and HSTS controls.                                                                               |
 | `SECURITY_TRUST_PROXY_HEADERS`                      | Trust forwarded headers (real client IP + public origin). Set `true` behind a trusted proxy/tunnel, off if directly exposed. |
 
 ---
@@ -184,6 +185,20 @@ Every value is env-driven. Authoritative list: [`apps/server/src/config.ts`](./a
 ## Upgrade
 
 Pull the image, restart, same volume. Drizzle migrations run on every start.
+
+## Bulk-download operations
+
+The admin receive-link page downloads two or more received files as one streamed ZIP. Files pass
+through the File Harbor server one at a time, including in S3 mode, so the browser starts one normal
+download and needs no automatic-download or filesystem permission. Existing single-file downloads
+continue directly from storage.
+
+Generated ZIPs are not cached or resumable. A retry creates a new snapshot, and an object deleted or
+changed during streaming causes the download to end as an incomplete archive. Size server bandwidth,
+reverse-proxy timeouts, browser disk space, and extraction-tool ZIP64 support for the largest expected
+download. S3 bulk downloads do not require additional browser CORS rules. The archive uses Archiver's
+ZIP stream with forced ZIP64 end records and zip-stream's data descriptors, which support streamed
+individual entries whose final size exceeds 4 GiB without pre-buffering them.
 
 ---
 
