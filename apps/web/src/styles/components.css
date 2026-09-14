@@ -998,6 +998,13 @@ button.rail-row:hover {
   font-size: var(--font-size-subheading);
 }
 
+.dropzone-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-xs);
+}
+
 .dropzone-hint {
   color: var(--color-ink-muted);
   font-size: var(--font-size-secondary);
