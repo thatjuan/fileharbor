@@ -65,6 +65,28 @@ test('stops after a partial failure and leaves later entries unstarted', async (
   if (result.kind === 'failed') assert.equal(result.failureKind, 'terminal');
 });
 
+test('skips an ordinary file failure and continues the queue', async () => {
+  const attempted: string[] = [];
+
+  const result = await runReceiveUploadQueue({
+    entries: createReceiveUploadEntries(['one', 'two', 'three']),
+    signal: new AbortController().signal,
+    attempt: async (entry) => {
+      attempted.push(entry.value);
+      return entry.value === 'two'
+        ? { kind: 'failed', error: 'network error', failureKind: 'ordinary' }
+        : { kind: 'completed' };
+    },
+  });
+
+  assert.equal(result.kind, 'failed');
+  assert.deepEqual(attempted, ['one', 'two', 'three']);
+  assert.deepEqual(
+    result.entries.map((entry) => entry.status),
+    ['completed', 'failed', 'completed'],
+  );
+});
+
 test('cancellation stops before a later entry while preserving confirmed success', async () => {
   const attempted: string[] = [];
   const controller = new AbortController();

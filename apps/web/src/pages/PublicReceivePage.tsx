@@ -31,6 +31,10 @@ import {
   type PublicReceiveLink,
 } from '../lib/api.js';
 import {
+  collectReceiveFiles,
+  type ReceiveFileSelectionSource,
+} from '../lib/receive-file-selection.js';
+import {
   createReceiveUploadEntries,
   runReceiveUploadQueue,
   type ReceiveUploadActiveStatus,
@@ -74,6 +78,8 @@ export function PublicReceivePage(): JSX.Element {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   // React state is not synchronous, so this ref is the admission lock for two
   // picker/drop events arriving before the busy phase renders.
@@ -339,6 +345,44 @@ export function PublicReceivePage(): JSX.Element {
     if (startBatch(files)) event.target.value = '';
   };
 
+  const startDropBatch = (sources: ReceiveFileSelectionSource[]): void => {
+    if (
+      sources.length === 0 ||
+      admissionRef.current ||
+      terminalLockRef.current ||
+      !meta ||
+      !uploadConfig ||
+      phase === 'locked' ||
+      (meta.passwordRequired && password.length === 0)
+    ) {
+      return;
+    }
+
+    // Directory traversal is asynchronous, so reserve admission before the
+    // first await to prevent a second drop or picker event from overlapping.
+    admissionRef.current = true;
+    const selectionRunId = runIdRef.current;
+    const previousPhase = phase;
+    setPhase('preparing');
+
+    void collectReceiveFiles(sources)
+      .then((files) => {
+        if (runIdRef.current !== selectionRunId) return;
+        admissionRef.current = false;
+        if (files.length === 0) {
+          setPhase(previousPhase);
+          return;
+        }
+        startBatch(files);
+      })
+      .catch(() => {
+        if (runIdRef.current !== selectionRunId) return;
+        admissionRef.current = false;
+        setPhase(previousPhase);
+        setError(t('receive.folderReadFailed'));
+      });
+  };
+
   const onCancel = (): void => {
     const controller = abortRef.current;
     if (!admissionRef.current || !controller || controller.signal.aborted) return;
@@ -378,20 +422,35 @@ export function PublicReceivePage(): JSX.Element {
   const completedCount = entries.filter((entry) => entry.status === 'completed').length;
   const activeEntry = activeIndex === null ? null : entries[activeIndex];
 
-  const onDragOver = (event: DragEvent<HTMLLabelElement>): void => {
+  const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault();
     if (pickerDisabled) return;
     if (!isDragging) setIsDragging(true);
   };
-  const onDragLeave = (event: DragEvent<HTMLLabelElement>): void => {
+  const onDragLeave = (event: DragEvent<HTMLDivElement>): void => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
     setIsDragging(false);
   };
-  const onDrop = (event: DragEvent<HTMLLabelElement>): void => {
+  const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault();
     setIsDragging(false);
     if (pickerDisabled) return;
-    // Preserve the order supplied by DataTransfer; do not sort or deduplicate.
+    // Entry handles must be captured synchronously while the drag data store
+    // is readable. Directory traversal itself continues asynchronously.
+    const sources = Array.from(event.dataTransfer.items ?? [])
+      .filter((item) => item.kind === 'file')
+      .map((item): ReceiveFileSelectionSource | null => {
+        const entry = item.webkitGetAsEntry();
+        if (entry) return { kind: 'entry', entry };
+        const file = item.getAsFile();
+        return file ? { kind: 'file', file } : null;
+      })
+      .filter((source): source is ReceiveFileSelectionSource => source !== null);
+
+    if (sources.length > 0) {
+      startDropBatch(sources);
+      return;
+    }
     startBatch(Array.from(event.dataTransfer.files ?? []));
   };
 
@@ -445,7 +504,7 @@ export function PublicReceivePage(): JSX.Element {
         )}
 
         {!busy && phase !== 'locked' && (
-          <label
+          <div
             className={`dropzone${isDragging ? ' dropzone-active' : ''}`}
             aria-disabled={pickerDisabled}
             onDragOver={onDragOver}
@@ -453,16 +512,46 @@ export function PublicReceivePage(): JSX.Element {
             onDrop={onDrop}
           >
             <UploadIcon size={30} className="dropzone-icon" />
-            <span className="dropzone-title">{t('receive.pickFiles')}</span>
-            <span className="dropzone-hint">{t('receive.dropFilesHint')}</span>
+            <div className="dropzone-actions">
+              <button
+                type="button"
+                className="btn btn-accent"
+                disabled={pickerDisabled}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {t('receive.pickFiles')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={pickerDisabled}
+                onClick={() => folderInputRef.current?.click()}
+              >
+                {t('receive.pickFolder')}
+              </button>
+            </div>
+            <span className="dropzone-hint">{t('receive.dropFilesFoldersHint')}</span>
             <input
+              ref={fileInputRef}
               type="file"
               multiple
               className="sr-only"
               onChange={onFileChange}
               disabled={pickerDisabled}
             />
-          </label>
+            <input
+              ref={(element) => {
+                folderInputRef.current = element;
+                element?.setAttribute('webkitdirectory', '');
+                element?.setAttribute('directory', '');
+              }}
+              type="file"
+              multiple
+              className="sr-only"
+              onChange={onFileChange}
+              disabled={pickerDisabled}
+            />
+          </div>
         )}
 
         {entries.length > 0 && (

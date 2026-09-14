@@ -59,14 +59,16 @@ export function createReceiveUploadEntries<T>(values: readonly T[]): ReceiveUplo
 }
 
 /**
- * Runs one upload attempt at a time and stops at the first failure or cancel.
- * A successful attempt remains completed even when cancellation was requested
- * while it was confirming; cancellation is observed before the next attempt.
+ * Runs one upload attempt at a time. Ordinary per-file failures are skipped;
+ * password and terminal policy failures stop the queue because later attempts
+ * cannot recover. Cancellation always stops. A successful attempt remains
+ * completed even when cancellation was requested while it was confirming.
  */
 export async function runReceiveUploadQueue<T>(
   input: RunReceiveUploadQueueInput<T>,
 ): Promise<ReceiveUploadQueueResult<T>> {
   const entries = input.entries.map((entry) => ({ ...entry }));
+  let firstOrdinaryFailure: ReceiveUploadAttemptResult | null = null;
   const emit = (): void => input.onChange?.(entries.map((entry) => ({ ...entry })));
   const leaveRemainingUnstarted = (from: number): void => {
     for (let index = from; index < entries.length; index += 1) {
@@ -119,6 +121,13 @@ export async function runReceiveUploadQueue<T>(
 
     entry.status = 'failed';
     entry.error = result.error;
+    emit();
+
+    if (result.failureKind === 'ordinary') {
+      firstOrdinaryFailure ??= result;
+      continue;
+    }
+
     leaveRemainingUnstarted(index + 1);
     emit();
     return {
@@ -129,5 +138,13 @@ export async function runReceiveUploadQueue<T>(
     };
   }
 
+  if (firstOrdinaryFailure?.kind === 'failed') {
+    return {
+      kind: 'failed',
+      entries,
+      error: firstOrdinaryFailure.error,
+      failureKind: 'ordinary',
+    };
+  }
   return { kind: 'completed', entries };
 }
