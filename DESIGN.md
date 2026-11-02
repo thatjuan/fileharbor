@@ -30,8 +30,22 @@ of a long table without losing the counts or the create actions.
   English. Rail section labels are the exception: small uppercase tracking.
 - One quiet elevation. `.panel` casts `0 1px 2px` and nothing else. The
   dashboard inventory table sits on the canvas, not in a card.
-- No gradients, no imagery, no illustration.
+- No gradients, no imagery, no illustration. The brand mark is the only drawn
+  element.
 - Light and dark, switchable. Default follows the OS (`prefers-color-scheme`).
+
+## Brand mark
+
+The mark is a page drawn as a harbor seen from above. The page outline is the
+breakwater, the open dog-ear corner is the harbor mouth, the folded flap is a
+sail for send, and the first line of text is a wave for receive. It uses no
+colours of its own: walls, line and wordmark take `--color-ink`, the sail
+`--color-send` and the wave `--color-positive`, so it follows the theme.
+
+The app draws it inline with `BrandMark` (mark alone) and `BrandLockup` (mark
+plus outlined wordmark) from `apps/web/src/components/Brand.tsx`; it is never
+loaded as an image. Source files, geometry and clear-space rules live in
+[`brand/`](./brand/README.md).
 
 ## Colors
 
