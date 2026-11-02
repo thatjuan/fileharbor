@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { AnchorIcon, LinkIcon, ServerIcon, ShieldIcon } from '../components/Icons.js';
+import { BrandLockup } from '../components/Brand.js';
+import { LinkIcon, ServerIcon, ShieldIcon } from '../components/Icons.js';
 import { signIn } from '../lib/auth-client.js';
 import { ThemeSwitcher } from '../theme/ThemeSwitcher.js';
 
@@ -45,8 +46,7 @@ export function LoginPage(): JSX.Element {
       <div className="auth-layout">
         <div>
           <p className="auth-brand">
-            <AnchorIcon size={18} />
-            File Harbor
+            <BrandLockup height={26} label="File Harbor" />
           </p>
           <section className="auth-panel">
             <h1>Sign in</h1>

@@ -8,14 +8,8 @@ import {
 } from 'react';
 import { useParams } from 'react-router-dom';
 
-import {
-  AnchorIcon,
-  CheckIcon,
-  LinkIcon,
-  LockIcon,
-  UploadIcon,
-  XIcon,
-} from '../components/Icons.js';
+import { BrandLockup } from '../components/Brand.js';
+import { CheckIcon, LinkIcon, LockIcon, UploadIcon, XIcon } from '../components/Icons.js';
 import { LanguageSwitcher, Trans, mapUploadErrorMessage, useT } from '../i18n/index.js';
 import { ThemeSwitcher } from '../theme/ThemeSwitcher.js';
 import {
@@ -643,11 +637,8 @@ function PublicShell({ children }: { children: ReactNode }): JSX.Element {
       <nav className="public-nav">
         <div className="public-nav-inner">
           <span className="top-nav-brand">
-            <AnchorIcon size={22} className="top-nav-brand-mark" />
-            <span className="top-nav-brand-text">
-              File Harbor
-              <span className="top-nav-brand-tag">self-hosted file send/receive</span>
-            </span>
+            <BrandLockup height={28} label="File Harbor" />
+            <span className="top-nav-brand-tag">self-hosted file send/receive</span>
           </span>
           <div className="public-nav-tools">
             <ThemeSwitcher />

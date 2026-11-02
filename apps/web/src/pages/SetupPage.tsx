@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 
-import { AnchorIcon, LinkIcon, ServerIcon, ShieldIcon } from '../components/Icons.js';
+import { BrandLockup } from '../components/Brand.js';
+import { LinkIcon, ServerIcon, ShieldIcon } from '../components/Icons.js';
 import { createAdmin } from '../lib/setup.js';
 import { ThemeSwitcher } from '../theme/ThemeSwitcher.js';
 
@@ -50,8 +51,7 @@ export function SetupPage(): JSX.Element {
       <div className="auth-layout">
         <div>
           <p className="auth-brand">
-            <AnchorIcon size={18} />
-            File Harbor
+            <BrandLockup height={26} label="File Harbor" />
           </p>
           <section className="auth-panel">
             <h1>First-run setup</h1>

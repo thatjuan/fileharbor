@@ -32,24 +32,6 @@ function Svg({ size = 16, className, children }: IconProps & { children: ReactNo
   );
 }
 
-/** Brand mark. A blocky F, matching the approved 12ui candidate A. */
-export function AnchorIcon({ size = 22, className }: IconProps): JSX.Element {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      className={className}
-      aria-hidden
-    >
-      <path
-        fill="currentColor"
-        d="M5 3.5h14v4.2H11.2v3.1h7.1v4H11.2V20.5H5V3.5z"
-      />
-    </svg>
-  );
-}
-
 /** Inbound. Marks receive links everywhere they appear. */
 export function DownloadIcon(props: IconProps): JSX.Element {
   return (
