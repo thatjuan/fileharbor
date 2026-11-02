@@ -1,6 +1,11 @@
 <div align="center">
 
-# ⚓ File Harbor
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./brand/logo-fileharbor-dark.svg">
+    <img alt="File Harbor" src="./brand/logo-fileharbor-outlined.svg" width="360">
+  </picture>
+</h1>
 
 **Self-hosted file send/receive. One container, one volume.**
 

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 
 import { signOut, useSession } from '../lib/auth-client.js';
 import { ThemeSwitcher } from '../theme/ThemeSwitcher.js';
-import { AnchorIcon } from './Icons.js';
+import { BrandLockup } from './Brand.js';
 import { LinksProvider } from './LinksProvider.js';
 import { NotificationBell } from './NotificationBell.js';
 import { Rail } from './Rail.js';
@@ -56,11 +56,8 @@ function TopNav(): JSX.Element {
       <div className="top-nav-inner">
         <div className="top-nav-left">
           <Link to="/" className="top-nav-brand">
-            <AnchorIcon size={22} className="top-nav-brand-mark" />
-            <span className="top-nav-brand-text">
-              File Harbor
-              <span className="top-nav-brand-tag">self-hosted file send/receive</span>
-            </span>
+            <BrandLockup height={28} label="File Harbor" />
+            <span className="top-nav-brand-tag">self-hosted file send/receive</span>
           </Link>
         </div>
         <div className="top-nav-right">
