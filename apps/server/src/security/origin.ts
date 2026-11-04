@@ -22,7 +22,8 @@ export function allowedAdminOrigins(config: AppConfig): Set<string> {
  * The host (hostname[:port]) the request actually arrived on, for a
  * same-origin CSRF check that survives reverse proxies and tunnels.
  *
- * Behind a proxy the operator opts into via `SECURITY_TRUST_PROXY_HEADERS`,
+ * Behind a proxy (`trustProxy`, i.e. `security.trustProxyHeaders`, which is
+ * derived from `clientIpSource`: true for any source other than `socket`),
  * the public host is in `X-Forwarded-Host` (the `Host` header is usually
  * rewritten to the internal origin, e.g. `localhost:3000`). When proxy
  * headers are not trusted we use `Host` directly — a browser cannot forge
