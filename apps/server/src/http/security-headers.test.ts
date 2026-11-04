@@ -7,6 +7,7 @@ import { buildContentSecurityPolicy, deriveStorageConnectSources } from './secur
 function baseConfig(storage: AppConfig['storage']): AppConfig {
   return {
     port: 3000,
+    bindHost: '0.0.0.0',
     nodeEnv: 'production',
     dataDir: '/tmp/fileharbor-test',
     databasePath: '/tmp/fileharbor-test/db.sqlite',
@@ -23,6 +24,7 @@ function baseConfig(storage: AppConfig['storage']): AppConfig {
       retentionSeconds: 604800,
     },
     security: {
+      clientIpSource: { kind: 'socket' },
       trustProxyHeaders: false,
       rateLimit: {
         enabled: true,

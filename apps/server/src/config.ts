@@ -9,6 +9,12 @@ import { randomBytes } from 'node:crypto';
  */
 export interface AppConfig {
   port: number;
+  /**
+   * Interface the HTTP server listens on (`BIND_HOST`). Defaults to `127.0.0.1`
+   * with the tunnel on, so only the in-container `cftunn` can reach the app
+   * while `CF-Connecting-IP` is trusted, and `0.0.0.0` otherwise.
+   */
+  bindHost: string;
   nodeEnv: 'development' | 'production' | 'test';
   dataDir: string;
   databasePath: string;
@@ -57,8 +63,25 @@ export interface SecurityHeadersConfig {
   cspExtraConnectSrc: string[];
 }
 
+/**
+ * Where the client address for rate-limit keys comes from. Exactly one source
+ * is trusted per deployment, chosen at boot by `SECURITY_CLIENT_IP_SOURCE`:
+ *   - `socket` — no proxy: the TCP peer address.
+ *   - `header` — the proxy overwrites this single-value header on every request.
+ *   - `xff`    — the proxy appends to `X-Forwarded-For`; the client is the entry
+ *                `trustedHops` from the right (entries further left are client-supplied).
+ */
+export type ClientIpSource =
+  | { kind: 'socket' }
+  | { kind: 'header'; header: 'cf-connecting-ip' | 'x-real-ip' }
+  | { kind: 'xff'; trustedHops: number };
+
 export interface SecurityConfig {
-  /** Whether to trust forwarded client-IP headers. Keep false unless behind a trusted proxy. */
+  clientIpSource: ClientIpSource;
+  /**
+   * Derived from `clientIpSource`: true when a proxy fronts the app (any source
+   * other than `socket`). Decides whether `X-Forwarded-Host` is honored.
+   */
   trustProxyHeaders: boolean;
   rateLimit: RateLimitConfig;
   headers: SecurityHeadersConfig;
@@ -442,6 +465,7 @@ export function loadConfig(env: Env = process.env as Env): AppConfig {
   const webDistDir = env.WEB_DIST_DIR ? resolve(env.WEB_DIST_DIR) : resolve('./web');
 
   const tunnel = resolveTunnelConfig(env);
+  const bindHost = env.BIND_HOST?.trim() || (tunnel.enabled ? '127.0.0.1' : '0.0.0.0');
 
   // baseUrl precedence: explicit env wins, tunnel-derived next, localhost
   // last. The tunnel-derived case is logged once at boot so an operator who
@@ -465,10 +489,11 @@ export function loadConfig(env: Env = process.env as Env): AppConfig {
 
   const storage = resolveStorageConfig(env, nodeEnv, dataDir);
   const ticketSweep = resolveTicketSweepConfig(env);
-  const security = resolveSecurityConfig(env, nodeEnv, baseUrl);
+  const security = resolveSecurityConfig(env, nodeEnv, baseUrl, tunnel);
 
   return Object.freeze({
     port,
+    bindHost,
     nodeEnv,
     dataDir,
     databasePath,
@@ -651,10 +676,72 @@ function parseSourceList(raw: string | undefined): string[] {
     .filter((s) => s.length > 0);
 }
 
+const CLIENT_IP_SOURCES = ['socket', 'cf-connecting-ip', 'x-real-ip', 'xff'] as const;
+type ClientIpSourceName = (typeof CLIENT_IP_SOURCES)[number];
+
+function isClientIpSourceName(v: string): v is ClientIpSourceName {
+  return (CLIENT_IP_SOURCES as readonly string[]).includes(v);
+}
+
+/**
+ * Pick the one trusted client-IP source. Precedence: explicit
+ * `SECURITY_CLIENT_IP_SOURCE`, then the tunnel (Cloudflare always overwrites
+ * `CF-Connecting-IP`), then the deprecated `SECURITY_TRUST_PROXY_HEADERS=true`
+ * read as one appending proxy, then the socket. Setting the legacy variable at
+ * all logs a deprecation warning naming the source actually used.
+ */
+function resolveClientIpSource(env: Env, tunnel: TunnelConfig): ClientIpSource {
+  const source = pickClientIpSource(env, tunnel);
+  if (env.SECURITY_TRUST_PROXY_HEADERS !== undefined && env.SECURITY_TRUST_PROXY_HEADERS !== '') {
+    const used = source.kind === 'header' ? source.header : source.kind;
+    console.warn(
+      `[fileharbor] SECURITY_TRUST_PROXY_HEADERS is deprecated; set SECURITY_CLIENT_IP_SOURCE instead (using: ${used}).`,
+    );
+  }
+  return source;
+}
+
+function pickClientIpSource(env: Env, tunnel: TunnelConfig): ClientIpSource {
+  const raw = env.SECURITY_CLIENT_IP_SOURCE?.trim().toLowerCase();
+  if (raw) {
+    if (!isClientIpSourceName(raw)) {
+      throw new Error(
+        `SECURITY_CLIENT_IP_SOURCE must be one of ${CLIENT_IP_SOURCES.join(', ')}. ` +
+          `Got: ${JSON.stringify(env.SECURITY_CLIENT_IP_SOURCE)}`,
+      );
+    }
+    switch (raw) {
+      case 'socket':
+        return { kind: 'socket' };
+      case 'cf-connecting-ip':
+      case 'x-real-ip':
+        return { kind: 'header', header: raw };
+      case 'xff':
+        return {
+          kind: 'xff',
+          trustedHops: parsePositiveIntSeconds(
+            env.SECURITY_XFF_TRUSTED_HOPS,
+            1,
+            'SECURITY_XFF_TRUSTED_HOPS',
+            100,
+          ),
+        };
+      default: {
+        const exhaustive: never = raw;
+        return exhaustive;
+      }
+    }
+  }
+  if (tunnel.enabled) return { kind: 'header', header: 'cf-connecting-ip' };
+  if (parseBool(env.SECURITY_TRUST_PROXY_HEADERS, false)) return { kind: 'xff', trustedHops: 1 };
+  return { kind: 'socket' };
+}
+
 function resolveSecurityConfig(
   env: Env,
   nodeEnv: AppConfig['nodeEnv'],
   baseUrl: string,
+  tunnel: TunnelConfig,
 ): SecurityConfig {
   let baseUrlIsHttps = false;
   try {
@@ -666,8 +753,11 @@ function resolveSecurityConfig(
   const headersEnabled = parseBool(env.SECURITY_HEADERS_ENABLED, nodeEnv === 'production');
   const hstsDefault = nodeEnv === 'production' && baseUrlIsHttps;
 
+  const clientIpSource = resolveClientIpSource(env, tunnel);
+
   return {
-    trustProxyHeaders: parseBool(env.SECURITY_TRUST_PROXY_HEADERS, false),
+    clientIpSource,
+    trustProxyHeaders: clientIpSource.kind !== 'socket',
     rateLimit: {
       enabled: parseBool(env.RATE_LIMIT_ENABLED, true),
       maxTrackedKeys: parsePositiveIntSeconds(
