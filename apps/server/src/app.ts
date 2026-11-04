@@ -24,7 +24,12 @@ import { createLocalStorageRoute } from './routes/storage.js';
 import { jsonError, logServerError } from './http/errors.js';
 import { createSecurityHeadersMiddleware } from './http/security-headers.js';
 import { createAdminOriginGuard } from './security/origin.js';
-import { createRateLimitMiddleware, FixedWindowRateLimiter } from './security/rate-limit.js';
+import {
+  createRateLimitMiddleware,
+  FixedWindowRateLimiter,
+  rateLimitedBody,
+  type RateLimiters,
+} from './security/rate-limit.js';
 import type { StorageProvider } from './storage/index.js';
 import type { DownloadTicketsModule } from './tickets/download-tickets.js';
 import type { UploadTicketsModule } from './tickets/upload-tickets.js';
@@ -65,6 +70,9 @@ const MiB = 1024 * KiB;
  * under 1 MiB with room for the `{"parts":[...]}` wrapper and a password.
  */
 const MULTIPART_COMPLETE_MAX_BYTES = 1 * MiB;
+
+/** Bucket for failed sign-ins from all addresses (see the sign-in middleware). */
+const AUTH_GLOBAL_FAILURES_KEY = 'auth-fail:global';
 
 /**
  * Body-size limit for JSON control-plane routes. It rejects on `Content-Length`
@@ -111,7 +119,13 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
     storage,
   } = modules;
   const app = new Hono();
-  const limiter = new FixedWindowRateLimiter(config.security.rateLimit.maxTrackedKeys);
+  const { rateLimit } = config.security;
+  const limiters: RateLimiters = {
+    /** Brute-force and setup buckets. Never shares capacity with high-volume public traffic. */
+    auth: new FixedWindowRateLimiter(rateLimit.maxTrackedKeys),
+    /** Upload, ticket, part-URL, confirm and public-lookup buckets. */
+    public: new FixedWindowRateLimiter(rateLimit.maxTrackedKeys),
+  };
 
   app.use('*', createSecurityHeadersMiddleware(config));
   app.onError((err, c) => {
@@ -142,11 +156,35 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
 
   app.use(
     '/api/auth/sign-in/*',
-    createRateLimitMiddleware(config.security, limiter, (c, ip) => {
+    createRateLimitMiddleware(config.security, limiters.auth, (c, ip) => {
       if (c.req.method.toUpperCase() !== 'POST') return [];
-      return [{ key: `auth:${ip}`, limit: config.security.rateLimit.auth }];
+      return [{ key: `auth:${ip}`, limit: rateLimit.auth }];
     }),
   );
+
+  // Failed sign-ins from every address share one budget. Better Auth does the
+  // credential check, so this inspects the budget before the handler and
+  // counts the attempt only when it answers 401 (its status for a bad
+  // username or password). A single-admin instance has one account, so this
+  // is a per-account cap. Trade-off: while an attack exhausts it, the admin is
+  // locked out too; that is accepted because the lockout ends with the window.
+  // The bucket lives in its own one-key limiter: in `limiters.auth`, an
+  // attacker with many addresses could evict it with fresh `auth:<ip>` keys.
+  const signInFailures = new FixedWindowRateLimiter(1);
+  app.use('/api/auth/sign-in/username', async (c, next) => {
+    if (!rateLimit.enabled || c.req.method.toUpperCase() !== 'POST') return next();
+
+    const budget = signInFailures.inspect(AUTH_GLOBAL_FAILURES_KEY, rateLimit.authGlobalFailures);
+    if (!budget.allowed) {
+      c.header('Retry-After', String(budget.retryAfterSeconds));
+      return c.json(rateLimitedBody, 429);
+    }
+
+    await next();
+    if (c.res.status === 401) {
+      signInFailures.consume(AUTH_GLOBAL_FAILURES_KEY, rateLimit.authGlobalFailures);
+    }
+  });
 
   // Better Auth exposes its own fetch handler at /api/auth/*. It is not a
   // Hono router — it's a single fetch handler — so we wire it via `app.all`
@@ -164,7 +202,7 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
   // `GET /api/setup` stays open to the SPA.
   const adminOriginGuard = createAdminOriginGuard(config);
   api.use('/setup', adminOriginGuard);
-  api.route('/setup', createSetupRoute(authModule, config.security, limiter));
+  api.route('/setup', createSetupRoute(authModule, config.security, limiters.auth));
 
   // Admin (authed) surfaces.
   for (const prefix of ['/receive-links', '/send-links', '/files', '/notifications']) {
@@ -191,7 +229,7 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
       receiveLinksModule,
       uploadTicketsModule,
       config.security,
-      limiter,
+      limiters,
     ),
   );
   publicApi.route(
@@ -201,16 +239,16 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
       filesModule,
       downloadTicketsModule,
       config.security,
-      limiter,
+      limiters,
     ),
   );
   publicApi.route(
     '/upload-tickets',
-    createPublicUploadTicketsRoute(uploadTicketsModule, config.security, limiter),
+    createPublicUploadTicketsRoute(uploadTicketsModule, config.security, limiters.public),
   );
   publicApi.route(
     '/download-tickets',
-    createPublicDownloadTicketsRoute(downloadTicketsModule, config.security, limiter),
+    createPublicDownloadTicketsRoute(downloadTicketsModule, config.security, limiters.public),
   );
   api.route('/public', publicApi);
 
