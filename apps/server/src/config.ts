@@ -46,8 +46,12 @@ export interface RateLimitConfig {
   enabled: boolean;
   maxTrackedKeys: number;
   auth: WindowLimitConfig;
+  /** Failed sign-ins across all IPs; one admin account makes this a per-account cap. */
+  authGlobalFailures: WindowLimitConfig;
   setup: WindowLimitConfig;
   publicLink: WindowLimitConfig;
+  /** Per-IP budget for the public `GET /:code` lookups. */
+  publicLookup: WindowLimitConfig;
   publicUpload: WindowLimitConfig;
   publicTicket: WindowLimitConfig;
   publicPartUrls: WindowLimitConfig;
@@ -780,6 +784,13 @@ function resolveSecurityConfig(
         1_000_000,
       ),
       auth: parseLimit(env, 'RATE_LIMIT_AUTH_MAX', 'RATE_LIMIT_AUTH_WINDOW_SECONDS', 10, 300),
+      authGlobalFailures: parseLimit(
+        env,
+        'RATE_LIMIT_AUTH_GLOBAL_FAILURES_MAX',
+        'RATE_LIMIT_AUTH_GLOBAL_FAILURES_WINDOW_SECONDS',
+        50,
+        300,
+      ),
       setup: parseLimit(env, 'RATE_LIMIT_SETUP_MAX', 'RATE_LIMIT_SETUP_WINDOW_SECONDS', 5, 900),
       publicLink: parseLimit(
         env,
@@ -787,6 +798,13 @@ function resolveSecurityConfig(
         'RATE_LIMIT_PUBLIC_LINK_WINDOW_SECONDS',
         8,
         300,
+      ),
+      publicLookup: parseLimit(
+        env,
+        'RATE_LIMIT_PUBLIC_LOOKUP_MAX',
+        'RATE_LIMIT_PUBLIC_LOOKUP_WINDOW_SECONDS',
+        60,
+        60,
       ),
       // Receive links are intentionally capable of accepting large serial
       // queues. Password failures still use the stricter publicLink bucket.

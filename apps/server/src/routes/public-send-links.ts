@@ -2,10 +2,15 @@ import { Hono, type Context } from 'hono';
 
 import type { SecurityConfig } from '../config.js';
 import type { FilesModule } from '../files/files.js';
+import { isPlausibleCode, normalizeCode } from '../links/code-generator.js';
 import { resolvePasswordCheck } from '../links/policy/password-check.js';
 import type { SendLink, SendLinksModule } from '../links/send-links.js';
 import { clientIpFor } from '../security/client-ip.js';
-import { enforceRateLimit, type FixedWindowRateLimiter } from '../security/rate-limit.js';
+import {
+  enforceRateLimit,
+  rejectIfRateLimitReached,
+  type RateLimiters,
+} from '../security/rate-limit.js';
 import type { DownloadTicketsModule } from '../tickets/download-tickets.js';
 
 interface DownloadTicketBody {
@@ -17,21 +22,51 @@ interface FilesBody {
   password?: unknown;
 }
 
+/** Password failures on one code from every address combined. */
+function codePasswordFailureKey(code: string): string {
+  return `public-password-fail:${normalizeCode(code)}`;
+}
+
 /**
  * Admission for the password-checking endpoints (`/files`, `/download-tickets`):
  * consumes the per-IP bucket first, then the per-IP-per-code bucket, on every
- * request. Shared so both endpoints keep one rate-limit pattern.
+ * request, then refuses a code whose per-code password-failure budget is spent.
+ * Shared so both endpoints keep one rate-limit pattern. Keys carry the
+ * normalized code so case and alias variants share a bucket.
  */
 function enforceSendLinkAdmission(
   c: Context,
   code: string,
   security: SecurityConfig,
-  limiter: FixedWindowRateLimiter,
+  limiters: RateLimiters,
 ): Response | null {
   const ip = clientIpFor(c, security);
-  return enforceRateLimit(c, security, limiter, [
+  const limited = enforceRateLimit(c, security, limiters.public, [
     { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
-    { key: `public-link:${ip}:${code}`, limit: security.rateLimit.publicLink },
+    { key: `public-link:${ip}:${normalizeCode(code)}`, limit: security.rateLimit.publicLink },
+  ]);
+  if (limited) return limited;
+
+  return rejectIfRateLimitReached(c, security, limiters.auth, [
+    { key: codePasswordFailureKey(code), limit: security.rateLimit.publicLink },
+  ]);
+}
+
+/**
+ * Counts a missing or wrong password against the per-code budget, which stops
+ * an attacker who rotates addresses (each address is already capped by the
+ * per-IP-per-code bucket). The cost: while an attack runs, the real recipient
+ * is locked out of the link too. That is accepted because the lockout ends
+ * when the window does.
+ */
+function recordPasswordFailure(
+  c: Context,
+  code: string,
+  security: SecurityConfig,
+  limiters: RateLimiters,
+): Response | null {
+  return enforceRateLimit(c, security, limiters.auth, [
+    { key: codePasswordFailureKey(code), limit: security.rateLimit.publicLink },
   ]);
 }
 
@@ -53,7 +88,9 @@ function isExpired(link: SendLink, now: number): boolean {
  * send link's `id` or any other internal identifier; only the file ids are
  * returned (because the recipient needs them to request a download). Every
  * endpoint answers a disabled link with the same 404 as a missing code, so a
- * bad actor can't tell the two apart by probing.
+ * bad actor can't tell the two apart by probing. A code that cannot exist
+ * (see `isPlausibleCode`) gets that 404 before any rate limiter sees it, and
+ * the GET is throttled per IP so it is no use as an existence oracle.
  *
  * Disclosure rules for the GET:
  *   - Password links return `files: []` plus `fileCount`; the names come from
@@ -72,7 +109,7 @@ export function createPublicSendLinksRoute(
   filesModule: FilesModule,
   downloadTicketsModule: DownloadTicketsModule,
   security: SecurityConfig,
-  limiter: FixedWindowRateLimiter,
+  limiters: RateLimiters,
 ): Hono {
   const route = new Hono();
 
@@ -87,6 +124,15 @@ export function createPublicSendLinksRoute(
 
   route.get('/:code', async (c) => {
     const code = c.req.param('code');
+    if (!isPlausibleCode(code)) return c.json({ error: 'not_found' }, 404);
+    const limited = enforceRateLimit(c, security, limiters.public, [
+      {
+        key: `public-lookup:${clientIpFor(c, security)}`,
+        limit: security.rateLimit.publicLookup,
+      },
+    ]);
+    if (limited) return limited;
+
     const link = await sendLinksModule.getByCode(code);
     if (!link || link.status !== 'active') {
       return c.json({ error: 'not_found' }, 404);
@@ -118,7 +164,8 @@ export function createPublicSendLinksRoute(
 
   route.post('/:code/files', async (c) => {
     const code = c.req.param('code');
-    const limited = enforceSendLinkAdmission(c, code, security, limiter);
+    if (!isPlausibleCode(code)) return c.json({ error: 'not_found' }, 404);
+    const limited = enforceSendLinkAdmission(c, code, security, limiters);
     if (limited) return limited;
 
     let body: FilesBody;
@@ -137,9 +184,12 @@ export function createPublicSendLinksRoute(
     const passwordCheck = await resolvePasswordCheck(link.passwordHash, providedPassword);
     switch (passwordCheck.kind) {
       case 'missing':
-        return c.json({ error: 'password_required' }, 403);
-      case 'wrong':
-        return c.json({ error: 'password_wrong' }, 403);
+      case 'wrong': {
+        const passwordLimited = recordPasswordFailure(c, code, security, limiters);
+        if (passwordLimited) return passwordLimited;
+        const error = passwordCheck.kind === 'missing' ? 'password_required' : 'password_wrong';
+        return c.json({ error }, 403);
+      }
       case 'not_required':
       case 'correct':
         break;
@@ -153,7 +203,8 @@ export function createPublicSendLinksRoute(
 
   route.post('/:code/download-tickets', async (c) => {
     const code = c.req.param('code');
-    const limited = enforceSendLinkAdmission(c, code, security, limiter);
+    if (!isPlausibleCode(code)) return c.json({ error: 'not_found' }, 404);
+    const limited = enforceSendLinkAdmission(c, code, security, limiters);
     if (limited) return limited;
 
     let body: DownloadTicketBody;
@@ -187,12 +238,20 @@ export function createPublicSendLinksRoute(
         // Collapse both into the same opaque 404 to avoid leaking which axis
         // the request failed on (anti-enumeration parity with the GET).
         return c.json({ error: 'not_found' }, 404);
-      case 'policy_rejected':
+      case 'policy_rejected': {
         // A disabled link must look exactly like a missing one.
         if (outcome.policy.kind === 'disabled') {
           return c.json({ error: 'not_found' }, 404);
         }
+        if (
+          outcome.policy.kind === 'password_required' ||
+          outcome.policy.kind === 'password_wrong'
+        ) {
+          const passwordLimited = recordPasswordFailure(c, code, security, limiters);
+          if (passwordLimited) return passwordLimited;
+        }
         return c.json({ error: outcome.policy.kind }, 403);
+      }
     }
   });
 
