@@ -142,11 +142,8 @@ export const receiveLinks = sqliteTable('receive_links', {
 /**
  * A send link — an admin-created URL anyone can open to download the file(s)
  * the admin packaged into the link. Lifecycle mirrors `receive_links` but the
- * counter direction is reversed: `maxDownloads` caps how many recipient GETs
- * are allowed, and `downloadCount` is the running tally. Both columns exist
- * already at the schema level so #11 (policy: password/quota/expiry on send
- * links) can wire them without another migration. This slice (#8) only writes
- * the row with `passwordHash`/`maxDownloads`/`expiresAt` all null.
+ * counter direction is reversed: `maxDownloads` caps how many download URLs
+ * are issued to recipients, and `downloadCount` is the running tally.
  */
 export const sendLinks = sqliteTable('send_links', {
   id: text('id').primaryKey(),
@@ -156,12 +153,12 @@ export const sendLinks = sqliteTable('send_links', {
   label: text('label').notNull(),
   /** Hashed link password. Null = no password. Algorithm matches receive links. */
   passwordHash: text('password_hash'),
-  /** Quota in number of recipient downloads. Null = unlimited. */
+  /** Quota in number of download URLs issued to recipients. Null = unlimited. */
   maxDownloads: integer('max_downloads'),
   /**
-   * Running count of completed downloads. Pre-baked so the policy module only
-   * has to compare two integers; the decrement-on-confirmation logic lands in
-   * #11 with `download-tickets.confirm`. Stays at 0 in this slice.
+   * Running count of download URLs issued. Incremented by
+   * `download-tickets.createForSendLink` in the same transaction that inserts
+   * the ticket; confirm and expire never change it.
    */
   downloadCount: integer('download_count').notNull().default(0),
   /** Expiry as unix epoch seconds, UTC. Null = never. */
@@ -474,10 +471,9 @@ export const files = sqliteTable('files', {
 /**
  * A download ticket — short-lived authorization for one recipient GET against
  * the bucket. Minted by `download-tickets.createForSendLink` after the link
- * policy passes; the presigned URL is returned inline and persisted for the
- * audit trail. This slice (#8) doesn't read the persisted URL back — #11 adds
- * `confirm(ticketId)` which will close out the ticket and decrement
- * `send_links.download_count`.
+ * policy passes and its quota slot is burned; the presigned URL is returned
+ * inline and persisted for the audit trail, never re-served. `confirm` and the
+ * sweep's `expire` close out the ticket's status without touching quota.
  */
 /**
  * In-app notifications surfaced in the admin dashboard. A row is written by

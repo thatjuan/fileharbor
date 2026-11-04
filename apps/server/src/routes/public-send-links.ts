@@ -1,8 +1,9 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 
 import type { SecurityConfig } from '../config.js';
 import type { FilesModule } from '../files/files.js';
-import type { SendLinksModule } from '../links/send-links.js';
+import { resolvePasswordCheck } from '../links/policy/password-check.js';
+import type { SendLink, SendLinksModule } from '../links/send-links.js';
 import { clientIpFor } from '../security/client-ip.js';
 import { enforceRateLimit, type FixedWindowRateLimiter } from '../security/rate-limit.js';
 import type { DownloadTicketsModule } from '../tickets/download-tickets.js';
@@ -12,28 +13,59 @@ interface DownloadTicketBody {
   password?: unknown;
 }
 
+interface FilesBody {
+  password?: unknown;
+}
+
+/**
+ * Admission for the password-checking endpoints (`/files`, `/download-tickets`):
+ * consumes the per-IP bucket first, then the per-IP-per-code bucket, on every
+ * request. Shared so both endpoints keep one rate-limit pattern.
+ */
+function enforceSendLinkAdmission(
+  c: Context,
+  code: string,
+  security: SecurityConfig,
+  limiter: FixedWindowRateLimiter,
+): Response | null {
+  const ip = clientIpFor(c, security);
+  return enforceRateLimit(c, security, limiter, [
+    { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
+    { key: `public-link:${ip}:${code}`, limit: security.rateLimit.publicLink },
+  ]);
+}
+
+function isExpired(link: SendLink, now: number): boolean {
+  return link.expiresAt !== null && link.expiresAt <= now;
+}
+
 /**
  * The public-facing send surface. Unauthenticated; access is gated only by
  * the link's policy (status / expiry / password / quota).
  *
- *  - `GET   /:code`                          — public metadata + bundled files.
+ *  - `GET   /:code`                          — public metadata, plus the file
+ *    list when the link has no password and hasn't expired.
+ *  - `POST  /:code/files`                    — the file list of a password
+ *    link, after the password checks out.
  *  - `POST  /:code/download-tickets`         — mint a download ticket + presigned GET.
  *
- * Mounted at `/api/public/send-links`. Privacy: the GET response NEVER
- * includes the send link's `id` or any other internal identifier; only the
- * file ids are returned (because the recipient needs them to request a
- * download). 404 collapses "no such code" and "disabled link" into one shape
- * so a bad actor can't tell the two apart by probing.
+ * Mounted at `/api/public/send-links`. Privacy: responses NEVER include the
+ * send link's `id` or any other internal identifier; only the file ids are
+ * returned (because the recipient needs them to request a download). Every
+ * endpoint answers a disabled link with the same 404 as a missing code, so a
+ * bad actor can't tell the two apart by probing.
  *
- * Empty file list is a legitimate state — the link is created the moment the
- * admin POSTs `/api/send-links`, before any file is added. The frontend
- * renders "no files yet" cleanly.
+ * Disclosure rules for the GET:
+ *   - Password links return `files: []` plus `fileCount`; the names come from
+ *     `POST /:code/files` once the password is verified.
+ *   - Expired links return `status: 'expired'` and `files: []`, so the page
+ *     can say why without listing what the link used to hold.
+ *   - `quota_exhausted` links still answer `status: 'ok'` with their files;
+ *     the mint endpoint returns the specific reason.
  *
- * `expired` and `quota_exhausted` links still answer GET with `status: 'ok'`
- * and let the mint endpoint return the specific reason — that's where the
- * recipient finds out what went wrong. Only `status !== 'active'` (the
- * admin-toggled disabled state) collapses to 404 on the GET, because that's
- * the only verdict where the link should look like it never existed.
+ * Empty file list is otherwise a legitimate state — the link is created the
+ * moment the admin POSTs `/api/send-links`, before any file is added. The
+ * frontend renders "no files yet" cleanly.
  */
 export function createPublicSendLinksRoute(
   sendLinksModule: SendLinksModule,
@@ -44,13 +76,21 @@ export function createPublicSendLinksRoute(
 ): Hono {
   const route = new Hono();
 
+  /** The recipient-facing shape of a link's files. */
+  const listPublicFiles = async (linkId: string) =>
+    (await filesModule.listForSendLink(linkId)).map((f) => ({
+      id: f.id,
+      filename: f.filename,
+      size: f.size,
+      contentType: f.contentType,
+    }));
+
   route.get('/:code', async (c) => {
     const code = c.req.param('code');
     const link = await sendLinksModule.getByCode(code);
     if (!link || link.status !== 'active') {
       return c.json({ error: 'not_found' }, 404);
     }
-    const filesList = await filesModule.listForSendLink(link.id);
 
     // Remaining downloads is only meaningful if the admin set a cap. We expose
     // it (clamped to 0) so the public page can render "N downloads left". We
@@ -58,30 +98,62 @@ export function createPublicSendLinksRoute(
     // leaks how often the link has been hit, which the recipient doesn't need.
     const remainingDownloads =
       link.maxDownloads !== null ? Math.max(0, link.maxDownloads - link.downloadCount) : null;
-
-    return c.json({
+    const base = {
       label: link.label,
       passwordRequired: link.passwordHash !== null,
-      status: 'ok' as const,
       maxDownloads: link.maxDownloads,
       remainingDownloads,
       expiresAt: link.expiresAt,
-      files: filesList.map((f) => ({
-        id: f.id,
-        filename: f.filename,
-        size: f.size,
-        contentType: f.contentType,
-      })),
-    });
+    };
+
+    if (isExpired(link, Math.floor(Date.now() / 1000))) {
+      return c.json({ ...base, status: 'expired' as const, files: [] });
+    }
+    if (link.passwordHash !== null) {
+      const fileCount = await sendLinksModule.recordFileCount(link.id);
+      return c.json({ ...base, status: 'ok' as const, fileCount, files: [] });
+    }
+    return c.json({ ...base, status: 'ok' as const, files: await listPublicFiles(link.id) });
+  });
+
+  route.post('/:code/files', async (c) => {
+    const code = c.req.param('code');
+    const limited = enforceSendLinkAdmission(c, code, security, limiter);
+    if (limited) return limited;
+
+    let body: FilesBody;
+    try {
+      body = (await c.req.json()) as FilesBody;
+    } catch {
+      return c.json({ error: 'invalid_json' }, 400);
+    }
+    const providedPassword = typeof body.password === 'string' ? body.password : null;
+
+    const link = await sendLinksModule.getByCode(code);
+    if (!link || link.status !== 'active') {
+      return c.json({ error: 'not_found' }, 404);
+    }
+
+    const passwordCheck = await resolvePasswordCheck(link.passwordHash, providedPassword);
+    switch (passwordCheck.kind) {
+      case 'missing':
+        return c.json({ error: 'password_required' }, 403);
+      case 'wrong':
+        return c.json({ error: 'password_wrong' }, 403);
+      case 'not_required':
+      case 'correct':
+        break;
+    }
+
+    if (isExpired(link, Math.floor(Date.now() / 1000))) {
+      return c.json({ files: [] });
+    }
+    return c.json({ files: await listPublicFiles(link.id) });
   });
 
   route.post('/:code/download-tickets', async (c) => {
     const code = c.req.param('code');
-    const ip = clientIpFor(c, security);
-    const limited = enforceRateLimit(c, security, limiter, [
-      { key: `public-link:${ip}:${code}`, limit: security.rateLimit.publicLink },
-      { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
-    ]);
+    const limited = enforceSendLinkAdmission(c, code, security, limiter);
     if (limited) return limited;
 
     let body: DownloadTicketBody;
@@ -116,6 +188,10 @@ export function createPublicSendLinksRoute(
         // the request failed on (anti-enumeration parity with the GET).
         return c.json({ error: 'not_found' }, 404);
       case 'policy_rejected':
+        // A disabled link must look exactly like a missing one.
+        if (outcome.policy.kind === 'disabled') {
+          return c.json({ error: 'not_found' }, 404);
+        }
         return c.json({ error: outcome.policy.kind }, 403);
     }
   });

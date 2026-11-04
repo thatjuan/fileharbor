@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { hashPassword } from '@better-auth/utils/password';
 import { Hono } from 'hono';
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -21,7 +22,11 @@ import { createPublicReceiveLinksRoute } from '../routes/public-receive-links.js
 import { createPublicUploadTicketsRoute } from '../routes/public-upload-tickets.js';
 import { createLocalStorageRoute } from '../routes/storage.js';
 import { createLocalStorageProvider } from '../storage/local.js';
+import { createPublicSendLinksRoute } from '../routes/public-send-links.js';
+import type { FileRecord, FilesModule } from '../files/files.js';
 import type { ReceiveLinksModule } from '../links/receive-links.js';
+import type { SendLink, SendLinksModule } from '../links/send-links.js';
+import type { DownloadTicketsModule } from '../tickets/download-tickets.js';
 import type { UploadTicketsModule } from '../tickets/upload-tickets.js';
 
 function security(overrides: Partial<SecurityConfig> = {}): SecurityConfig {
@@ -234,6 +239,123 @@ test('successful uploads do not consume the password-failure limit', async () =>
   assert.equal((await request('wrong')).status, 403);
   assert.equal((await request('wrong')).status, 429);
   assert.equal(attempts, 4);
+});
+
+/** Public send-links app over one in-memory link with one attached file. */
+function publicSendLinksApp(
+  overrides: Partial<SendLink> = {},
+  opts: { config?: SecurityConfig; downloadTickets?: DownloadTicketsModule } = {},
+): Hono {
+  const link: SendLink = {
+    id: 'link-1',
+    code: 'SEND',
+    label: 'Quarterly report',
+    passwordHash: null,
+    maxDownloads: null,
+    downloadCount: 0,
+    expiresAt: null,
+    status: 'active',
+    createdAt: 0,
+    ...overrides,
+  };
+  const file: FileRecord = {
+    id: 'file-1',
+    s3Key: 'send/file-1',
+    filename: 'report.pdf',
+    contentType: 'application/pdf',
+    size: 10,
+    createdAt: 0,
+    receiveLinkId: null,
+    sendLinkId: link.id,
+  };
+  const sendLinksModule = {
+    async getByCode(code: string) {
+      return code === link.code ? link : null;
+    },
+    async recordFileCount() {
+      return 1;
+    },
+  } as unknown as SendLinksModule;
+  const filesModule = {
+    async listForSendLink() {
+      return [file];
+    },
+  } as unknown as FilesModule;
+  const route = createPublicSendLinksRoute(
+    sendLinksModule,
+    filesModule,
+    opts.downloadTickets ?? ({} as DownloadTicketsModule),
+    opts.config ?? security(),
+    new FixedWindowRateLimiter(100),
+  );
+  return new Hono().route('/send-links', route);
+}
+
+const publicFile = {
+  id: 'file-1',
+  filename: 'report.pdf',
+  size: 10,
+  contentType: 'application/pdf',
+};
+
+test('public send link GET hides the file list behind the password', async () => {
+  const app = publicSendLinksApp({ passwordHash: 'hash' });
+
+  const res = await app.request('/send-links/SEND');
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as Record<string, unknown>;
+  assert.equal(body.passwordRequired, true);
+  assert.deepEqual(body.files, []);
+  assert.equal(body.fileCount, 1);
+});
+
+test('public send link files endpoint checks the password and consumes the bucket', async () => {
+  const config = security();
+  config.rateLimit.publicLink = { max: 2, windowSeconds: 300 };
+  const app = publicSendLinksApp({ passwordHash: await hashPassword('correct-horse') }, { config });
+  const request = async (password: string): Promise<Response> =>
+    await app.request('/send-links/SEND/files', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+
+  const wrong = await request('nope');
+  assert.equal(wrong.status, 403);
+  assert.deepEqual(await wrong.json(), { error: 'password_wrong' });
+
+  const right = await request('correct-horse');
+  assert.equal(right.status, 200);
+  assert.deepEqual(await right.json(), { files: [publicFile] });
+
+  assert.equal((await request('correct-horse')).status, 429);
+});
+
+test('public send link GET on an expired link returns no files', async () => {
+  const app = publicSendLinksApp({ expiresAt: 1 });
+
+  const res = await app.request('/send-links/SEND');
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as Record<string, unknown>;
+  assert.equal(body.status, 'expired');
+  assert.deepEqual(body.files, []);
+});
+
+test('public send link mint answers a disabled link with 404', async () => {
+  const downloadTickets = {
+    async createForSendLink() {
+      return { kind: 'policy_rejected', policy: { kind: 'disabled' } };
+    },
+  } as unknown as DownloadTicketsModule;
+  const app = publicSendLinksApp({}, { downloadTickets });
+
+  const res = await app.request('/send-links/SEND/download-tickets', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ fileId: 'file-1' }),
+  });
+  assert.equal(res.status, 404);
+  assert.deepEqual(await res.json(), { error: 'not_found' });
 });
 
 function originGuardConfig(

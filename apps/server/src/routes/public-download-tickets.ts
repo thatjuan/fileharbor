@@ -14,24 +14,21 @@ interface ConfirmBody {
  * `/api/public/download-tickets`.
  *
  *  - `POST  /:ticketId/confirm`  — best-effort signal that the bytes were
- *    handed off to the bucket. Transitions `pending → completed` and
- *    increments `send_links.download_count`. Idempotent: a second call on a
- *    completed/failed/expired ticket is a no-op (same JSON, no extra writes).
+ *    handed off to the bucket. Transitions `pending → completed`. Idempotent:
+ *    a second call on a completed/failed/expired ticket is a no-op (same
+ *    JSON, no extra writes).
  *
- *    Body (optional): `{ outcome: 'failed' }` to mark the ticket failed
- *    WITHOUT burning a quota slot. The client uses this for the "user clicked
- *    cancel" case; the default is "completed".
+ *    Body (optional): `{ outcome: 'failed' }` to mark the ticket failed. The
+ *    client uses this for the "user clicked cancel" case; the default is
+ *    "completed".
+ *
+ * Neither outcome touches quota: `download-tickets.createForSendLink` burns
+ * the slot at mint, because the server can't verify a client-asserted
+ * failure. This endpoint only records the outcome for status display.
  *
  * Unauthenticated: the ticket id IS the authorization. We accept the call
  * with any payload because the worst case is that an attacker who knows a
- * ticket id can move it from pending to completed — same effect as the
- * recipient actually downloading. They've already proven possession of the
- * ticket; they're allowed to acknowledge it.
- *
- * Per #11, the floor for quota burn is the eventual expiry sweep (#10): even
- * if this endpoint is never hit, an unconfirmed pending ticket past its TTL
- * will be expired by the sweep and that expiry burns the slot too. This
- * endpoint is the opportunistic fast path; the sweep is the safety net.
+ * ticket id can relabel a pending ticket's outcome.
  */
 export function createPublicDownloadTicketsRoute(
   downloadTicketsModule: DownloadTicketsModule,
