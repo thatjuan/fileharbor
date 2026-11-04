@@ -19,6 +19,7 @@ import type { UploadTicketsModule } from '../tickets/upload-tickets.js';
 
 function security(overrides: Partial<SecurityConfig> = {}): SecurityConfig {
   const base: SecurityConfig = {
+    clientIpSource: { kind: 'socket' },
     trustProxyHeaders: false,
     rateLimit: {
       enabled: true,
