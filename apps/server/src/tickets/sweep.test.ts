@@ -173,7 +173,13 @@ test('sweep deletes the bytes of single-PUT tickets that were never finalized', 
   const linkDir = join(env.objectsDir, 'receive', link.id);
   assert.equal(filesUnder(linkDir).length, 6); // 3 objects + 3 sidecars
 
-  const createdAt = Math.max(...env.db.select().from(uploadTickets).all().map((r) => r.createdAt));
+  const createdAt = Math.max(
+    ...env.db
+      .select()
+      .from(uploadTickets)
+      .all()
+      .map((r) => r.createdAt),
+  );
   const expireAt = createdAt + PRESIGN_TTL + GRACE + 1;
   const expired = await env.sweeper.runOnce(expireAt);
   assert.equal(expired.expiredUploadTickets, 4);
