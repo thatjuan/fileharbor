@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 
 import type { AuthModule } from './auth/index.js';
 import type { AppConfig } from './config.js';
@@ -51,6 +52,31 @@ function contentTypeFor(filePath: string): string {
   return MIME_TYPES[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
 }
 
+const KiB = 1024;
+const MiB = 1024 * KiB;
+
+/**
+ * Cap for multipart-complete bodies: up to 10,000 `{partNumber, etag}` entries.
+ * One worst-case entry is `{"partNumber":10000,"etag":"\"<etag>\""},`: 31 bytes
+ * of keys and punctuation plus the ETag, whose two quotes each gain a backslash.
+ * An S3 ETag is 34 characters (32 hex plus quotes), so 31 + 36 = 67 bytes per
+ * entry and 670,000 bytes for 10,000 parts. The local backend's ETag is a quoted
+ * SHA-256 (66 characters), so 99 bytes per entry and 990,000 bytes. Both fit
+ * under 1 MiB with room for the `{"parts":[...]}` wrapper and a password.
+ */
+const MULTIPART_COMPLETE_MAX_BYTES = 1 * MiB;
+
+/**
+ * Body-size limit for JSON control-plane routes. It rejects on `Content-Length`
+ * up front and counts streamed bytes for chunked bodies, answering 413
+ * `payload_too_large`. Upload bytes never pass through these routes; they go
+ * to presigned storage URLs, so `/api/storage/o/*` is deliberately left uncapped
+ * (the signed `cl` bounds those).
+ */
+function jsonBodyLimit(maxSize: number) {
+  return bodyLimit({ maxSize, onError: (c) => c.json({ error: 'payload_too_large' }, 413) });
+}
+
 /**
  * Build the Hono application. The API lives under `/api/*`; everything else is
  * served from the built frontend.
@@ -95,6 +121,24 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
     });
     return jsonError(c, 500, 'internal_error');
   });
+
+  // Request-body caps, registered before any router so they run first. Hono
+  // runs every matching middleware, so the generic public cap skips the public
+  // multipart-complete path, which gets its own larger cap.
+  const publicBodyLimit = jsonBodyLimit(64 * KiB);
+  app.use('/api/public/*', (c, next) =>
+    c.req.path.endsWith('/upload/multipart/complete') ? next() : publicBodyLimit(c, next),
+  );
+  app.use(
+    '/api/public/upload-tickets/:ticketId/upload/multipart/complete',
+    jsonBodyLimit(MULTIPART_COMPLETE_MAX_BYTES),
+  );
+  app.use(
+    '/api/send-links/:linkId/files/multipart/:ticketId/complete',
+    jsonBodyLimit(MULTIPART_COMPLETE_MAX_BYTES),
+  );
+  app.use('/api/setup', jsonBodyLimit(16 * KiB));
+  app.use('/api/auth/*', jsonBodyLimit(16 * KiB));
 
   app.use(
     '/api/auth/sign-in/*',
