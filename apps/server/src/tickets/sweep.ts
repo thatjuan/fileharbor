@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 
 import type { Db } from '../db/client.js';
-import { downloadTickets, pendingAborts, uploadTickets } from '../db/schema.js';
+import { downloadTickets, files, pendingAborts, uploadTickets } from '../db/schema.js';
 import type { StorageProvider } from '../storage/index.js';
 import type { DownloadTicketsModule } from './download-tickets.js';
 
@@ -21,7 +21,10 @@ import type { DownloadTicketsModule } from './download-tickets.js';
  *      than `retentionSeconds`. Schema is set up so this is safe: upload
  *      tickets have no inbound FKs, and `files.{receive,send}_link_id` use
  *      `ON DELETE SET NULL` on the link, not the ticket — there is no FK from
- *      files to upload_tickets. Download tickets are leaf rows.
+ *      files to upload_tickets. Download tickets are leaf rows. Before an
+ *      `expired` or `failed` single-PUT upload ticket goes, its object is
+ *      deleted unless a `files` row references the key, so bytes that were
+ *      PUT but never published do not outlive the ticket.
  *
  * Race safety: the bulk UPDATE for pending uploads is guarded on
  * `status='pending'`, so a concurrent `finalize` that flipped the row to
@@ -59,6 +62,11 @@ export interface SweepCounters {
    * `storage.abortMultipart` and deleted the queue row.
    */
   drainedPendingAborts: number;
+  /**
+   * Objects of unpublished (`expired` / `failed`) single-PUT tickets that
+   * Phase 3 deleted before removing the ticket row.
+   */
+  reclaimedObjects: number;
 }
 
 export interface TicketSweeper {
@@ -85,7 +93,9 @@ export interface TicketSweeperDeps {
   retentionSeconds: number;
   /**
    * Storage provider. Sweep calls `storage.abortMultipart` from Phase 1.5,
-   * 1.6, and 1.7 to free abandoned multipart sessions.
+   * 1.6, and 1.7 to free abandoned multipart sessions, and
+   * `storage.deleteObject` from Phase 3 to reclaim unpublished single-PUT
+   * objects.
    */
   storage: StorageProvider;
   /**
@@ -126,6 +136,9 @@ const MAX_PENDING_ABORT_ATTEMPTS = 20;
 /** Cap per-pass on the `pending_aborts` drain so a backlog can't starve other phases. */
 const PENDING_ABORTS_BATCH_SIZE = 100;
 
+/** Cap per-pass on Phase 3's per-row reclaim; the next tick takes the rest. */
+const PHASE3_BATCH = 500;
+
 export function createTicketSweeper(deps: TicketSweeperDeps): TicketSweeper {
   const {
     db,
@@ -155,6 +168,7 @@ export function createTicketSweeper(deps: TicketSweeperDeps): TicketSweeper {
       abortedPendingMultipart: 0,
       drainedAborting: 0,
       drainedPendingAborts: 0,
+      reclaimedObjects: 0,
     };
 
     // --- Phase 1: expire pending SINGLE-PUT upload tickets -----------------
@@ -396,13 +410,28 @@ export function createTicketSweeper(deps: TicketSweeperDeps): TicketSweeper {
     }
 
     // --- Phase 3: delete terminal upload tickets ---------------------------
+    // Select, reclaim, delete. An `expired` or `failed` single-PUT ticket may
+    // still own bytes the uploader PUT but never published; delete them
+    // first so they don't outlive the only row that knows the key. Safe:
+    // `expired` can never be finalized, `failed` only while its row exists,
+    // and by now the presigned PUT URL is long dead. The `files` lookup
+    // protects bytes published under the same key. `deleteObject` treats a
+    // missing object as success on both backends. A failed delete keeps
+    // the row so the next tick retries.
+    //
     // `COALESCE(completed_at, created_at)` covers the edge case where a row
     // somehow lacks a `completed_at` — fall back to created_at so old rows
     // still age out instead of becoming immortal.
     try {
       const retentionCutoff = nowSeconds - retentionSeconds;
-      const res = db
-        .delete(uploadTickets)
+      const rows = db
+        .select({
+          id: uploadTickets.id,
+          s3Key: uploadTickets.s3Key,
+          protocol: uploadTickets.protocol,
+          status: uploadTickets.status,
+        })
+        .from(uploadTickets)
         .where(
           and(
             inArray(uploadTickets.status, [...TERMINAL_STATUSES]),
@@ -412,8 +441,40 @@ export function createTicketSweeper(deps: TicketSweeperDeps): TicketSweeper {
             ),
           ),
         )
-        .run();
-      counters.deletedUploadTickets = Number(res.changes);
+        .limit(PHASE3_BATCH)
+        .all();
+
+      for (const row of rows) {
+        if (row.protocol === 'single' && row.status !== 'completed') {
+          const referenced = db
+            .select({ id: files.id })
+            .from(files)
+            .where(eq(files.s3Key, row.s3Key))
+            .get();
+          if (!referenced) {
+            try {
+              await storage.deleteObject(row.s3Key);
+              counters.reclaimedObjects += 1;
+            } catch (err) {
+              log.error('[ticket-sweep] reclaim object failed (will retry)', {
+                ticketId: row.id,
+                err: err instanceof Error ? err.message : String(err),
+              });
+              continue;
+            }
+          }
+        }
+        const res = db
+          .delete(uploadTickets)
+          .where(
+            and(
+              eq(uploadTickets.id, row.id),
+              inArray(uploadTickets.status, [...TERMINAL_STATUSES]),
+            ),
+          )
+          .run();
+        counters.deletedUploadTickets += Number(res.changes);
+      }
     } catch (err) {
       log.error('[ticket-sweep] delete terminal upload_tickets failed', err);
     }
@@ -461,7 +522,8 @@ export function createTicketSweeper(deps: TicketSweeperDeps): TicketSweeper {
           counters.deletedDownloadTickets +
           counters.abortedPendingMultipart +
           counters.drainedAborting +
-          counters.drainedPendingAborts;
+          counters.drainedPendingAborts +
+          counters.reclaimedObjects;
         if (changed > 0) {
           log.info('[ticket-sweep] pass complete', {
             elapsedMs: Date.now() - started,

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, notExists, sql } from 'drizzle-orm';
 import { hashPassword } from '@better-auth/utils/password';
 
 import type { Db } from '../db/client.js';
@@ -20,6 +20,10 @@ export interface ReceiveLink {
   code: string;
   label: string;
   passwordHash: string | null;
+  /**
+   * Cap on uploads, counted as the link's current `files` rows. Deleting a
+   * received file frees a slot. Null means unlimited.
+   */
   maxUploads: number | null;
   /** Unix epoch seconds, UTC. */
   expiresAt: number | null;
@@ -48,6 +52,9 @@ export interface ReceiveLinksModule {
    * is `ON DELETE CASCADE` (junk tickets follow the link they belonged to),
    * but `files.receive_link_id` is `ON DELETE SET NULL` (received files are
    * separate artifacts the admin chose to keep — they survive their link).
+   * In-flight multipart sessions are aborted and unpublished single-PUT
+   * objects are deleted, both best-effort, so the cascade leaves no bytes
+   * that nothing references.
    */
   remove(id: string): Promise<boolean>;
   /**
@@ -69,7 +76,10 @@ export interface CreateReceiveLinkInput {
   label: string;
   /** Optional plaintext password. Hashed before storage; never persisted raw. */
   password?: string | null;
-  /** Optional positive integer cap on completed uploads. */
+  /**
+   * Optional positive integer cap on uploads. The cap counts the link's
+   * current `files` rows, so an admin deleting a received file frees a slot.
+   */
   maxUploads?: number | null;
   /** Optional expiry as unix epoch seconds, UTC. */
   expiresAt?: number | null;
@@ -221,7 +231,8 @@ export function createReceiveLinksModule(
       //     and (b) fire inline best-effort aborts AFTER the CASCADE completes.
       // Order matters: the SELECT/INSERT must happen while the rows still
       // exist; CASCADE then wipes ticket rows; the inline aborts close out
-      // the storage-side sessions promptly (sub-second UX).
+      // the storage-side sessions promptly (sub-second UX). Unpublished
+      // single-PUT objects are snapshotted the same way and deleted after.
       const inFlight = db
         .select({
           s3Key: uploadTickets.s3Key,
@@ -238,6 +249,22 @@ export function createReceiveLinksModule(
         .all()
         .filter((r): r is { s3Key: string; uploadId: string } => r.uploadId !== null);
 
+      // Unpublished single-PUT objects: the CASCADE drops their tickets, and
+      // with them the only record of the key. Skip keys a `files` row
+      // published; those survive the link.
+      const unpublished = db
+        .select({ s3Key: uploadTickets.s3Key })
+        .from(uploadTickets)
+        .where(
+          and(
+            eq(uploadTickets.receiveLinkId, id),
+            eq(uploadTickets.protocol, 'single'),
+            inArray(uploadTickets.status, ['pending', 'expired', 'failed']),
+            notExists(db.select().from(files).where(eq(files.s3Key, uploadTickets.s3Key))),
+          ),
+        )
+        .all();
+
       const now = Math.floor(Date.now() / 1000);
       for (const row of inFlight) {
         db.insert(pendingAborts)
@@ -253,6 +280,22 @@ export function createReceiveLinksModule(
       }
 
       const result = db.delete(receiveLinks).where(eq(receiveLinks.id, id)).run();
+
+      // Best-effort, in the background and one at a time so a link with
+      // thousands of abandoned tickets doesn't stall the admin call or burst
+      // the backend. A failure leaves an orphan object; it is logged.
+      void (async () => {
+        for (const row of unpublished) {
+          try {
+            await storage.deleteObject(row.s3Key);
+          } catch (err) {
+            console.warn('[receive-links] link-delete object reclaim failed', {
+              key: row.s3Key,
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      })();
 
       // Fire-and-forget inline aborts. The link-delete admin call returns
       // immediately; the storage-side teardown finishes on its own latency.

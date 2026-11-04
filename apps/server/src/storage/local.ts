@@ -413,8 +413,10 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
         console.warn('[storage] multipart meta sidecar write failed', { key, err });
       }
 
-      // Drop the session dir. Failure here is logged, not fatal — sweep
-      // handles orphaned `.multipart/*` dirs as a backstop.
+      // Drop the session dir. Failure here is logged, not fatal. No
+      // directory scanner exists: a session dir left behind here stays on
+      // disk for an operator to remove. (Sessions that never complete are
+      // removed through abort, sweep Phase 1.5/1.6, or `pending_aborts`.)
       try {
         await fs.rm(sessionDir, { recursive: true, force: true });
       } catch (err) {

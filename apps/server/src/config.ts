@@ -210,6 +210,12 @@ export interface LocalStorageConfig {
    * TTL applied to local presigned URLs, in seconds. Default: 300s.
    */
   presignTtlSeconds: number;
+  /**
+   * Free bytes a receive upload must leave on the objects volume, which also
+   * holds the SQLite database. A mint that would go below it is rejected as
+   * `insufficient_storage`. Default: 1 GiB. `0` disables the check.
+   */
+  minFreeBytes: number;
   /** Multipart-upload knobs. */
   multipart: MultipartConfig;
 }
@@ -363,6 +369,13 @@ function resolveLocalStorageConfig(
     objectsDir,
     signingSecret,
     presignTtlSeconds,
+    minFreeBytes: parsePositiveIntBytes(
+      env.STORAGE_LOCAL_MIN_FREE_BYTES,
+      1024 * 1024 * 1024,
+      'STORAGE_LOCAL_MIN_FREE_BYTES',
+      0,
+      Number.MAX_SAFE_INTEGER,
+    ),
     multipart: parseMultipartConfig(env, 'local'),
   };
 }
