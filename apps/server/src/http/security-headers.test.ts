@@ -56,6 +56,7 @@ test('local storage CSP uses self for connect-src', () => {
     objectsDir: '/tmp/objects',
     signingSecret: 'secret',
     presignTtlSeconds: 300,
+    minFreeBytes: 0,
     multipart: {
       thresholdBytes: 1,
       partSizeBytes: 5 * 1024 * 1024,

@@ -90,6 +90,14 @@ async function main(): Promise<void> {
     filesModule,
     notificationsModule,
     config.storage.multipart,
+    config.storage.backend === 'local'
+      ? {
+          freeSpaceFloor: {
+            dir: config.storage.objectsDir,
+            minFreeBytes: config.storage.minFreeBytes,
+          },
+        }
+      : {},
   );
   const downloadTicketsModule = createDownloadTicketsModule(
     db,
@@ -151,7 +159,8 @@ async function main(): Promise<void> {
         counters.deletedDownloadTickets +
         counters.abortedPendingMultipart +
         counters.drainedAborting +
-        counters.drainedPendingAborts;
+        counters.drainedPendingAborts +
+        counters.reclaimedObjects;
       if (total > 0) {
         console.log('[fileharbor] initial sweep complete', counters);
       }

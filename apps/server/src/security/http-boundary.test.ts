@@ -657,6 +657,7 @@ test('local storage PUT rejects a signed query parameter the method never emits'
       objectsDir,
       signingSecret: 'test-secret',
       presignTtlSeconds: 60,
+      minFreeBytes: 0,
       multipart: {
         thresholdBytes: 1024,
         partSizeBytes: 512,
