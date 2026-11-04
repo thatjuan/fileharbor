@@ -34,7 +34,7 @@ export interface SendLink {
   label: string;
   passwordHash: string | null;
   maxDownloads: number | null;
-  /** Running tally of completed recipient downloads. Pre-baked; stays 0 in #8. */
+  /** Running tally of download URLs issued to recipients, incremented at mint. */
   downloadCount: number;
   /** Unix epoch seconds, UTC. */
   expiresAt: number | null;
@@ -63,8 +63,8 @@ export interface SendLinksModule {
    */
   remove(id: string): Promise<boolean>;
   /**
-   * Persisted download counter on the link row. Cheap O(1) read; returned by
-   * #8's policy display computation and #11's quota check.
+   * Persisted count of download URLs issued for the link. Cheap O(1) read for
+   * policy display and the advisory pre-mint quota check.
    */
   recordDownloadCount(linkId: string): Promise<number>;
   /**
@@ -85,7 +85,7 @@ export interface CreateSendLinkInput {
   label: string;
   /** Optional plaintext password. Hashed before storage; never persisted raw. */
   password?: string | null;
-  /** Optional positive integer cap on completed recipient downloads. */
+  /** Optional positive integer cap on download URLs issued to recipients. */
   maxDownloads?: number | null;
   /** Optional expiry as unix epoch seconds, UTC. */
   expiresAt?: number | null;

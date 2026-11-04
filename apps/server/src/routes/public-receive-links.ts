@@ -78,6 +78,7 @@ function recordPasswordFailure(
  * Privacy: the GET response NEVER includes the link `id`, `s3_key`, or any
  * other internal identifier. Anything visible here is what an attacker who
  * already has the code could compute themselves; we don't help enumeration.
+ * Every endpoint answers a disabled link with the same 404 as a missing code.
  */
 export function createPublicReceiveLinksRoute(
   receiveLinksModule: ReceiveLinksModule,
@@ -142,6 +143,10 @@ export function createPublicReceiveLinksRoute(
       case 'invalid_input':
         return c.json({ error: 'invalid_input', message: outcome.reason }, 400);
       case 'policy_rejected': {
+        // A disabled link must look exactly like a missing one.
+        if (outcome.policy.kind === 'disabled') {
+          return c.json({ error: 'not_found' }, 404);
+        }
         if (
           outcome.policy.kind === 'password_required' ||
           outcome.policy.kind === 'password_wrong'
@@ -200,6 +205,10 @@ export function createPublicReceiveLinksRoute(
       case 'invalid_input':
         return c.json({ error: 'invalid_input', message: outcome.reason }, 400);
       case 'policy_rejected': {
+        // A disabled link must look exactly like a missing one.
+        if (outcome.policy.kind === 'disabled') {
+          return c.json({ error: 'not_found' }, 404);
+        }
         if (
           outcome.policy.kind === 'password_required' ||
           outcome.policy.kind === 'password_wrong'
