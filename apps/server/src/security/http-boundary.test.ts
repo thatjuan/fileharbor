@@ -5,10 +5,13 @@ import { Hono } from 'hono';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { count } from 'drizzle-orm';
+
 import type { AuthModule } from '../auth/index.js';
-import { createAuthModule } from '../auth/index.js';
+import { createAuthModule, maybeSeedAdmin } from '../auth/index.js';
 import type { AppConfig, SecurityConfig } from '../config.js';
-import { openDatabase } from '../db/client.js';
+import { openDatabase, type Db } from '../db/client.js';
+import { user } from '../db/schema.js';
 import { createAdminOriginGuard } from './origin.js';
 import { FixedWindowRateLimiter } from './rate-limit.js';
 import { createSetupRoute } from '../routes/setup.js';
@@ -48,7 +51,7 @@ test('setup POST rate-limits by client IP with stable JSON', async () => {
     auth: {},
     hasAnyUser: () => false,
     getSession: async () => null,
-    createAdmin: async () => {},
+    createFirstAdmin: async () => {},
   } as unknown as AuthModule;
   const route = createSetupRoute(authModule, security(), new FixedWindowRateLimiter(100));
   const app = new Hono().route('/setup', route);
@@ -419,4 +422,102 @@ test('auth sign-out still rejects a genuinely cross-site origin', async () => {
     },
   });
   assert.equal(res.status, 403);
+});
+
+// --- First-run setup (/api/setup) --------------------------------------------
+//
+// Mounted the way `app.ts` mounts it: the admin Origin guard in front of the
+// route, on a real auth module over an in-memory DB.
+
+const SETUP_ORIGIN = 'http://localhost:3000';
+
+function setupApp(config: AppConfig = authConfig()): { app: Hono; db: Db; authModule: AuthModule } {
+  const db = openDatabase(
+    ':memory:',
+    resolve(dirname(fileURLToPath(import.meta.url)), '../../drizzle'),
+  );
+  const authModule = createAuthModule(db, config);
+  // Lift the per-IP setup limit so concurrent requests reach the handler.
+  const setupSecurity = security({
+    rateLimit: { ...security().rateLimit, setup: { max: 100, windowSeconds: 900 } },
+  });
+  const app = new Hono();
+  app.use('/setup', createAdminOriginGuard(config));
+  app.route('/setup', createSetupRoute(authModule, setupSecurity, new FixedWindowRateLimiter(100)));
+  return { app, db, authModule };
+}
+
+function postSetup(
+  app: Hono,
+  username: string,
+  headers: Record<string, string> = { origin: SETUP_ORIGIN, 'content-type': 'application/json' },
+): Promise<Response> {
+  return Promise.resolve(
+    app.request('/setup', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ username, password: 'password123' }),
+    }),
+  );
+}
+
+function userCount(db: Db): number {
+  return db.select({ value: count() }).from(user).get()?.value ?? 0;
+}
+
+test('concurrent setup POSTs create exactly one admin', async () => {
+  const { app, db } = setupApp();
+
+  const responses = await Promise.all([postSetup(app, 'alice'), postSetup(app, 'mallory')]);
+  const statuses = responses.map((r) => r.status).sort();
+  assert.deepEqual(statuses, [200, 403]);
+
+  const rejected = responses.find((r) => r.status === 403);
+  assert.deepEqual(await rejected?.json(), { error: 'setup_already_complete' });
+  assert.equal(userCount(db), 1);
+});
+
+test('setup POST from a cross-site origin is rejected and creates no user', async () => {
+  const { app, db } = setupApp();
+
+  const res = await postSetup(app, 'mallory', {
+    origin: 'https://evil.example',
+    'content-type': 'application/json',
+  });
+  assert.equal(res.status, 403);
+  assert.equal(userCount(db), 0);
+});
+
+test('same-origin setup POST without a JSON content type gets 415', async () => {
+  const { app, db } = setupApp();
+
+  const res = await postSetup(app, 'alice', { origin: SETUP_ORIGIN, 'content-type': 'text/plain' });
+  assert.equal(res.status, 415);
+  assert.deepEqual(await res.json(), { error: 'unsupported_media_type' });
+  assert.equal(userCount(db), 0);
+});
+
+test('same-origin JSON setup POST succeeds and GET stays open without Origin', async () => {
+  const { app } = setupApp();
+
+  const before = await app.request('/setup');
+  assert.equal(before.status, 200);
+  assert.deepEqual(await before.json(), { needsSetup: true });
+
+  assert.equal((await postSetup(app, 'alice')).status, 200);
+
+  const after = await app.request('/setup');
+  assert.deepEqual(await after.json(), { needsSetup: false });
+});
+
+test('env seeding during an in-flight setup creates no second admin', async () => {
+  const config = authConfig();
+  config.auth.adminSeed = { username: 'seeded', password: 'password123' };
+  const { db, authModule } = setupApp(config);
+
+  const inFlight = authModule.createFirstAdmin({ username: 'alice', password: 'password123' });
+  await maybeSeedAdmin(authModule, config);
+  await inFlight;
+
+  assert.equal(userCount(db), 1);
 });
