@@ -140,6 +140,8 @@ For S3 + tunnel, combine: drop `-p 3000:3000` from the S3 command above and add 
 
 Multipart uploads (files >100 MiB) automatically bypass the Cloudflare Free-plan 100 MB body cap.
 
+JSON API request bodies are capped inside the app (64 KiB on public routes, 1 MiB for multipart complete, 16 KiB for setup and sign-in), so oversized requests get a 413. File bytes are not: they are capped only by `STORAGE_MAX_OBJECT_SIZE_BYTES` and any limit your proxy enforces.
+
 ---
 
 ## Custom data location
