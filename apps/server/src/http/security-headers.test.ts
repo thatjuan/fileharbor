@@ -1,8 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Hono } from 'hono';
 
-import type { AppConfig } from '../config.js';
-import { buildContentSecurityPolicy, deriveStorageConnectSources } from './security-headers.js';
+import { loadConfig, type AppConfig } from '../config.js';
+import {
+  buildContentSecurityPolicy,
+  createSecurityHeadersMiddleware,
+  deriveStorageConnectSources,
+} from './security-headers.js';
 
 function baseConfig(storage: AppConfig['storage']): AppConfig {
   return {
@@ -95,4 +103,21 @@ test('virtual-hosted S3 CSP includes endpoint, bucket host, and wildcard host', 
     'https://fileharbor.s3.us-east-1.amazonaws.com',
     'https://*.s3.us-east-1.amazonaws.com',
   ]);
+});
+
+test('headers are on by default in development', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'fileharbor-headers-'));
+  try {
+    const config = loadConfig({ NODE_ENV: 'development', DATA_DIR: dataDir });
+    const app = new Hono();
+    app.use('*', createSecurityHeadersMiddleware(config));
+    app.get('/api/health', (c) => c.json({ ok: true }));
+
+    const res = await app.request('/api/health');
+    assert.equal(res.headers.get('X-Frame-Options'), 'DENY');
+    assert.equal(res.headers.get('X-Content-Type-Options'), 'nosniff');
+    assert.match(res.headers.get('Content-Security-Policy') ?? '', /frame-ancestors 'none'/);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });
