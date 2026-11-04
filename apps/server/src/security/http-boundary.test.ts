@@ -2,18 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Hono } from 'hono';
 
-import { dirname, resolve } from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { AuthModule } from '../auth/index.js';
 import { createAuthModule } from '../auth/index.js';
-import type { AppConfig, SecurityConfig } from '../config.js';
+import type { AppConfig, LocalStorageConfig, SecurityConfig } from '../config.js';
 import { openDatabase } from '../db/client.js';
 import { createAdminOriginGuard } from './origin.js';
 import { FixedWindowRateLimiter } from './rate-limit.js';
 import { createSetupRoute } from '../routes/setup.js';
 import { createPublicReceiveLinksRoute } from '../routes/public-receive-links.js';
 import { createPublicUploadTicketsRoute } from '../routes/public-upload-tickets.js';
+import { createLocalStorageRoute } from '../routes/storage.js';
+import { createLocalStorageProvider } from '../storage/local.js';
 import type { ReceiveLinksModule } from '../links/receive-links.js';
 import type { UploadTicketsModule } from '../tickets/upload-tickets.js';
 
@@ -419,4 +423,44 @@ test('auth sign-out still rejects a genuinely cross-site origin', async () => {
     },
   });
   assert.equal(res.status, 403);
+});
+
+test('local storage PUT rejects a signed query parameter the method never emits', async () => {
+  const objectsDir = await mkdtemp(join(tmpdir(), 'fileharbor-storage-route-'));
+  try {
+    const config: LocalStorageConfig = {
+      backend: 'local',
+      objectsDir,
+      signingSecret: 'test-secret',
+      presignTtlSeconds: 60,
+      multipart: {
+        thresholdBytes: 1024,
+        partSizeBytes: 512,
+        ttlSeconds: 60,
+        maxObjectSizeBytes: 1024,
+      },
+    };
+    const presigned = await createLocalStorageProvider(config).presignPut('receive/l/u/f', {
+      contentType: 'text/plain',
+      contentLength: 5,
+    });
+    const app = new Hono().route(
+      '/api/storage/o',
+      createLocalStorageRoute(config, {} as unknown as UploadTicketsModule),
+    );
+    const put = (url: string) =>
+      app.request(url, {
+        method: 'PUT',
+        headers: { 'content-type': 'text/plain', 'content-length': '5' },
+        body: 'hello',
+      });
+
+    const tampered = await put(`${presigned.url}&cd=`);
+    assert.equal(tampered.status, 403);
+    assert.deepEqual(await tampered.json(), { error: 'invalid_signature' });
+
+    assert.equal((await put(presigned.url)).status, 200);
+  } finally {
+    await rm(objectsDir, { recursive: true, force: true });
+  }
 });

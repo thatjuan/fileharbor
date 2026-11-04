@@ -75,9 +75,13 @@ export interface StorageProvider {
 
   /**
    * Mint a presigned URL for exactly one part of an open multipart session.
-   * The provider derives the per-part Content-Length from session state
-   * (every part except the last is exactly `partSize`; the last is
-   * `sizeHint - (expectedParts - 1) * partSize`). Callers must not exceed
+   * The caller passes the part's byte length in `opts.contentLength` (every
+   * part except the last is exactly `partSize`; the last is
+   * `sizeHint - (expectedParts - 1) * partSize`), and the provider must bind
+   * it into the URL so the part cannot exceed it. The caller computes it from
+   * the ticket row because S3's in-memory session cache does not survive a
+   * restart; the local backend re-derives it from `meta.json` and throws
+   * `part_length_mismatch` on disagreement. Callers must not exceed
    * `expectedParts` returned from `initMultipart` — providers throw on
    * out-of-range `partNumber`.
    *
@@ -89,7 +93,7 @@ export interface StorageProvider {
     key: string,
     uploadId: string,
     partNumber: number,
-    opts?: PresignUploadPartOptions,
+    opts: PresignUploadPartOptions,
   ): Promise<PresignedUrl>;
 
   /**
@@ -187,6 +191,8 @@ export interface InitMultipartResult {
 }
 
 export interface PresignUploadPartOptions {
+  /** Exact byte length of this part; the provider signs it as Content-Length. */
+  contentLength: number;
   /** Override the provider default TTL for this URL (seconds). */
   expiresInSeconds?: number;
 }

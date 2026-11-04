@@ -102,3 +102,14 @@ test('errors emitted by an opened S3 body propagate through the returned stream'
     }
   }, /midstream_failure/);
 });
+
+test('S3 part URLs sign Content-Length and GET URLs force a binary response type', async () => {
+  const storage = createS3StorageProvider(config);
+
+  const part = await storage.presignUploadPart('key', 'upload-1', 1, { contentLength: 16 });
+  const signedHeaders = new URL(part.url).searchParams.get('X-Amz-SignedHeaders') ?? '';
+  assert.ok(signedHeaders.split(';').includes('content-length'), signedHeaders);
+
+  const get = await storage.presignGet('key', { responseContentDisposition: 'attachment' });
+  assert.ok(get.url.includes('response-content-type=application%2Foctet-stream'), get.url);
+});
