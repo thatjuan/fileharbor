@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { promises as fs } from 'node:fs';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import type { MultipartConfig } from '../config.js';
 import type { Db } from '../db/client.js';
@@ -27,12 +28,14 @@ import type { CompletedPart as StorageCompletedPart, StorageProvider } from '../
  *     password/quota/expiry land in #11. Bucket key prefix is
  *     `send/<link_id>/<ticket_id>/<filename>`.
  *
- *   - `finalize` — intent-agnostic. Calls `storage.headObject`; on success
+ *   - `finalize` — intent-agnostic, single-PUT only (multipart tickets get
+ *     `wrong_protocol`). Calls `storage.headObject`; on success
  *     creates a `file` record bound to the right link (whichever FK was
  *     non-null on the ticket), marks the ticket completed. Re-finalize on
  *     completed is idempotent; on failed it's a retry path. Re-validates the
  *     link's policy when re-finalising to guard against an attacker holding a
- *     pre-disable ticket.
+ *     pre-disable ticket. Every status write is guarded on `pending`/`failed`
+ *     so a concurrent sweep or finalize is never overwritten.
  *
  * The bucket key includes the `<filename>` segment for human-legible logs in
  * the bucket browser but it is sanitised first — slashes, control chars, and
@@ -116,7 +119,27 @@ export type FinalizeOutcome =
       reason: 'object_not_found' | 'object_size_mismatch' | 'object_size_too_large';
     }
   | { kind: 'ticket_not_found' }
+  /** The ticket is multipart; it completes through `completeMultipart`. */
+  | { kind: 'wrong_protocol' }
   | { kind: 'policy_rejected'; policy: ReceiveLinkPolicyResult };
+
+/**
+ * Free-disk floor for receive uploads on the local backend. A mint whose
+ * size would leave less than `minFreeBytes` available under `dir` returns
+ * `invalid_input: insufficient_storage`. `minFreeBytes: 0` disables it.
+ */
+export interface FreeSpaceFloor {
+  dir: string;
+  minFreeBytes: number;
+  /** Free-space probe. Defaults to `fs.promises.statfs`; tests inject a fake. */
+  statfs?: (path: string) => Promise<{ bavail: number; bsize: number }>;
+}
+
+/** Optional knobs for `createUploadTicketsModule`. */
+export interface UploadTicketsOptions {
+  /** Set only for the local backend; S3 has no shared-volume concern. */
+  freeSpaceFloor?: FreeSpaceFloor;
+}
 
 // ---------------------------------------------------------------------------
 // Multipart upload types
@@ -314,6 +337,20 @@ class QuotaExhaustedError extends Error {
   }
 }
 
+/**
+ * Thrown inside the finalize publish transaction when the guarded ticket
+ * update matches no row: a concurrent finalize or sweep moved the ticket
+ * out of `pending`/`failed`. Rolls back the `files` insert.
+ */
+class TicketStateChangedError extends Error {
+  constructor() {
+    super('ticket_state_changed');
+  }
+}
+
+/** Ticket statuses `finalize` may write from. */
+const FINALIZABLE_STATUSES = ['pending', 'failed'] as const;
+
 /** The transaction handle drizzle passes to `db.transaction((tx) => ...)`. */
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
@@ -352,8 +389,51 @@ export function createUploadTicketsModule(
   filesModule: FilesModule,
   notificationsModule: NotificationsModule,
   multipartConfig: MultipartConfig,
+  options: UploadTicketsOptions = {},
 ): UploadTicketsModule {
   const { maxObjectSizeBytes, partSizeBytes } = multipartConfig;
+  const { freeSpaceFloor } = options;
+
+  /**
+   * True when storing `sizeHint` more bytes keeps the volume above the
+   * free-disk floor. Always true when no floor is configured.
+   */
+  async function hasRoomFor(sizeHint: number): Promise<boolean> {
+    if (!freeSpaceFloor || freeSpaceFloor.minFreeBytes === 0) return true;
+    const statfs = freeSpaceFloor.statfs ?? fs.statfs;
+    const { bavail, bsize } = await statfs(freeSpaceFloor.dir);
+    return bavail * bsize - sizeHint >= freeSpaceFloor.minFreeBytes;
+  }
+
+  /** WHERE clause for a guarded `finalize` write on `ticketId`. */
+  function finalizableTicket(ticketId: string) {
+    return and(
+      eq(uploadTickets.id, ticketId),
+      inArray(uploadTickets.status, [...FINALIZABLE_STATUSES]),
+    );
+  }
+
+  /**
+   * Answer for a ticket that is already `completed`: the file row published
+   * under its key. The lookup path differs by intent.
+   */
+  async function completedOutcome(ticket: {
+    intent: 'receive' | 'send';
+    receiveLinkId: string | null;
+    sendLinkId: string | null;
+    s3Key: string;
+  }): Promise<FinalizeOutcome> {
+    const list =
+      ticket.intent === 'receive'
+        ? await filesModule.listForReceiveLink(ticket.receiveLinkId ?? '')
+        : await filesModule.listForSendLink(ticket.sendLinkId ?? '');
+    const existing = list.find((f) => f.s3Key === ticket.s3Key);
+    // Defensive: a completed ticket should always have a corresponding
+    // file row, but if state got out of sync we still return completed
+    // with a synthetic id rather than 500. The dashboard will only
+    // surface files that actually exist.
+    return { kind: 'completed', fileId: existing?.id ?? '' };
+  }
   /**
    * Shared private helper: presign + persist a pending ticket row. Both
    * `createForReceiveLink` and `createForSendLink` funnel through here once
@@ -504,6 +584,9 @@ export function createUploadTicketsModule(
       if (policy.kind !== 'ok') {
         return { kind: 'policy_rejected', policy };
       }
+      if (!(await hasRoomFor(input.sizeHint))) {
+        return { kind: 'invalid_input', reason: 'insufficient_storage' };
+      }
 
       const value = await mintTicket({
         intent: 'receive',
@@ -548,26 +631,21 @@ export function createUploadTicketsModule(
       const ticketRow = db.select().from(uploadTickets).where(eq(uploadTickets.id, ticketId)).get();
       if (!ticketRow) return { kind: 'ticket_not_found' };
 
+      // Multipart tickets complete through `completeMultipart`. HEADing the
+      // not-yet-assembled key here would mark the ticket `failed` and strand
+      // its session, which no cleanup path selects. Leave the row untouched.
+      if (ticketRow.protocol !== 'single') return { kind: 'wrong_protocol' };
+
       // Idempotency on completed: if a finalize call previously created the
       // file row and marked the ticket completed, return the same answer with
-      // no extra work. The lookup path differs by intent — receive tickets
-      // resolve via `listForReceiveLink`, send tickets via `listForSendLink`.
+      // no extra work.
       //
       // We do NOT re-run policy on this branch: the file already exists; the
       // bytes have already landed; refusing to acknowledge that because the
       // link has since been disabled or expired would be a lie. The dashboard
       // can still delete the file via its own surface.
       if (ticketRow.status === 'completed') {
-        const list =
-          ticketRow.intent === 'receive'
-            ? await filesModule.listForReceiveLink(ticketRow.receiveLinkId ?? '')
-            : await filesModule.listForSendLink(ticketRow.sendLinkId ?? '');
-        const existing = list.find((f) => f.s3Key === ticketRow.s3Key);
-        // Defensive: a completed ticket should always have a corresponding
-        // file row, but if state got out of sync we still return completed
-        // with a synthetic id rather than 500. The dashboard will only
-        // surface files that actually exist.
-        return { kind: 'completed', fileId: existing?.id ?? '' };
+        return completedOutcome(ticketRow);
       }
 
       // For `failed` we allow re-finalize (uploader retries the PUT, then
@@ -613,7 +691,7 @@ export function createUploadTicketsModule(
       if (!info) {
         db.update(uploadTickets)
           .set({ status: 'failed', completedAt })
-          .where(eq(uploadTickets.id, ticketId))
+          .where(finalizableTicket(ticketId))
           .run();
         return { kind: 'failed', reason: 'object_not_found' };
       }
@@ -630,7 +708,7 @@ export function createUploadTicketsModule(
       if (sizeReason !== null) {
         db.update(uploadTickets)
           .set({ status: 'failed', completedAt })
-          .where(eq(uploadTickets.id, ticketId))
+          .where(finalizableTicket(ticketId))
           .run();
         await deleteCompletedObjectBestEffort({
           ticketId,
@@ -652,7 +730,8 @@ export function createUploadTicketsModule(
       // `await storage.headObject` sits between it and this insert, so two
       // concurrent finalizes can both pass it with `count = max - 1`. The
       // in-transaction guard is the enforcement point — the loser lands in
-      // the QuotaExhaustedError arm below.
+      // the QuotaExhaustedError arm below. The guarded ticket update rolls
+      // the insert back if a concurrent finalize or sweep moved the ticket.
       const fileId = randomUUID();
       try {
         db.transaction((tx) => {
@@ -671,22 +750,40 @@ export function createUploadTicketsModule(
               sendLinkId: ticketRow.sendLinkId,
             })
             .run();
-          tx.update(uploadTickets)
+          const done = tx
+            .update(uploadTickets)
             .set({ status: 'completed', completedAt })
-            .where(eq(uploadTickets.id, ticketId))
+            .where(finalizableTicket(ticketId))
             .run();
+          if (Number(done.changes) === 0) throw new TicketStateChangedError();
         });
       } catch (err) {
+        // Another finalize published this ticket, or the sweep expired it,
+        // while we awaited storage. Report whatever won.
+        const lostRace = async (): Promise<FinalizeOutcome> => {
+          const fresh = db
+            .select()
+            .from(uploadTickets)
+            .where(eq(uploadTickets.id, ticketId))
+            .get();
+          if (fresh?.status === 'completed') return completedOutcome(fresh);
+          return { kind: 'failed', reason: 'object_not_found' };
+        };
+        if (err instanceof TicketStateChangedError) return lostRace();
         if (err instanceof QuotaExhaustedError) {
           // Lost the publish race: the cap filled between the advisory check
           // and this commit. The bytes are already in the bucket, so delete
           // them — quota exists to bound storage — and close the ticket. A
           // retry can't succeed without a fresh upload, so `failed` (not
-          // `pending`) is the honest terminal state.
-          db.update(uploadTickets)
+          // `pending`) is the honest terminal state. If the guarded update
+          // misses, a concurrent finalize of this same ticket published the
+          // key, so the bytes stay.
+          const closed = db
+            .update(uploadTickets)
             .set({ status: 'failed', completedAt })
-            .where(eq(uploadTickets.id, ticketId))
+            .where(finalizableTicket(ticketId))
             .run();
+          if (Number(closed.changes) === 0) return lostRace();
           await deleteCompletedObjectBestEffort({
             ticketId,
             key: ticketRow.s3Key,
@@ -762,6 +859,9 @@ export function createUploadTicketsModule(
       const policy = evaluateReceiveLink(link, now, uploadsSoFar, passwordCheck);
       if (policy.kind !== 'ok') {
         return { kind: 'policy_rejected', policy };
+      }
+      if (!(await hasRoomFor(input.size))) {
+        return { kind: 'invalid_input', reason: 'insufficient_storage' };
       }
 
       const ticketId = randomUUID();
