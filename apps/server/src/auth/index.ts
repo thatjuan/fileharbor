@@ -46,10 +46,20 @@ export interface AuthModule {
    * is intentional: public sign-up is permanently disabled, but the operator
    * needs *some* path to bring the first user into existence.
    *
-   * Throws if the username collides or any required field is invalid.
-   * Callers must check `hasAnyUser()` first to enforce single-user mode.
+   * Rejects with `AdminExistsError` when a user already exists or another
+   * creation is in flight, so concurrent callers (two setup POSTs, or setup
+   * racing env seeding) cannot both create an admin. Any other rejection
+   * means the insert itself failed.
    */
-  createAdmin(input: AdminCreateInput): Promise<void>;
+  createFirstAdmin(input: AdminCreateInput): Promise<void>;
+}
+
+/** Thrown by `createFirstAdmin` when the single admin exists or is being created. */
+export class AdminExistsError extends Error {
+  constructor() {
+    super('admin_already_exists');
+    this.name = 'AdminExistsError';
+  }
 }
 
 export interface SessionPayload {
@@ -157,6 +167,7 @@ export function createAuthModule(db: Db, config: AppConfig): AuthModule {
     }
   };
 
+  /** Hashes the password and inserts the user + credential account. No single-user check. */
   const createAdmin = async (input: AdminCreateInput): Promise<void> => {
     const ctx = await auth.$context;
     const usernameNormalized = input.username.toLowerCase();
@@ -182,17 +193,42 @@ export function createAuthModule(db: Db, config: AppConfig): AuthModule {
     });
   };
 
-  return { auth, hasAnyUser, getSession, createAdmin };
+  let creating: Promise<void> | null = null;
+
+  /**
+   * Creates the single admin. The check and the claim run synchronously, before
+   * the first `await`: `hasAnyUser()` is a synchronous SQLite read, and
+   * `creating` is assigned in the same tick. Node runs one tick at a time, so
+   * no other caller can slip between them. Any concurrent caller sees either
+   * the in-flight promise or the inserted row and rejects. This assumes one
+   * server process per database, which is how File Harbor runs.
+   */
+  const createFirstAdmin = async (input: AdminCreateInput): Promise<void> => {
+    if (creating || hasAnyUser()) throw new AdminExistsError();
+    creating = createAdmin(input);
+    try {
+      await creating;
+    } finally {
+      creating = null;
+    }
+  };
+
+  return { auth, hasAnyUser, getSession, createFirstAdmin };
 }
 
 /**
  * Create the seed admin from `ADMIN_USERNAME`/`ADMIN_PASSWORD` when no user
- * exists yet. Idempotent: if a user is already present this is a no-op.
+ * exists yet. Idempotent: if a user exists or is being created through
+ * `/api/setup`, this is a no-op.
  */
 export async function maybeSeedAdmin(authModule: AuthModule, config: AppConfig): Promise<void> {
   const seed = config.auth.adminSeed;
   if (!seed) return;
-  if (authModule.hasAnyUser()) return;
-  await authModule.createAdmin({ username: seed.username, password: seed.password });
+  try {
+    await authModule.createFirstAdmin({ username: seed.username, password: seed.password });
+  } catch (err) {
+    if (err instanceof AdminExistsError) return;
+    throw err;
+  }
   console.log(`[fileharbor] seeded admin user "${seed.username}" from environment.`);
 }
