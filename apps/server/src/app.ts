@@ -115,10 +115,14 @@ export function createApp(config: AppConfig, modules: AppModules): Hono {
   const api = new Hono();
   api.route('/health', healthRoute);
   api.route('/config', createConfigRoute(config.storage));
+  // Setup creates the admin without a session, so it gets the same Origin
+  // check as the admin surfaces. The guard only acts on mutating methods, so
+  // `GET /api/setup` stays open to the SPA.
+  const adminOriginGuard = createAdminOriginGuard(config);
+  api.use('/setup', adminOriginGuard);
   api.route('/setup', createSetupRoute(authModule, config.security, limiter));
 
   // Admin (authed) surfaces.
-  const adminOriginGuard = createAdminOriginGuard(config);
   for (const prefix of ['/receive-links', '/send-links', '/files', '/notifications']) {
     api.use(prefix, adminOriginGuard);
     api.use(`${prefix}/*`, adminOriginGuard);

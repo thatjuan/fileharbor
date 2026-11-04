@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 
 import type { SecurityConfig } from '../config.js';
-import type { AuthModule } from '../auth/index.js';
+import { AdminExistsError, type AuthModule } from '../auth/index.js';
 import { logServerError } from '../http/errors.js';
 import { clientIpFor } from '../security/client-ip.js';
 import { enforceRateLimit, type FixedWindowRateLimiter } from '../security/rate-limit.js';
@@ -19,9 +19,12 @@ interface SetupBody {
  * render `/setup` or punt to `/login`. It returns `{ needsSetup: boolean }`
  * — never sensitive data, never 404.
  *
- * `POST /api/setup` accepts the very first user. It re-checks "no user
- * exists" inside the handler (independent of any UI gating), so the endpoint
- * is safe even if someone POSTs to it after setup is done — they get a 403.
+ * `POST /api/setup` accepts the very first user. It only takes
+ * `application/json` (415 otherwise), so a cross-site page cannot send a
+ * no-preflight `text/plain` POST; `app.ts` also mounts the admin Origin guard
+ * in front of it. Creation goes through `createFirstAdmin`, which serializes
+ * the "no user exists" check with the insert, so concurrent POSTs (or a POST
+ * racing env seeding) yield exactly one admin and a 403 for the rest.
  *
  * Once a user exists, both ways the route is "sealed": the GET still answers
  * but reports `{ needsSetup: false }`, and the POST 403s.
@@ -43,6 +46,11 @@ export function createSetupRoute(
       { key: `setup:${ip}`, limit: security.rateLimit.setup },
     ]);
     if (limited) return limited;
+
+    const contentType = c.req.header('content-type')?.split(';')[0]?.trim().toLowerCase();
+    if (contentType !== 'application/json') {
+      return c.json({ error: 'unsupported_media_type' }, 415);
+    }
 
     if (authModule.hasAnyUser()) {
       // Already set up. 403 (not 404) communicates "this route exists but is
@@ -79,11 +87,10 @@ export function createSetupRoute(
     // mint an internal placeholder email — Better Auth still requires one,
     // and we don't surface it anywhere.
     try {
-      await authModule.createAdmin({ username, password, name });
+      await authModule.createFirstAdmin({ username, password, name });
     } catch (err) {
-      // Race condition: a parallel POST or env-seed beat us. Re-check and
-      // return the appropriate signal.
-      if (authModule.hasAnyUser()) {
+      // A parallel POST or env seeding created (or is creating) the admin.
+      if (err instanceof AdminExistsError) {
         return c.json({ error: 'setup_already_complete' }, 403);
       }
       logServerError('setup.create_admin_failed', err, { username });
