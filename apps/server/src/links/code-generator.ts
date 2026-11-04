@@ -8,16 +8,18 @@ import { randomInt } from 'node:crypto';
  *   - Ambiguity-stripped: `I/1/L`, `O/0`, and `U` are absent.
  *   - URL-safe with no escaping or case juggling at the protocol level.
  *
- * Default length is 8: 5 × 8 = 40 bits = ~10^12. Collision probability at any
- * realistic scale (millions of links) is vanishingly small; the DB unique
+ * Default length is 12: 5 × 12 = 60 bits = ~10^18. The code is the only thing
+ * standing between a guesser and an unpassworded link, so the space has to
+ * make online guessing hopeless, not just keep collisions rare. The DB unique
  * constraint plus the retry loop in `mintUniqueCode` are belt-and-braces.
+ * Older 8-character codes still resolve: lookup is by exact normalized value.
  *
  * The codes are case-insensitive at the link-policy layer (lookup lowercases
  * the input). Codes are minted in uppercase for readability when written down.
  */
 
 const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
-export const DEFAULT_CODE_LENGTH = 8;
+export const DEFAULT_CODE_LENGTH = 12;
 const DEFAULT_MAX_ATTEMPTS = 5;
 
 /**
@@ -41,7 +43,7 @@ export function generateCode(length: number = DEFAULT_CODE_LENGTH): string {
  * Asks the caller "does this code exist?" and retries on collision. Pure-ish:
  * the only I/O is the probe the caller wires in. Defaults match `generateCode`.
  *
- * Throws after `maxAttempts` consecutive collisions. The 40-bit space makes
+ * Throws after `maxAttempts` consecutive collisions. The 60-bit space makes
  * that practically impossible; if it does happen, something has gone very
  * wrong (RNG seed reuse, mass-import of pre-existing codes) and surfacing the
  * failure is correct.
@@ -70,4 +72,15 @@ export async function mintUniqueCode(
  */
 export function normalizeCode(raw: string): string {
   return raw.toUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1');
+}
+
+const PLAUSIBLE_CODE = /^[0-9A-HJKMNP-TV-Z]{6,16}$/;
+
+/**
+ * True when `raw` could be a link code: 6–16 chars from the Crockford alphabet,
+ * after normalization. Covers both legacy 8-character and current 12-character
+ * codes. Public handlers reject anything else with a 404 before rate limiting.
+ */
+export function isPlausibleCode(raw: string): boolean {
+  return PLAUSIBLE_CODE.test(normalizeCode(raw));
 }

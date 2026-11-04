@@ -19,6 +19,7 @@ async function fixture(): Promise<{
       objectsDir: dir,
       signingSecret: 'test-secret',
       presignTtlSeconds: 60,
+      minFreeBytes: 0,
       multipart: {
         thresholdBytes: 1024,
         partSizeBytes: 512,

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { promises as fs } from 'node:fs';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import type { MultipartConfig } from '../config.js';
 import type { Db } from '../db/client.js';
@@ -27,12 +28,14 @@ import type { CompletedPart as StorageCompletedPart, StorageProvider } from '../
  *     password/quota/expiry land in #11. Bucket key prefix is
  *     `send/<link_id>/<ticket_id>/<filename>`.
  *
- *   - `finalize` — intent-agnostic. Calls `storage.headObject`; on success
+ *   - `finalize` — intent-agnostic, single-PUT only (multipart tickets get
+ *     `wrong_protocol`). Calls `storage.headObject`; on success
  *     creates a `file` record bound to the right link (whichever FK was
  *     non-null on the ticket), marks the ticket completed. Re-finalize on
  *     completed is idempotent; on failed it's a retry path. Re-validates the
  *     link's policy when re-finalising to guard against an attacker holding a
- *     pre-disable ticket.
+ *     pre-disable ticket. Every status write is guarded on `pending`/`failed`
+ *     so a concurrent sweep or finalize is never overwritten.
  *
  * The bucket key includes the `<filename>` segment for human-legible logs in
  * the bucket browser but it is sanitised first — slashes, control chars, and
@@ -111,9 +114,32 @@ export type CreateForSendLinkOutcome =
 
 export type FinalizeOutcome =
   | { kind: 'completed'; fileId: string }
-  | { kind: 'failed'; reason: 'object_not_found' }
+  | {
+      kind: 'failed';
+      reason: 'object_not_found' | 'object_size_mismatch' | 'object_size_too_large';
+    }
   | { kind: 'ticket_not_found' }
+  /** The ticket is multipart; it completes through `completeMultipart`. */
+  | { kind: 'wrong_protocol' }
   | { kind: 'policy_rejected'; policy: ReceiveLinkPolicyResult };
+
+/**
+ * Free-disk floor for receive uploads on the local backend. A mint whose
+ * size would leave less than `minFreeBytes` available under `dir` returns
+ * `invalid_input: insufficient_storage`. `minFreeBytes: 0` disables it.
+ */
+export interface FreeSpaceFloor {
+  dir: string;
+  minFreeBytes: number;
+  /** Free-space probe. Defaults to `fs.promises.statfs`; tests inject a fake. */
+  statfs?: (path: string) => Promise<{ bavail: number; bsize: number }>;
+}
+
+/** Optional knobs for `createUploadTicketsModule`. */
+export interface UploadTicketsOptions {
+  /** Set only for the local backend; S3 has no shared-volume concern. */
+  freeSpaceFloor?: FreeSpaceFloor;
+}
 
 // ---------------------------------------------------------------------------
 // Multipart upload types
@@ -239,6 +265,25 @@ export interface UploadTicketsModule {
   findByUploadId(uploadId: string): Promise<MultipartTicketLookup | null>;
 }
 
+const MAX_CONTENT_TYPE_LENGTH = 255;
+// C0 controls and DEL; matching them is the point, so the lint rule does not apply.
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
+/**
+ * Byte length of `partNumber` (1-based). Every part is `partSize` except the
+ * last, which holds the remainder: sizeHint=33, partSize=16, expectedParts=3
+ * gives 16, 16 and 1. Passed to `presignUploadPart` so the provider binds it.
+ */
+export function partLength(
+  partNumber: number,
+  partSize: number,
+  sizeHint: number,
+  expectedParts: number,
+): number {
+  return partNumber === expectedParts ? sizeHint - (expectedParts - 1) * partSize : partSize;
+}
+
 /**
  * Shared validation for both intents — same checks, same error strings.
  *
@@ -246,8 +291,13 @@ export interface UploadTicketsModule {
  * single-PUT and multipart paths. Rejecting at the input layer is cheaper
  * than discovering a too-large object after `presignPut`/`initMultipart` has
  * already opened a storage session.
+ *
+ * `contentType` is signed into presigned URLs and stored in sidecar metadata
+ * that later becomes a response header, so control characters (C0 and DEL)
+ * and values over 255 characters are rejected as `invalid_content_type`.
+ * Exported for unit tests.
  */
-function validateUploadInput(
+export function validateUploadInput(
   input: {
     filename: string;
     contentType: string;
@@ -262,6 +312,9 @@ function validateUploadInput(
   const contentType = input.contentType.trim();
   if (contentType.length === 0) {
     return { ok: false, reason: 'content_type_required' };
+  }
+  if (contentType.length > MAX_CONTENT_TYPE_LENGTH || CONTROL_CHARS.test(contentType)) {
+    return { ok: false, reason: 'invalid_content_type' };
   }
   if (!Number.isInteger(input.sizeHint) || input.sizeHint < 0) {
     return { ok: false, reason: 'invalid_size' };
@@ -283,6 +336,20 @@ class QuotaExhaustedError extends Error {
     super('quota_exhausted');
   }
 }
+
+/**
+ * Thrown inside the finalize publish transaction when the guarded ticket
+ * update matches no row: a concurrent finalize or sweep moved the ticket
+ * out of `pending`/`failed`. Rolls back the `files` insert.
+ */
+class TicketStateChangedError extends Error {
+  constructor() {
+    super('ticket_state_changed');
+  }
+}
+
+/** Ticket statuses `finalize` may write from. */
+const FINALIZABLE_STATUSES = ['pending', 'failed'] as const;
 
 /** The transaction handle drizzle passes to `db.transaction((tx) => ...)`. */
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
@@ -322,8 +389,51 @@ export function createUploadTicketsModule(
   filesModule: FilesModule,
   notificationsModule: NotificationsModule,
   multipartConfig: MultipartConfig,
+  options: UploadTicketsOptions = {},
 ): UploadTicketsModule {
   const { maxObjectSizeBytes, partSizeBytes } = multipartConfig;
+  const { freeSpaceFloor } = options;
+
+  /**
+   * True when storing `sizeHint` more bytes keeps the volume above the
+   * free-disk floor. Always true when no floor is configured.
+   */
+  async function hasRoomFor(sizeHint: number): Promise<boolean> {
+    if (!freeSpaceFloor || freeSpaceFloor.minFreeBytes === 0) return true;
+    const statfs = freeSpaceFloor.statfs ?? fs.statfs;
+    const { bavail, bsize } = await statfs(freeSpaceFloor.dir);
+    return bavail * bsize - sizeHint >= freeSpaceFloor.minFreeBytes;
+  }
+
+  /** WHERE clause for a guarded `finalize` write on `ticketId`. */
+  function finalizableTicket(ticketId: string) {
+    return and(
+      eq(uploadTickets.id, ticketId),
+      inArray(uploadTickets.status, [...FINALIZABLE_STATUSES]),
+    );
+  }
+
+  /**
+   * Answer for a ticket that is already `completed`: the file row published
+   * under its key. The lookup path differs by intent.
+   */
+  async function completedOutcome(ticket: {
+    intent: 'receive' | 'send';
+    receiveLinkId: string | null;
+    sendLinkId: string | null;
+    s3Key: string;
+  }): Promise<FinalizeOutcome> {
+    const list =
+      ticket.intent === 'receive'
+        ? await filesModule.listForReceiveLink(ticket.receiveLinkId ?? '')
+        : await filesModule.listForSendLink(ticket.sendLinkId ?? '');
+    const existing = list.find((f) => f.s3Key === ticket.s3Key);
+    // Defensive: a completed ticket should always have a corresponding
+    // file row, but if state got out of sync we still return completed
+    // with a synthetic id rather than 500. The dashboard will only
+    // surface files that actually exist.
+    return { kind: 'completed', fileId: existing?.id ?? '' };
+  }
   /**
    * Shared private helper: presign + persist a pending ticket row. Both
    * `createForReceiveLink` and `createForSendLink` funnel through here once
@@ -379,13 +489,16 @@ export function createUploadTicketsModule(
   async function presignInitialPartUrls(
     s3Key: string,
     uploadId: string,
-    expectedParts: number,
+    session: { partSize: number; sizeHint: number; expectedParts: number },
   ): Promise<{ initialUrls: { partNumber: number; url: string }[]; expiresAt: Date }> {
+    const { partSize, sizeHint, expectedParts } = session;
     const limit = Math.min(100, expectedParts);
     const initialUrls: { partNumber: number; url: string }[] = [];
     let expiresAt: Date | null = null;
     for (let n = 1; n <= limit; n++) {
-      const presigned = await storage.presignUploadPart(s3Key, uploadId, n);
+      const presigned = await storage.presignUploadPart(s3Key, uploadId, n, {
+        contentLength: partLength(n, partSize, sizeHint, expectedParts),
+      });
       if (expiresAt === null) expiresAt = presigned.expiresAt;
       initialUrls.push({ partNumber: n, url: presigned.url });
     }
@@ -444,9 +557,9 @@ export function createUploadTicketsModule(
     };
     try {
       await storage.deleteObject(args.key);
-      console.warn('[upload-tickets] multipart-complete rejected; object deleted', logContext);
+      console.warn('[upload-tickets] upload rejected; object deleted', logContext);
     } catch (deleteErr) {
-      console.error('[upload-tickets] multipart-complete rejected; object delete failed', {
+      console.error('[upload-tickets] upload rejected; object delete failed', {
         ...logContext,
         deleteErr,
       });
@@ -470,6 +583,9 @@ export function createUploadTicketsModule(
       const policy = evaluateReceiveLink(link, now, uploadsSoFar, passwordCheck);
       if (policy.kind !== 'ok') {
         return { kind: 'policy_rejected', policy };
+      }
+      if (!(await hasRoomFor(input.sizeHint))) {
+        return { kind: 'invalid_input', reason: 'insufficient_storage' };
       }
 
       const value = await mintTicket({
@@ -515,26 +631,21 @@ export function createUploadTicketsModule(
       const ticketRow = db.select().from(uploadTickets).where(eq(uploadTickets.id, ticketId)).get();
       if (!ticketRow) return { kind: 'ticket_not_found' };
 
+      // Multipart tickets complete through `completeMultipart`. HEADing the
+      // not-yet-assembled key here would mark the ticket `failed` and strand
+      // its session, which no cleanup path selects. Leave the row untouched.
+      if (ticketRow.protocol !== 'single') return { kind: 'wrong_protocol' };
+
       // Idempotency on completed: if a finalize call previously created the
       // file row and marked the ticket completed, return the same answer with
-      // no extra work. The lookup path differs by intent — receive tickets
-      // resolve via `listForReceiveLink`, send tickets via `listForSendLink`.
+      // no extra work.
       //
       // We do NOT re-run policy on this branch: the file already exists; the
       // bytes have already landed; refusing to acknowledge that because the
       // link has since been disabled or expired would be a lie. The dashboard
       // can still delete the file via its own surface.
       if (ticketRow.status === 'completed') {
-        const list =
-          ticketRow.intent === 'receive'
-            ? await filesModule.listForReceiveLink(ticketRow.receiveLinkId ?? '')
-            : await filesModule.listForSendLink(ticketRow.sendLinkId ?? '');
-        const existing = list.find((f) => f.s3Key === ticketRow.s3Key);
-        // Defensive: a completed ticket should always have a corresponding
-        // file row, but if state got out of sync we still return completed
-        // with a synthetic id rather than 500. The dashboard will only
-        // surface files that actually exist.
-        return { kind: 'completed', fileId: existing?.id ?? '' };
+        return completedOutcome(ticketRow);
       }
 
       // For `failed` we allow re-finalize (uploader retries the PUT, then
@@ -580,9 +691,34 @@ export function createUploadTicketsModule(
       if (!info) {
         db.update(uploadTickets)
           .set({ status: 'failed', completedAt })
-          .where(eq(uploadTickets.id, ticketId))
+          .where(finalizableTicket(ticketId))
           .run();
         return { kind: 'failed', reason: 'object_not_found' };
+      }
+
+      // Backstop for the presigned URL's size binding: the stored object must
+      // match the size the ticket promised and the deployment cap. Same rule
+      // as `completeMultipart`.
+      const sizeReason =
+        ticketRow.sizeHint !== null && info.size !== ticketRow.sizeHint
+          ? 'object_size_mismatch'
+          : info.size > maxObjectSizeBytes
+            ? 'object_size_too_large'
+            : null;
+      if (sizeReason !== null) {
+        db.update(uploadTickets)
+          .set({ status: 'failed', completedAt })
+          .where(finalizableTicket(ticketId))
+          .run();
+        await deleteCompletedObjectBestEffort({
+          ticketId,
+          key: ticketRow.s3Key,
+          uploadId: null,
+          reason: sizeReason,
+          expectedSize: ticketRow.sizeHint,
+          actualSize: info.size,
+        });
+        return { kind: 'failed', reason: sizeReason };
       }
 
       // Trust the bucket's reported size over the client's hint — this is
@@ -594,7 +730,8 @@ export function createUploadTicketsModule(
       // `await storage.headObject` sits between it and this insert, so two
       // concurrent finalizes can both pass it with `count = max - 1`. The
       // in-transaction guard is the enforcement point — the loser lands in
-      // the QuotaExhaustedError arm below.
+      // the QuotaExhaustedError arm below. The guarded ticket update rolls
+      // the insert back if a concurrent finalize or sweep moved the ticket.
       const fileId = randomUUID();
       try {
         db.transaction((tx) => {
@@ -613,22 +750,36 @@ export function createUploadTicketsModule(
               sendLinkId: ticketRow.sendLinkId,
             })
             .run();
-          tx.update(uploadTickets)
+          const done = tx
+            .update(uploadTickets)
             .set({ status: 'completed', completedAt })
-            .where(eq(uploadTickets.id, ticketId))
+            .where(finalizableTicket(ticketId))
             .run();
+          if (Number(done.changes) === 0) throw new TicketStateChangedError();
         });
       } catch (err) {
+        // Another finalize published this ticket, or the sweep expired it,
+        // while we awaited storage. Report whatever won.
+        const lostRace = async (): Promise<FinalizeOutcome> => {
+          const fresh = db.select().from(uploadTickets).where(eq(uploadTickets.id, ticketId)).get();
+          if (fresh?.status === 'completed') return completedOutcome(fresh);
+          return { kind: 'failed', reason: 'object_not_found' };
+        };
+        if (err instanceof TicketStateChangedError) return lostRace();
         if (err instanceof QuotaExhaustedError) {
           // Lost the publish race: the cap filled between the advisory check
           // and this commit. The bytes are already in the bucket, so delete
           // them — quota exists to bound storage — and close the ticket. A
           // retry can't succeed without a fresh upload, so `failed` (not
-          // `pending`) is the honest terminal state.
-          db.update(uploadTickets)
+          // `pending`) is the honest terminal state. If the guarded update
+          // misses, a concurrent finalize of this same ticket published the
+          // key, so the bytes stay.
+          const closed = db
+            .update(uploadTickets)
             .set({ status: 'failed', completedAt })
-            .where(eq(uploadTickets.id, ticketId))
+            .where(finalizableTicket(ticketId))
             .run();
+          if (Number(closed.changes) === 0) return lostRace();
           await deleteCompletedObjectBestEffort({
             ticketId,
             key: ticketRow.s3Key,
@@ -705,6 +856,9 @@ export function createUploadTicketsModule(
       if (policy.kind !== 'ok') {
         return { kind: 'policy_rejected', policy };
       }
+      if (!(await hasRoomFor(input.size))) {
+        return { kind: 'invalid_input', reason: 'insufficient_storage' };
+      }
 
       const ticketId = randomUUID();
       const s3Key = `receive/${link.id}/${ticketId}/${validated.filename}`;
@@ -735,11 +889,11 @@ export function createUploadTicketsModule(
         })
         .run();
 
-      const { initialUrls, expiresAt } = await presignInitialPartUrls(
-        s3Key,
-        init.uploadId,
-        init.expectedParts,
-      );
+      const { initialUrls, expiresAt } = await presignInitialPartUrls(s3Key, init.uploadId, {
+        partSize: init.partSize,
+        sizeHint: input.size,
+        expectedParts: init.expectedParts,
+      });
 
       console.log('[upload-tickets] multipart-init', {
         ticketId,
@@ -806,11 +960,11 @@ export function createUploadTicketsModule(
         })
         .run();
 
-      const { initialUrls, expiresAt } = await presignInitialPartUrls(
-        s3Key,
-        init.uploadId,
-        init.expectedParts,
-      );
+      const { initialUrls, expiresAt } = await presignInitialPartUrls(s3Key, init.uploadId, {
+        partSize: init.partSize,
+        sizeHint: input.size,
+        expectedParts: init.expectedParts,
+      });
 
       console.log('[upload-tickets] multipart-init', {
         ticketId,
@@ -838,7 +992,8 @@ export function createUploadTicketsModule(
       if (!ticketRow) return { kind: 'ticket_not_found' };
       if (ticketRow.protocol !== 'multipart') return { kind: 'not_multipart' };
       if (ticketRow.status !== 'pending') return { kind: 'wrong_state' };
-      if (ticketRow.uploadId === null || ticketRow.expectedParts === null) {
+      const { uploadId, partSize, sizeHint, expectedParts } = ticketRow;
+      if (uploadId === null || partSize === null || sizeHint === null || expectedParts === null) {
         // Defensive: a multipart row with NULL multipart columns is
         // structurally broken. Treat as wrong_state rather than 500.
         return { kind: 'wrong_state' };
@@ -851,7 +1006,7 @@ export function createUploadTicketsModule(
         !Number.isInteger(to) ||
         from < 1 ||
         to < from ||
-        to > ticketRow.expectedParts ||
+        to > expectedParts ||
         to - from + 1 > 100
       ) {
         return { kind: 'invalid_input', reason: 'invalid_range' };
@@ -876,7 +1031,9 @@ export function createUploadTicketsModule(
       const urls: { partNumber: number; url: string }[] = [];
       let expiresAt: Date | null = null;
       for (let n = from; n <= to; n++) {
-        const presigned = await storage.presignUploadPart(ticketRow.s3Key, ticketRow.uploadId, n);
+        const presigned = await storage.presignUploadPart(ticketRow.s3Key, uploadId, n, {
+          contentLength: partLength(n, partSize, sizeHint, expectedParts),
+        });
         if (expiresAt === null) expiresAt = presigned.expiresAt;
         urls.push({ partNumber: n, url: presigned.url });
       }

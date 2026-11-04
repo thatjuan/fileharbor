@@ -12,17 +12,20 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
  *
  * `PUT-PART` signs the same envelope plus `uploadId` and `partNumber`;
  * combined with the distinct method literal, a part-PUT URL cannot be
- * replayed as a normal `PUT /put/<key>` (different `method` line → different
- * signature). The two trailing positional fields are empty strings for non-
- * `PUT-PART` methods.
+ * replayed as a normal `PUT /put/<key>` (different `method` field → different
+ * signature).
  *
- * NOTE — backward incompatibility at deploy time: adding two trailing
- * positional lines to the canonical changes the signature of every method,
- * including in-flight single-PUT presigned URLs that were minted by a
- * previous server build. The default presign TTL is 5 minutes (see
- * `STORAGE_PRESIGN_TTL_SECONDS`), so the deploy gap is bounded to seconds-
- * to-minutes of stale single-PUT URLs that will fail with 403; recipients
- * retry and the next URL verifies cleanly. No persisted state is affected.
+ * The canonical string is a JSON array, so it is injective: JSON escapes
+ * every control character, and absent fields encode as `null`, distinct from
+ * an empty string. An earlier newline-joined encoding let a `contentType`
+ * containing `\n` shift values between fields and reuse a signature.
+ *
+ * NOTE — backward incompatibility at deploy time: changing the canonical
+ * encoding changes the signature of every method, so URLs minted by a
+ * previous server build stop verifying. The default presign TTL is 5 minutes
+ * (see `STORAGE_PRESIGN_TTL_SECONDS`), so the deploy gap is bounded to
+ * minutes of stale URLs that fail once with 403; the client re-mints and the
+ * next URL verifies cleanly. No persisted state is affected.
  */
 
 export type CanonicalMethod = 'PUT' | 'GET' | 'DELETE' | 'PUT-PART';
@@ -67,20 +70,20 @@ export function validateKey(key: string): boolean {
 }
 
 /**
- * Canonical string fed into HMAC. Empty optional fields appear as empty
- * lines to keep the structure positional and unambiguous.
+ * Canonical string fed into HMAC: a positional JSON array. Absent optional
+ * fields are `null`, so the encoding is unambiguous for any field values.
  */
 function canonical(p: CanonicalParams): string {
-  return [
+  return JSON.stringify([
     p.method,
     p.key,
-    String(p.exp),
-    p.contentType ?? '',
-    p.contentLength !== undefined ? String(p.contentLength) : '',
-    p.responseContentDisposition ?? '',
-    p.uploadId ?? '',
-    p.partNumber !== undefined ? String(p.partNumber) : '',
-  ].join('\n');
+    p.exp,
+    p.contentType ?? null,
+    p.contentLength ?? null,
+    p.responseContentDisposition ?? null,
+    p.uploadId ?? null,
+    p.partNumber ?? null,
+  ]);
 }
 
 export function signCanonical(p: CanonicalParams, secret: string): string {

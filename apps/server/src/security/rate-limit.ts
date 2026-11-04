@@ -13,13 +13,28 @@ export interface RateLimitResult {
   retryAfterSeconds: number;
 }
 
+/** Minimum gap between full sweeps of expired buckets in `consume`. */
+const PRUNE_INTERVAL_MS = 1000;
+
+/**
+ * In-memory fixed-window limiter. A bucket whose window has ended counts as
+ * absent; expired buckets are swept at most once per second, so a request
+ * costs O(1) amortized however many keys are tracked. At `maxTrackedKeys` the
+ * oldest-inserted keys are evicted, so callers keep high-volume anonymous
+ * traffic and brute-force buckets in separate instances (see `app.ts`).
+ */
 export class FixedWindowRateLimiter {
   private readonly buckets = new Map<string, Bucket>();
+  private lastPruneMs = Number.NEGATIVE_INFINITY;
 
   public constructor(private readonly maxTrackedKeys: number) {}
 
+  /** Counts one hit against `key`, creating its bucket when absent or expired. */
   public consume(key: string, limit: WindowLimitConfig, nowMs = Date.now()): RateLimitResult {
-    this.pruneExpired(nowMs);
+    if (nowMs - this.lastPruneMs >= PRUNE_INTERVAL_MS) {
+      this.pruneExpired(nowMs);
+      this.lastPruneMs = nowMs;
+    }
 
     const existing = this.buckets.get(key);
     if (!existing || existing.resetAtMs <= nowMs) {
@@ -42,10 +57,8 @@ export class FixedWindowRateLimiter {
 
   /** Checks a bucket without consuming capacity or creating a new bucket. */
   public inspect(key: string, limit: WindowLimitConfig, nowMs = Date.now()): RateLimitResult {
-    this.pruneExpired(nowMs);
-
     const existing = this.buckets.get(key);
-    if (!existing) {
+    if (!existing || existing.resetAtMs <= nowMs) {
       return { allowed: true, retryAfterSeconds: limit.windowSeconds };
     }
 
@@ -55,6 +68,7 @@ export class FixedWindowRateLimiter {
     };
   }
 
+  /** Number of tracked buckets, expired ones included until the next sweep. */
   public size(): number {
     return this.buckets.size;
   }
@@ -74,6 +88,16 @@ export class FixedWindowRateLimiter {
       this.buckets.delete(oldest);
     }
   }
+}
+
+/**
+ * The two limiter instances `createApp` builds. `auth` holds brute-force and
+ * setup buckets; `public` holds the high-volume anonymous buckets, whose
+ * eviction must never reset a brute-force bucket.
+ */
+export interface RateLimiters {
+  auth: FixedWindowRateLimiter;
+  public: FixedWindowRateLimiter;
 }
 
 export const rateLimitedBody = {
@@ -113,6 +137,12 @@ export function createRateLimitMiddleware(
   };
 }
 
+/**
+ * Consumes each check in turn and answers 429 at the first denial.
+ *
+ * Order matters: checks run in order and stop at the first denial. Put the
+ * per-IP aggregate first so a denied request cannot create per-target keys.
+ */
 export function enforceRateLimit(
   c: Context,
   security: SecurityConfig,

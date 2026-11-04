@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import { AlertIcon, BellIcon, UploadIcon } from '../components/Icons.js';
 import {
+  getFileDownload,
   isUploadReceivedPayload,
   listNotifications,
   markNotificationsRead,
@@ -12,7 +13,7 @@ import {
 /**
  * Notifications panel. Lists recent items newest-first; each row shows the
  * timestamp, a human-readable description, and a link to the receive link
- * (for context) plus a download link to the file itself.
+ * (for context) plus a download button for the file itself.
  *
  * Read state is managed in two affordances:
  *   - per-row "Mark read" on each unread item
@@ -82,6 +83,21 @@ export function NotificationsPage(): JSX.Element {
     }
   };
 
+  /**
+   * Mint a presigned GET and navigate to it, like the receive-link detail
+   * page. The download endpoint answers JSON, so linking to it directly would
+   * render that JSON and leave the presigned URL in browser history.
+   */
+  const onDownload = async (fileId: string): Promise<void> => {
+    setError(null);
+    try {
+      const dl = await getFileDownload(fileId);
+      window.location.assign(dl.url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start download.');
+    }
+  };
+
   const unreadCount = items ? items.filter((n) => n.readAt === null).length : 0;
   const hasUnread = unreadCount > 0;
 
@@ -142,6 +158,7 @@ export function NotificationsPage(): JSX.Element {
                 <NotificationItem
                   item={n}
                   onMarkRead={onMarkOne}
+                  onDownload={onDownload}
                   disabled={busy}
                   isLast={i === items.length - 1}
                 />
@@ -157,11 +174,13 @@ export function NotificationsPage(): JSX.Element {
 function NotificationItem({
   item,
   onMarkRead,
+  onDownload,
   disabled,
   isLast,
 }: {
   item: NotificationRecord;
   onMarkRead: (id: string) => void;
+  onDownload: (fileId: string) => void;
   disabled: boolean;
   isLast: boolean;
 }): JSX.Element {
@@ -187,9 +206,9 @@ function NotificationItem({
           {p.receiveLinkLabel}
         </Link>
         {' · '}
-        <a href={`/api/files/${encodeURIComponent(p.fileId)}/download`} className="text-link">
+        <button type="button" className="text-link" onClick={() => onDownload(p.fileId)}>
           Download file
-        </a>
+        </button>
       </div>
     );
   } else {

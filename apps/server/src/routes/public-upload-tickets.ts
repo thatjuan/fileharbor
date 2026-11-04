@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 
 import type { SecurityConfig } from '../config.js';
 import { clientIpFor } from '../security/client-ip.js';
+import { isUuid } from '../security/ids.js';
 import { enforceRateLimit, type FixedWindowRateLimiter } from '../security/rate-limit.js';
 import type { CompletedPart, UploadTicketsModule } from '../tickets/upload-tickets.js';
 
@@ -63,7 +64,8 @@ function parsePositiveRange(
  *
  *  - `POST  /:ticketId/finalize`                       — single-PUT finalize:
  *    server-side HEAD against the bucket; on success creates the `file` row,
- *    on missing object marks the ticket failed.
+ *    on missing object marks the ticket failed. A multipart ticket gets
+ *    409 `wrong_protocol`.
  *  - `POST  /:ticketId/upload/multipart/complete`      — multipart complete:
  *    server submits the parts manifest, runs HEAD, records the file row.
  *  - `POST  /:ticketId/upload/multipart/abort`         — multipart abort:
@@ -73,6 +75,8 @@ function parsePositiveRange(
  *    presigned PUT-PART URLs in the `[from, to]` inclusive range (≤100 per
  *    call, enforced by the module). Optional `?password=` re-validates the
  *    receive-link policy when the link is password-gated.
+ *
+ * A ticket id that is not a UUID gets a 404 before any rate limiter sees it.
  *
  * Unauthenticated by design: the ticket id IS the authorization. It was minted
  * for this specific upload session and only the uploader has it. The password
@@ -87,6 +91,7 @@ export function createPublicUploadTicketsRoute(
 
   route.post('/:ticketId/finalize', async (c) => {
     const ticketId = c.req.param('ticketId');
+    if (!isUuid(ticketId)) return c.json({ error: 'not_found' }, 404);
     const ip = clientIpFor(c, security);
     const limited = enforceRateLimit(c, security, limiter, [
       { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
@@ -117,6 +122,8 @@ export function createPublicUploadTicketsRoute(
         return c.json({ status: 'failed' as const, reason: outcome.reason });
       case 'ticket_not_found':
         return c.json({ error: 'not_found' }, 404);
+      case 'wrong_protocol':
+        return c.json({ error: 'wrong_protocol' }, 409);
       case 'policy_rejected':
         return c.json({ error: outcome.policy.kind }, 403);
     }
@@ -124,6 +131,7 @@ export function createPublicUploadTicketsRoute(
 
   route.post('/:ticketId/upload/multipart/complete', async (c) => {
     const ticketId = c.req.param('ticketId');
+    if (!isUuid(ticketId)) return c.json({ error: 'not_found' }, 404);
     const ip = clientIpFor(c, security);
     const limited = enforceRateLimit(c, security, limiter, [
       { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
@@ -171,6 +179,7 @@ export function createPublicUploadTicketsRoute(
 
   route.post('/:ticketId/upload/multipart/abort', async (c) => {
     const ticketId = c.req.param('ticketId');
+    if (!isUuid(ticketId)) return c.json({ error: 'not_found' }, 404);
     const ip = clientIpFor(c, security);
     const limited = enforceRateLimit(c, security, limiter, [
       { key: `public-ticket:${ip}`, limit: security.rateLimit.publicTicket },
@@ -210,6 +219,7 @@ export function createPublicUploadTicketsRoute(
 
   route.post('/:ticketId/upload/multipart/parts', async (c) => {
     const ticketId = c.req.param('ticketId');
+    if (!isUuid(ticketId)) return c.json({ error: 'not_found' }, 404);
     const ip = clientIpFor(c, security);
     const limited = enforceRateLimit(c, security, limiter, [
       { key: `public-part-urls:${ip}`, limit: security.rateLimit.publicPartUrls },
@@ -258,6 +268,7 @@ export function createPublicUploadTicketsRoute(
 
   route.get('/:ticketId/upload/multipart/parts', async (c) => {
     const ticketId = c.req.param('ticketId');
+    if (!isUuid(ticketId)) return c.json({ error: 'not_found' }, 404);
     if (c.req.query('password') !== undefined) {
       return c.json({ error: 'password_in_query_not_allowed' }, 400);
     }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, notExists, sql } from 'drizzle-orm';
 import { hashPassword } from '@better-auth/utils/password';
 
 import type { Db } from '../db/client.js';
@@ -34,7 +34,7 @@ export interface SendLink {
   label: string;
   passwordHash: string | null;
   maxDownloads: number | null;
-  /** Running tally of completed recipient downloads. Pre-baked; stays 0 in #8. */
+  /** Running tally of download URLs issued to recipients, incremented at mint. */
   downloadCount: number;
   /** Unix epoch seconds, UTC. */
   expiresAt: number | null;
@@ -63,8 +63,8 @@ export interface SendLinksModule {
    */
   remove(id: string): Promise<boolean>;
   /**
-   * Persisted download counter on the link row. Cheap O(1) read; returned by
-   * #8's policy display computation and #11's quota check.
+   * Persisted count of download URLs issued for the link. Cheap O(1) read for
+   * policy display and the advisory pre-mint quota check.
    */
   recordDownloadCount(linkId: string): Promise<number>;
   /**
@@ -85,7 +85,7 @@ export interface CreateSendLinkInput {
   label: string;
   /** Optional plaintext password. Hashed before storage; never persisted raw. */
   password?: string | null;
-  /** Optional positive integer cap on completed recipient downloads. */
+  /** Optional positive integer cap on download URLs issued to recipients. */
   maxDownloads?: number | null;
   /** Optional expiry as unix epoch seconds, UTC. */
   expiresAt?: number | null;
@@ -226,8 +226,9 @@ export function createSendLinksModule(
     async remove(id) {
       // Symmetric cascade-abort with `receive-links.remove` — see that
       // module for the full rationale. We snapshot in-flight multipart
-      // tickets before the CASCADE wipes them, enqueue durable abort rows,
-      // then fire inline best-effort aborts after the delete.
+      // tickets and unpublished single-PUT objects before the CASCADE wipes
+      // them, enqueue durable abort rows, then fire inline best-effort
+      // aborts and object deletes after the delete.
       const inFlight = db
         .select({
           s3Key: uploadTickets.s3Key,
@@ -244,6 +245,22 @@ export function createSendLinksModule(
         .all()
         .filter((r): r is { s3Key: string; uploadId: string } => r.uploadId !== null);
 
+      // Unpublished single-PUT objects: the CASCADE drops their tickets, and
+      // with them the only record of the key. Skip keys a `files` row
+      // published; those survive the link.
+      const unpublished = db
+        .select({ s3Key: uploadTickets.s3Key })
+        .from(uploadTickets)
+        .where(
+          and(
+            eq(uploadTickets.sendLinkId, id),
+            eq(uploadTickets.protocol, 'single'),
+            inArray(uploadTickets.status, ['pending', 'expired', 'failed']),
+            notExists(db.select().from(files).where(eq(files.s3Key, uploadTickets.s3Key))),
+          ),
+        )
+        .all();
+
       const now = Math.floor(Date.now() / 1000);
       for (const row of inFlight) {
         db.insert(pendingAborts)
@@ -259,6 +276,22 @@ export function createSendLinksModule(
       }
 
       const result = db.delete(sendLinks).where(eq(sendLinks.id, id)).run();
+
+      // Best-effort, in the background and one at a time so a link with
+      // thousands of abandoned tickets doesn't stall the admin call or burst
+      // the backend. A failure leaves an orphan object; it is logged.
+      void (async () => {
+        for (const row of unpublished) {
+          try {
+            await storage.deleteObject(row.s3Key);
+          } catch (err) {
+            console.warn('[send-links] link-delete object reclaim failed', {
+              key: row.s3Key,
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      })();
 
       for (const row of inFlight) {
         void (async () => {
@@ -286,8 +319,9 @@ export function createSendLinksModule(
 
       // The schema's FK cascades (upload_tickets.send_link_id,
       // download_tickets.send_link_id) and SET NULLs (files.send_link_id)
-      // do the rest of the work. We never touch S3 here — the admin's
-      // bundled files survive as orphans, reachable via `/api/files/:id`.
+      // do the rest of the work. Published files are never deleted here —
+      // the admin's bundled files survive as orphans, reachable via
+      // `/api/files/:id`.
       return Number(result.changes) > 0;
     },
 

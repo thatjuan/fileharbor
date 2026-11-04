@@ -67,17 +67,24 @@ Bytes live on the mounted `/data` volume alongside the SQLite database.
 ```bash
 docker run -d \
   --name fileharbor \
-  -p 3000:3000 \
+  -p 127.0.0.1:3000:3000 \
   -v fileharbor-data:/data \
   -e BETTER_AUTH_SECRET="$(cat /srv/fileharbor/auth-secret)" \
   -e BETTER_AUTH_URL="https://files.example.com" \
+  -e SECURITY_CLIENT_IP_SOURCE=x-real-ip \
   -e STORAGE_SIGNING_SECRET="$(cat /srv/fileharbor/storage-secret)" \
   fileharbor
 ```
 
-`STORAGE_BACKEND` defaults to `local`. Reverse-proxy `https://files.example.com` to the container's port 3000.
+`STORAGE_BACKEND` defaults to `local`. Reverse-proxy `https://files.example.com` to `127.0.0.1:3000` on the host. Don't publish port 3000 publicly: a client that reaches it directly bypasses the proxy.
 
-Behind a reverse proxy, also set `-e SECURITY_TRUST_PROXY_HEADERS=true` so rate limiting sees the real client IP (not the proxy's) and admin actions (delete, revoke) and auth actions (sign in, sign out) aren't rejected when the public origin differs from `BETTER_AUTH_URL`. Your proxy must strip incoming `X-Forwarded-*` from clients.
+`SECURITY_CLIENT_IP_SOURCE=x-real-ip` makes rate limiting key off the address your proxy writes into `X-Real-IP`, and lets admin and auth actions pass the origin check when the public host differs from `BETTER_AUTH_URL`. The proxy must overwrite the header on every request. In nginx:
+
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+For a proxy that only appends to `X-Forwarded-For`, use `SECURITY_CLIENT_IP_SOURCE=xff` instead (see `.env.example`).
 
 ---
 
@@ -122,17 +129,18 @@ docker run -d \
   -e STORAGE_SIGNING_SECRET="$(cat /srv/fileharbor/storage-secret)" \
   -e CLOUDFLARE_API_TOKEN="..." \
   -e CLOUDFLARE_TUNNEL_DOMAIN="files.example.com" \
-  -e SECURITY_TRUST_PROXY_HEADERS=true \
   fileharbor
 ```
 
 `BETTER_AUTH_URL` auto-derives to `https://${CLOUDFLARE_TUNNEL_DOMAIN}`. Drop `-p 3000:3000` — the tunnel reaches the server inside the container.
 
-`SECURITY_TRUST_PROXY_HEADERS=true` is required behind the tunnel: without it the server sees every request as coming from the tunnel's loopback address, so per-client rate limits collapse into one shared bucket and admin or auth actions (delete, revoke, sign out) can 403 on an origin mismatch. The tunnel is the only thing setting the forwarded headers, so trusting them is safe here.
+No proxy setting is needed: in tunnel mode the server trusts `CF-Connecting-IP`, which Cloudflare always overwrites, and listens on `127.0.0.1` only, so requests can't skip Cloudflare.
 
-For S3 + tunnel, combine: drop `-p 3000:3000` from the S3 command above and add the two `CLOUDFLARE_*` vars plus `SECURITY_TRUST_PROXY_HEADERS=true` (you can also drop `BETTER_AUTH_URL`).
+For S3 + tunnel, combine: drop `-p 3000:3000` from the S3 command above and add the two `CLOUDFLARE_*` vars (you can also drop `BETTER_AUTH_URL`).
 
 Multipart uploads (files >100 MiB) automatically bypass the Cloudflare Free-plan 100 MB body cap.
+
+JSON API request bodies are capped inside the app (64 KiB on public routes, 1 MiB for multipart complete, 16 KiB for setup and sign-in), so oversized requests get a 413. File bytes are not: they are capped only by `STORAGE_MAX_OBJECT_SIZE_BYTES` and any limit your proxy enforces.
 
 ---
 
@@ -169,21 +177,22 @@ Two options, pick one:
 
 Every value is env-driven. Authoritative list: [`apps/server/src/config.ts`](./apps/server/src/config.ts). Plain template: [`.env.example.clean`](./.env.example.clean). Commented template: [`.env.example`](./.env.example).
 
-| Variable                                            | Purpose                                                                                                                      |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`                                | Signs session cookies. Required in production.                                                                               |
-| `BETTER_AUTH_URL`                                   | Public base URL. Auto-derived in tunnel mode.                                                                                |
-| `STORAGE_BACKEND`                                   | `local` (default) or `s3`.                                                                                                   |
-| `STORAGE_SIGNING_SECRET`                            | HMAC for local presigned URLs. Required in production (local).                                                               |
-| `DATA_DIR`                                          | SQLite + (local mode) bytes. Default `/data` in the image.                                                                   |
-| `LOCAL_OBJECTS_DIR`                                 | Split local object bytes onto a separate path.                                                                               |
-| `S3_*`                                              | Endpoint, keys, bucket. Required when `STORAGE_BACKEND=s3`.                                                                  |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD`                 | Headless admin seed. Both or neither.                                                                                        |
-| `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_TUNNEL_DOMAIN` | Cloudflare Tunnel mode. Both or neither.                                                                                     |
-| `STORAGE_MULTIPART_THRESHOLD_BYTES`                 | Multipart cut-over. Default 100 MiB.                                                                                         |
-| `RATE_LIMIT_*`                                      | In-memory abuse limits for auth/setup/public surfaces.                                                                       |
-| `SECURITY_HEADERS_*`                                | Production security headers and HSTS controls.                                                                               |
-| `SECURITY_TRUST_PROXY_HEADERS`                      | Trust forwarded headers (real client IP + public origin). Set `true` behind a trusted proxy/tunnel, off if directly exposed. |
+| Variable                                            | Purpose                                                                                                |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `BETTER_AUTH_SECRET`                                | Signs session cookies. Required in production.                                                         |
+| `BETTER_AUTH_URL`                                   | Public base URL. Auto-derived in tunnel mode.                                                          |
+| `STORAGE_BACKEND`                                   | `local` (default) or `s3`.                                                                             |
+| `STORAGE_SIGNING_SECRET`                            | HMAC for local presigned URLs. Required in production (local).                                         |
+| `DATA_DIR`                                          | SQLite + (local mode) bytes. Default `/data` in the image.                                             |
+| `LOCAL_OBJECTS_DIR`                                 | Split local object bytes onto a separate path.                                                         |
+| `S3_*`                                              | Endpoint, keys, bucket. Required when `STORAGE_BACKEND=s3`.                                            |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD`                 | Headless admin seed. Both or neither.                                                                  |
+| `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_TUNNEL_DOMAIN` | Cloudflare Tunnel mode. Both or neither.                                                               |
+| `STORAGE_MULTIPART_THRESHOLD_BYTES`                 | Multipart cut-over. Default 100 MiB.                                                                   |
+| `RATE_LIMIT_*`                                      | In-memory abuse limits for auth/setup/public surfaces.                                                 |
+| `SECURITY_HEADERS_*`                                | Security headers (on by default, `false` opts out) and HSTS controls.                                  |
+| `SECURITY_CLIENT_IP_SOURCE`                         | Trusted client-IP source: `socket` (default), `cf-connecting-ip` (tunnel default), `x-real-ip`, `xff`. |
+| `BIND_HOST`                                         | Listen address. Default `127.0.0.1` in tunnel mode, `0.0.0.0` otherwise.                               |
 
 ---
 

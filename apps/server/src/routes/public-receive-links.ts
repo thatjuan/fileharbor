@@ -1,12 +1,13 @@
 import { Hono, type Context } from 'hono';
 
 import type { SecurityConfig } from '../config.js';
+import { isPlausibleCode, normalizeCode } from '../links/code-generator.js';
 import type { ReceiveLinksModule } from '../links/receive-links.js';
 import { clientIpFor } from '../security/client-ip.js';
 import {
   enforceRateLimit,
   rejectIfRateLimitReached,
-  type FixedWindowRateLimiter,
+  type RateLimiters,
 } from '../security/rate-limit.js';
 import type { UploadTicketsModule } from '../tickets/upload-tickets.js';
 
@@ -24,41 +25,60 @@ interface MultipartInitBody {
   password?: unknown;
 }
 
+/*
+ * Keys carry the normalized code, so case and alias variants of one code
+ * (`abc…`, `ABC…`, `O`/`0`) share a bucket instead of multiplying the budget.
+ */
+
 function passwordFailureKey(ip: string, code: string): string {
-  return `public-upload-password:${ip}:${code}`;
+  return `public-upload-password:${ip}:${normalizeCode(code)}`;
+}
+
+/** Password failures on one code from every address combined. */
+function codePasswordFailureKey(code: string): string {
+  return `public-password-fail:${normalizeCode(code)}`;
 }
 
 /**
- * Bulk uploads get a generous bounded bucket. The stricter per-link bucket is
- * inspected without consuming it; only missing or wrong passwords consume it.
+ * Bulk uploads get a generous bounded bucket. The stricter password-failure
+ * buckets (per IP and code, and per code) are inspected without consuming
+ * them; only missing or wrong passwords consume them.
  */
 function enforceUploadAdmission(
   c: Context,
   code: string,
   security: SecurityConfig,
-  limiter: FixedWindowRateLimiter,
+  limiters: RateLimiters,
 ): Response | null {
   const ip = clientIpFor(c, security);
-  const bulkLimited = enforceRateLimit(c, security, limiter, [
+  const bulkLimited = enforceRateLimit(c, security, limiters.public, [
     { key: `public-upload:${ip}`, limit: security.rateLimit.publicUpload },
-    { key: `public-upload:${ip}:${code}`, limit: security.rateLimit.publicUpload },
+    { key: `public-upload:${ip}:${normalizeCode(code)}`, limit: security.rateLimit.publicUpload },
   ]);
   if (bulkLimited) return bulkLimited;
 
-  return rejectIfRateLimitReached(c, security, limiter, [
+  return rejectIfRateLimitReached(c, security, limiters.auth, [
     { key: passwordFailureKey(ip, code), limit: security.rateLimit.publicLink },
+    { key: codePasswordFailureKey(code), limit: security.rateLimit.publicLink },
   ]);
 }
 
+/**
+ * Counts a missing or wrong password against the (IP, code) and the per-code
+ * budgets. The per-code budget stops an attacker who rotates addresses, at a
+ * cost: while an attack runs, the real uploader is locked out of the link too.
+ * That is accepted because the lockout ends when the window does.
+ */
 function recordPasswordFailure(
   c: Context,
   code: string,
   security: SecurityConfig,
-  limiter: FixedWindowRateLimiter,
+  limiters: RateLimiters,
 ): Response | null {
   const ip = clientIpFor(c, security);
-  return enforceRateLimit(c, security, limiter, [
+  return enforceRateLimit(c, security, limiters.auth, [
     { key: passwordFailureKey(ip, code), limit: security.rateLimit.publicLink },
+    { key: codePasswordFailureKey(code), limit: security.rateLimit.publicLink },
   ]);
 }
 
@@ -78,17 +98,29 @@ function recordPasswordFailure(
  * Privacy: the GET response NEVER includes the link `id`, `s3_key`, or any
  * other internal identifier. Anything visible here is what an attacker who
  * already has the code could compute themselves; we don't help enumeration.
+ * Every endpoint answers a disabled link with the same 404 as a missing code,
+ * and a code that cannot exist (see `isPlausibleCode`) with that 404 before
+ * any rate limiter sees it.
  */
 export function createPublicReceiveLinksRoute(
   receiveLinksModule: ReceiveLinksModule,
   uploadTicketsModule: UploadTicketsModule,
   security: SecurityConfig,
-  limiter: FixedWindowRateLimiter,
+  limiters: RateLimiters,
 ): Hono {
   const route = new Hono();
 
   route.get('/:code', async (c) => {
     const code = c.req.param('code');
+    if (!isPlausibleCode(code)) return c.json({ error: 'not_found' }, 404);
+    const limited = enforceRateLimit(c, security, limiters.public, [
+      {
+        key: `public-lookup:${clientIpFor(c, security)}`,
+        limit: security.rateLimit.publicLookup,
+      },
+    ]);
+    if (limited) return limited;
+
     const link = await receiveLinksModule.getByCode(code);
     if (!link || link.status !== 'active') {
       // We collapse "no such code" and "disabled link" into the same 404
@@ -104,7 +136,8 @@ export function createPublicReceiveLinksRoute(
 
   route.post('/:code/upload-tickets', async (c) => {
     const code = c.req.param('code');
-    const limited = enforceUploadAdmission(c, code, security, limiter);
+    if (!isPlausibleCode(code)) return c.json({ error: 'not_found' }, 404);
+    const limited = enforceUploadAdmission(c, code, security, limiters);
     if (limited) return limited;
 
     let body: UploadTicketBody;
@@ -142,11 +175,15 @@ export function createPublicReceiveLinksRoute(
       case 'invalid_input':
         return c.json({ error: 'invalid_input', message: outcome.reason }, 400);
       case 'policy_rejected': {
+        // A disabled link must look exactly like a missing one.
+        if (outcome.policy.kind === 'disabled') {
+          return c.json({ error: 'not_found' }, 404);
+        }
         if (
           outcome.policy.kind === 'password_required' ||
           outcome.policy.kind === 'password_wrong'
         ) {
-          const passwordLimited = recordPasswordFailure(c, code, security, limiter);
+          const passwordLimited = recordPasswordFailure(c, code, security, limiters);
           if (passwordLimited) return passwordLimited;
         }
         return c.json({ error: outcome.policy.kind }, 403);
@@ -156,7 +193,8 @@ export function createPublicReceiveLinksRoute(
 
   route.post('/:code/upload/multipart/init', async (c) => {
     const code = c.req.param('code');
-    const limited = enforceUploadAdmission(c, code, security, limiter);
+    if (!isPlausibleCode(code)) return c.json({ error: 'not_found' }, 404);
+    const limited = enforceUploadAdmission(c, code, security, limiters);
     if (limited) return limited;
 
     let body: MultipartInitBody;
@@ -200,11 +238,15 @@ export function createPublicReceiveLinksRoute(
       case 'invalid_input':
         return c.json({ error: 'invalid_input', message: outcome.reason }, 400);
       case 'policy_rejected': {
+        // A disabled link must look exactly like a missing one.
+        if (outcome.policy.kind === 'disabled') {
+          return c.json({ error: 'not_found' }, 404);
+        }
         if (
           outcome.policy.kind === 'password_required' ||
           outcome.policy.kind === 'password_wrong'
         ) {
-          const passwordLimited = recordPasswordFailure(c, code, security, limiter);
+          const passwordLimited = recordPasswordFailure(c, code, security, limiters);
           if (passwordLimited) return passwordLimited;
         }
         return c.json({ error: outcome.policy.kind }, 403);

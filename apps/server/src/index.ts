@@ -90,6 +90,14 @@ async function main(): Promise<void> {
     filesModule,
     notificationsModule,
     config.storage.multipart,
+    config.storage.backend === 'local'
+      ? {
+          freeSpaceFloor: {
+            dir: config.storage.objectsDir,
+            minFreeBytes: config.storage.minFreeBytes,
+          },
+        }
+      : {},
   );
   const downloadTicketsModule = createDownloadTicketsModule(
     db,
@@ -109,9 +117,12 @@ async function main(): Promise<void> {
     storage,
   });
 
-  const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
-    console.log(`[fileharbor] listening on http://0.0.0.0:${info.port}`);
-  });
+  const server = serve(
+    { fetch: app.fetch, port: config.port, hostname: config.bindHost },
+    (info) => {
+      console.log(`[fileharbor] listening on http://${info.address}:${info.port}`);
+    },
+  );
 
   // ----- Background ticket sweep (issue #10) --------------------------------
   // Runs inside this same Node process — no separate worker. The sweep:
@@ -148,7 +159,8 @@ async function main(): Promise<void> {
         counters.deletedDownloadTickets +
         counters.abortedPendingMultipart +
         counters.drainedAborting +
-        counters.drainedPendingAborts;
+        counters.drainedPendingAborts +
+        counters.reclaimedObjects;
       if (total > 0) {
         console.log('[fileharbor] initial sweep complete', counters);
       }
