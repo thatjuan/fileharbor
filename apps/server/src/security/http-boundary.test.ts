@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { hashPassword } from '@better-auth/utils/password';
 import { Hono } from 'hono';
 
@@ -12,11 +13,12 @@ import { count } from 'drizzle-orm';
 
 import type { AuthModule } from '../auth/index.js';
 import { createAuthModule, maybeSeedAdmin } from '../auth/index.js';
+import { createApp, type AppModules } from '../app.js';
 import type { AppConfig, LocalStorageConfig, SecurityConfig } from '../config.js';
 import { openDatabase, type Db } from '../db/client.js';
 import { user } from '../db/schema.js';
 import { createAdminOriginGuard } from './origin.js';
-import { FixedWindowRateLimiter } from './rate-limit.js';
+import { FixedWindowRateLimiter, type RateLimiters } from './rate-limit.js';
 import { createSetupRoute } from '../routes/setup.js';
 import { createPublicReceiveLinksRoute } from '../routes/public-receive-links.js';
 import { createPublicUploadTicketsRoute } from '../routes/public-upload-tickets.js';
@@ -37,8 +39,10 @@ function security(overrides: Partial<SecurityConfig> = {}): SecurityConfig {
       enabled: true,
       maxTrackedKeys: 100,
       auth: { max: 10, windowSeconds: 300 },
+      authGlobalFailures: { max: 50, windowSeconds: 300 },
       setup: { max: 1, windowSeconds: 900 },
       publicLink: { max: 10, windowSeconds: 300 },
+      publicLookup: { max: 60, windowSeconds: 60 },
       publicUpload: { max: 1_000, windowSeconds: 300 },
       publicTicket: { max: 10, windowSeconds: 60 },
       publicPartUrls: { max: 10, windowSeconds: 60 },
@@ -55,6 +59,18 @@ function security(overrides: Partial<SecurityConfig> = {}): SecurityConfig {
   };
   return { ...base, ...overrides };
 }
+
+/** A fresh auth/public limiter pair, as `createApp` builds them. */
+function limiters(maxTrackedKeys = 100): RateLimiters {
+  return {
+    auth: new FixedWindowRateLimiter(maxTrackedKeys),
+    public: new FixedWindowRateLimiter(maxTrackedKeys),
+  };
+}
+
+/** Plausible link codes (Crockford alphabet, 8 characters) for fake modules. */
+const RECEIVE_CODE = 'RCV7K3M9';
+const SEND_CODE = 'SND7K3M9';
 
 test('setup POST rate-limits by client IP with stable JSON', async () => {
   const authModule = {
@@ -103,8 +119,9 @@ test('public multipart part URLs use body password and reject query password', a
 
   const route = createPublicUploadTicketsRoute(module, security(), new FixedWindowRateLimiter(100));
   const app = new Hono().route('/upload-tickets', route);
+  const ticketId = randomUUID();
 
-  const post = await app.request('/upload-tickets/t1/upload/multipart/parts', {
+  const post = await app.request(`/upload-tickets/${ticketId}/upload/multipart/parts`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ from: 1, to: 1, password: 'secret-pass' }),
@@ -113,7 +130,7 @@ test('public multipart part URLs use body password and reject query password', a
   assert.equal(capturedPassword, 'secret-pass');
 
   const get = await app.request(
-    '/upload-tickets/t1/upload/multipart/parts?from=1&to=1&password=secret-pass',
+    `/upload-tickets/${ticketId}/upload/multipart/parts?from=1&to=1&password=secret-pass`,
   );
   assert.equal(get.status, 400);
   assert.deepEqual(await get.json(), { error: 'password_in_query_not_allowed' });
@@ -138,12 +155,12 @@ test('public receive links admit hundreds of successful upload tickets', async (
     {} as ReceiveLinksModule,
     uploadTicketsModule,
     security(),
-    new FixedWindowRateLimiter(2_000),
+    limiters(2_000),
   );
   const app = new Hono().route('/receive-links', route);
 
   for (let index = 0; index < 500; index += 1) {
-    const response = await app.request('/receive-links/BULK/upload-tickets', {
+    const response = await app.request(`/receive-links/${RECEIVE_CODE}/upload-tickets`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -178,11 +195,11 @@ test('public receive links retain a bounded bulk-upload limit', async () => {
     {} as ReceiveLinksModule,
     uploadTicketsModule,
     config,
-    new FixedWindowRateLimiter(100),
+    limiters(),
   );
   const app = new Hono().route('/receive-links', route);
   const request = async (): Promise<Response> =>
-    await app.request('/receive-links/BULK/upload-tickets', {
+    await app.request(`/receive-links/${RECEIVE_CODE}/upload-tickets`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ filename: 'file.txt', contentType: 'text/plain', size: 1 }),
@@ -218,11 +235,11 @@ test('successful uploads do not consume the password-failure limit', async () =>
     {} as ReceiveLinksModule,
     uploadTicketsModule,
     config,
-    new FixedWindowRateLimiter(100),
+    limiters(),
   );
   const app = new Hono().route('/receive-links', route);
   const request = async (password: string): Promise<Response> =>
-    await app.request('/receive-links/LOCKED/upload-tickets', {
+    await app.request(`/receive-links/${RECEIVE_CODE}/upload-tickets`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -244,11 +261,15 @@ test('successful uploads do not consume the password-failure limit', async () =>
 /** Public send-links app over one in-memory link with one attached file. */
 function publicSendLinksApp(
   overrides: Partial<SendLink> = {},
-  opts: { config?: SecurityConfig; downloadTickets?: DownloadTicketsModule } = {},
+  opts: {
+    config?: SecurityConfig;
+    downloadTickets?: DownloadTicketsModule;
+    limiters?: RateLimiters;
+  } = {},
 ): Hono {
   const link: SendLink = {
     id: 'link-1',
-    code: 'SEND',
+    code: SEND_CODE,
     label: 'Quarterly report',
     passwordHash: null,
     maxDownloads: null,
@@ -286,7 +307,7 @@ function publicSendLinksApp(
     filesModule,
     opts.downloadTickets ?? ({} as DownloadTicketsModule),
     opts.config ?? security(),
-    new FixedWindowRateLimiter(100),
+    opts.limiters ?? limiters(),
   );
   return new Hono().route('/send-links', route);
 }
@@ -301,7 +322,7 @@ const publicFile = {
 test('public send link GET hides the file list behind the password', async () => {
   const app = publicSendLinksApp({ passwordHash: 'hash' });
 
-  const res = await app.request('/send-links/SEND');
+  const res = await app.request(`/send-links/${SEND_CODE}`);
   assert.equal(res.status, 200);
   const body = (await res.json()) as Record<string, unknown>;
   assert.equal(body.passwordRequired, true);
@@ -314,7 +335,7 @@ test('public send link files endpoint checks the password and consumes the bucke
   config.rateLimit.publicLink = { max: 2, windowSeconds: 300 };
   const app = publicSendLinksApp({ passwordHash: await hashPassword('correct-horse') }, { config });
   const request = async (password: string): Promise<Response> =>
-    await app.request('/send-links/SEND/files', {
+    await app.request(`/send-links/${SEND_CODE}/files`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ password }),
@@ -334,7 +355,7 @@ test('public send link files endpoint checks the password and consumes the bucke
 test('public send link GET on an expired link returns no files', async () => {
   const app = publicSendLinksApp({ expiresAt: 1 });
 
-  const res = await app.request('/send-links/SEND');
+  const res = await app.request(`/send-links/${SEND_CODE}`);
   assert.equal(res.status, 200);
   const body = (await res.json()) as Record<string, unknown>;
   assert.equal(body.status, 'expired');
@@ -349,13 +370,146 @@ test('public send link mint answers a disabled link with 404', async () => {
   } as unknown as DownloadTicketsModule;
   const app = publicSendLinksApp({}, { downloadTickets });
 
-  const res = await app.request('/send-links/SEND/download-tickets', {
+  const res = await app.request(`/send-links/${SEND_CODE}/download-tickets`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ fileId: 'file-1' }),
   });
   assert.equal(res.status, 404);
   assert.deepEqual(await res.json(), { error: 'not_found' });
+});
+
+// --- Rate-limit key bounds (#78) ---------------------------------------------
+
+/** Security config with a small key cap, as `RATE_LIMIT_MAX_TRACKED_KEYS=50`. */
+function smallKeyCap(overrides: Partial<SecurityConfig['rateLimit']> = {}): SecurityConfig {
+  const base = security();
+  return { ...base, rateLimit: { ...base.rateLimit, maxTrackedKeys: 50, ...overrides } };
+}
+
+test('a client over its per-IP ticket budget cannot create per-code keys', async () => {
+  const config = smallKeyCap({ publicTicket: { max: 1, windowSeconds: 60 } });
+  const pair = limiters(50);
+  const app = publicSendLinksApp({}, { config, limiters: pair });
+  const mint = (code: string): Promise<Response> =>
+    Promise.resolve(
+      app.request(`/send-links/${code}/download-tickets`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ fileId: 'file-1' }),
+      }),
+    );
+
+  // Spend the per-IP ticket budget (the mint itself fails on the empty fake).
+  await mint(SEND_CODE).catch(() => undefined);
+  const before = pair.public.size();
+
+  for (let i = 0; i < 60; i += 1) {
+    const res = await mint(`X${String(i).padStart(7, '0')}`);
+    assert.equal(res.status, 429);
+  }
+  assert.equal(pair.public.size(), before);
+});
+
+test('a ticket id that is not a UUID gets 404 without a rate-limit bucket', async () => {
+  const pair = limiters(50);
+  const route = createPublicUploadTicketsRoute(
+    {} as UploadTicketsModule,
+    smallKeyCap(),
+    pair.public,
+  );
+  const app = new Hono().route('/api/public/upload-tickets', route);
+
+  const res = await app.request('/api/public/upload-tickets/not-a-uuid/finalize', {
+    method: 'POST',
+  });
+  assert.equal(res.status, 404);
+  assert.deepEqual(await res.json(), { error: 'not_found' });
+  assert.equal(pair.public.size(), 0);
+});
+
+test('public send-link lookups are throttled per IP', async () => {
+  const app = publicSendLinksApp({}, { config: smallKeyCap() });
+
+  // Plausible but unknown codes: an existence probe, not a malformed path.
+  for (let i = 0; i < 60; i += 1) {
+    const res = await app.request(`/send-links/Y${String(i).padStart(7, '0')}`);
+    assert.equal(res.status, 404);
+  }
+  const res = await app.request('/send-links/Z0000000');
+  assert.equal(res.status, 429);
+});
+
+test('link password failures share one per-code budget across IPs', async () => {
+  const uploadTicketsModule = {
+    async createForReceiveLink() {
+      return { kind: 'policy_rejected', policy: { kind: 'password_wrong' } };
+    },
+  } as unknown as UploadTicketsModule;
+  const config = security({
+    clientIpSource: { kind: 'header', header: 'x-real-ip' },
+    trustProxyHeaders: true,
+  });
+  config.rateLimit.publicLink = { max: 2, windowSeconds: 300 };
+  const route = createPublicReceiveLinksRoute(
+    {} as ReceiveLinksModule,
+    uploadTicketsModule,
+    config,
+    limiters(),
+  );
+  const app = new Hono().route('/receive-links', route);
+  // Case variants of one code must land in the same bucket.
+  const guess = (ip: string, code: string): Promise<Response> =>
+    Promise.resolve(
+      app.request(`/receive-links/${code}/upload-tickets`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-real-ip': ip },
+        body: JSON.stringify({ filename: 'f.txt', size: 1, password: 'guess' }),
+      }),
+    );
+
+  assert.equal((await guess('10.0.0.1', RECEIVE_CODE)).status, 403);
+  assert.equal((await guess('10.0.0.2', RECEIVE_CODE.toLowerCase())).status, 403);
+  assert.equal((await guess('10.0.0.3', RECEIVE_CODE)).status, 429);
+});
+
+test('failed sign-ins from many IPs exhaust the global failure budget', async () => {
+  let handled = 0;
+  const authModule = {
+    auth: {
+      // Better Auth answers a bad username or password with 401.
+      handler: async () => {
+        handled += 1;
+        return Response.json({ code: 'INVALID_USERNAME_OR_PASSWORD' }, { status: 401 });
+      },
+    },
+  } as unknown as AuthModule;
+  const config = {
+    ...authConfig(),
+    nodeEnv: 'test',
+    storage: { backend: 's3' },
+    security: {
+      ...smallKeyCap(),
+      clientIpSource: { kind: 'header', header: 'x-real-ip' },
+      trustProxyHeaders: true,
+    },
+  } as unknown as AppConfig;
+  const app = createApp(config, { authModule } as unknown as AppModules);
+  const signIn = (ip: string): Promise<Response> =>
+    Promise.resolve(
+      app.request('/api/auth/sign-in/username', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-real-ip': ip },
+        body: JSON.stringify({ username: 'admin', password: 'wrong' }),
+      }),
+    );
+
+  for (let i = 0; i < 50; i += 1) {
+    assert.equal((await signIn(`10.0.1.${i}`)).status, 401);
+  }
+  const blocked = await signIn('10.0.2.1');
+  assert.equal(blocked.status, 429);
+  assert.equal(handled, 50);
 });
 
 function originGuardConfig(
@@ -502,6 +656,14 @@ test('email-address usernames can sign in after setup', async () => {
     body: JSON.stringify({ username: 'admin@example.com', password: 'password123' }),
   });
   assert.equal(signIn.status, 200);
+
+  // `app.ts` counts a sign-in against the global failure budget on this status.
+  const badPassword = await app.request('/api/auth/sign-in/username', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username: 'admin@example.com', password: 'wrong-password' }),
+  });
+  assert.equal(badPassword.status, 401);
 });
 
 test('auth sign-out accepts the proxied public host when proxy headers are trusted', async () => {
