@@ -761,11 +761,7 @@ export function createUploadTicketsModule(
         // Another finalize published this ticket, or the sweep expired it,
         // while we awaited storage. Report whatever won.
         const lostRace = async (): Promise<FinalizeOutcome> => {
-          const fresh = db
-            .select()
-            .from(uploadTickets)
-            .where(eq(uploadTickets.id, ticketId))
-            .get();
+          const fresh = db.select().from(uploadTickets).where(eq(uploadTickets.id, ticketId)).get();
           if (fresh?.status === 'completed') return completedOutcome(fresh);
           return { kind: 'failed', reason: 'object_not_found' };
         };
