@@ -1,9 +1,13 @@
 # syntax=docker/dockerfile:1.7
 
+# Base image pinned by multi-arch index digest: node:22-bookworm-slim, pinned
+# 2026-11-03. Bump deliberately (`docker buildx imagetools inspect
+# node:22-bookworm-slim`) and update both FROM lines together.
+
 # ---------------------------------------------------------------------------
 # Stage 1: install all workspace deps (frontend + server) once.
 # ---------------------------------------------------------------------------
-FROM node:22-bookworm-slim AS deps
+FROM node:22-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS deps
 WORKDIR /app
 
 # better-sqlite3 ships prebuilt binaries for node 22 on linux x64/arm64, so no
@@ -31,7 +35,7 @@ RUN npm run build
 # ---------------------------------------------------------------------------
 # Stage 3: production image. Slim Node + only what's needed at runtime.
 # ---------------------------------------------------------------------------
-FROM node:22-bookworm-slim AS runtime
+FROM node:22-bookworm-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production \
@@ -39,12 +43,20 @@ ENV NODE_ENV=production \
     DATA_DIR=/data \
     WEB_DIST_DIR=/app/web
 
+# cftunn release and the SHA256 of each per-arch tarball. The hashes are pinned
+# here rather than read from the release's checksums.txt, so a replaced release
+# fails the build. Bumping CFTUNN_VERSION requires updating both hashes.
 ARG CFTUNN_VERSION=v0.5.0
+ARG CFTUNN_SHA256_AMD64=483b71cc299a47295126d8d9dde459f8e92c79ae5c7c128c23e53017e2b394d9
+ARG CFTUNN_SHA256_ARM64=a7b4ca347873e6359c3b0d8b9d668fcb9ed1c053cbb9e8316b51bb0fec1ed0a8
+# cloudflared apt package version. Pinned so rebuilds are reproducible; bump it
+# deliberately to the current version in pkg.cloudflare.com's bookworm repo.
+ARG CLOUDFLARED_VERSION=2026.10.7
 ARG TARGETARCH
 
 # Install runtime tunnel tooling in a single layer:
-#   - cloudflared (from Cloudflare's apt repo)
-#   - cftunn (release tarball from github.com/thatjuan/cftunn, sha256-verified)
+#   - cloudflared (from Cloudflare's apt repo, version-pinned)
+#   - cftunn (release tarball from github.com/thatjuan/cftunn, sha256-pinned)
 #   - tini   (PID 1 reaper for the entrypoint)
 # curl and gnupg are purged at the end of the layer to keep the image lean.
 RUN set -eux; \
@@ -56,21 +68,19 @@ RUN set -eux; \
     echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared bookworm main" \
         > /etc/apt/sources.list.d/cloudflared.list; \
     apt-get update; \
-    apt-get install -y --no-install-recommends cloudflared; \
+    apt-get install -y --no-install-recommends "cloudflared=${CLOUDFLARED_VERSION}"; \
     case "${TARGETARCH}" in \
-        amd64) CFTUNN_ARCH=x86_64 ;; \
-        arm64) CFTUNN_ARCH=arm64 ;; \
+        amd64) CFTUNN_ARCH=x86_64; EXPECTED="${CFTUNN_SHA256_AMD64}" ;; \
+        arm64) CFTUNN_ARCH=arm64; EXPECTED="${CFTUNN_SHA256_ARM64}" ;; \
         *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     cd /tmp; \
     curl -fsSL -o "cftunn_Linux_${CFTUNN_ARCH}.tar.gz" \
         "https://github.com/thatjuan/cftunn/releases/download/${CFTUNN_VERSION}/cftunn_Linux_${CFTUNN_ARCH}.tar.gz"; \
-    curl -fsSL -o checksums.txt \
-        "https://github.com/thatjuan/cftunn/releases/download/${CFTUNN_VERSION}/checksums.txt"; \
-    grep " cftunn_Linux_${CFTUNN_ARCH}.tar.gz\$" checksums.txt | sha256sum -c -; \
+    echo "${EXPECTED}  cftunn_Linux_${CFTUNN_ARCH}.tar.gz" | sha256sum -c -; \
     tar -xzf "cftunn_Linux_${CFTUNN_ARCH}.tar.gz"; \
     install -o root -g root -m 0755 cftunn /usr/local/bin/cftunn; \
-    rm -f cftunn "cftunn_Linux_${CFTUNN_ARCH}.tar.gz" checksums.txt LICENSE README.md; \
+    rm -f cftunn "cftunn_Linux_${CFTUNN_ARCH}.tar.gz" LICENSE README.md; \
     apt-get purge -y --auto-remove curl gnupg; \
     rm -rf /var/lib/apt/lists/*
 
