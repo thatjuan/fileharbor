@@ -233,7 +233,7 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
       key: string,
       uploadId: string,
       partNumber: number,
-      opts?: PresignUploadPartOptions,
+      opts: PresignUploadPartOptions,
     ): Promise<PresignedUrl> {
       if (!UPLOAD_ID_PATTERN.test(uploadId)) {
         throw new Error(`invalid uploadId for local backend: ${JSON.stringify(uploadId)}`);
@@ -259,16 +259,20 @@ export function createLocalStorageProvider(config: LocalStorageConfig): StorageP
         throw new Error(`partNumber ${partNumber} exceeds expectedParts ${meta.expectedParts}`);
       }
 
-      // Per-part Content-Length is server-derived from session state. Every
+      // Per-part Content-Length is re-derived from session state. Every
       // part except the last is exactly `partSize`; the last is whatever
-      // remains. Off-by-one here silently truncates uploads — verify by
-      // hand: sizeHint=33, partSize=16 → expectedParts=3, last part=33-32=1.
+      // remains (sizeHint=33, partSize=16 → expectedParts=3, last part=1).
+      // The caller computes the same value from the ticket row; a mismatch
+      // is a bug, so fail loudly instead of signing a truncating length.
       const contentLength =
         partNumber === meta.expectedParts
           ? meta.sizeHint - (meta.expectedParts - 1) * meta.partSize
           : meta.partSize;
+      if (opts.contentLength !== contentLength) {
+        throw new Error('part_length_mismatch');
+      }
 
-      const exp = Math.floor(Date.now() / 1000) + ttlFor(opts?.expiresInSeconds);
+      const exp = Math.floor(Date.now() / 1000) + ttlFor(opts.expiresInSeconds);
       const sig = signCanonical(
         {
           method: 'PUT-PART',

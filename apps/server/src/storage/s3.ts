@@ -87,6 +87,9 @@ export function createS3StorageProvider(
         Bucket: bucket,
         Key: key,
         ResponseContentDisposition: opts?.responseContentDisposition,
+        // Never serve the uploader's declared type: downloads are always
+        // attachments, and a fixed binary type keeps browsers from sniffing.
+        ResponseContentType: 'application/octet-stream',
       });
       return signWithTtl(command, ttlFor(opts?.expiresInSeconds));
     },
@@ -166,14 +169,16 @@ export function createS3StorageProvider(
       // R3: deliberately DO NOT include ContentType on the UploadPart
       // presign. The single-PUT path does, but UploadPart's SigV4 does not
       // need (or want) it; signing it would make the rejection mode opaque
-      // when intermediaries strip the header.
+      // when intermediaries strip the header. ContentLength IS signed, so a
+      // part URL accepts exactly the caller-computed part size.
       const command = new UploadPartCommand({
         Bucket: bucket,
         Key: key,
         UploadId: uploadId,
         PartNumber: partNumber,
+        ContentLength: opts.contentLength,
       });
-      return signWithTtl(command, ttlFor(opts?.expiresInSeconds));
+      return signWithTtl(command, ttlFor(opts.expiresInSeconds));
     },
 
     async completeMultipart(key, uploadId, parts) {
