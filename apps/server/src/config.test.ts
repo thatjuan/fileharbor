@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { loadConfig } from './config.js';
 
 /** Runs `loadConfig` against a minimal test env in a throwaway data dir, capturing warnings. */
-function load(extra: Record<string, string>) {
+function load(extra: Record<string, string | undefined>) {
   const dataDir = mkdtempSync(join(tmpdir(), 'fileharbor-config-'));
   const warn = mock.method(console, 'warn', () => {});
   const log = mock.method(console, 'log', () => {});
@@ -64,4 +64,18 @@ test('an unknown SECURITY_CLIENT_IP_SOURCE fails fast and lists the valid values
     () => load({ SECURITY_CLIENT_IP_SOURCE: 'x-forwarded-for' }),
     /socket, cf-connecting-ip, x-real-ip, xff/,
   );
+});
+
+test('an unknown NODE_ENV fails fast instead of falling back to development', () => {
+  assert.throws(() => load({ NODE_ENV: 'prod' }), /NODE_ENV must be/);
+});
+
+test('unset NODE_ENV means development', () => {
+  assert.equal(load({ NODE_ENV: undefined }).config.nodeEnv, 'development');
+});
+
+test('known NODE_ENV values pass through', () => {
+  for (const nodeEnv of ['production', 'test', 'development'] as const) {
+    assert.equal(load({ NODE_ENV: nodeEnv }).config.nodeEnv, nodeEnv);
+  }
 });

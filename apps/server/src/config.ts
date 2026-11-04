@@ -464,10 +464,26 @@ function resolveAdminSeed(env: Env): AdminSeed | null {
   return { username, password };
 }
 
+/**
+ * Unset `NODE_ENV` means development; anything else must be an exact known
+ * value. A typo such as `prod` would otherwise fall back to development and
+ * switch off required secrets, `Secure` cookies and HSTS, so it fails boot.
+ */
+function resolveNodeEnv(raw: string | undefined): AppConfig['nodeEnv'] {
+  switch (raw) {
+    case undefined:
+      return 'development';
+    case 'production':
+    case 'development':
+    case 'test':
+      return raw;
+    default:
+      throw new Error(`NODE_ENV must be production, development or test (got "${raw}")`);
+  }
+}
+
 export function loadConfig(env: Env = process.env as Env): AppConfig {
-  const nodeEnvRaw = env.NODE_ENV ?? 'development';
-  const nodeEnv: AppConfig['nodeEnv'] =
-    nodeEnvRaw === 'production' || nodeEnvRaw === 'test' ? nodeEnvRaw : 'development';
+  const nodeEnv = resolveNodeEnv(env.NODE_ENV);
 
   const port = parsePort(env.PORT);
 
@@ -767,7 +783,8 @@ function resolveSecurityConfig(
     baseUrlIsHttps = false;
   }
 
-  const headersEnabled = parseBool(env.SECURITY_HEADERS_ENABLED, nodeEnv === 'production');
+  // On everywhere by default; SECURITY_HEADERS_ENABLED=false is the explicit opt-out.
+  const headersEnabled = parseBool(env.SECURITY_HEADERS_ENABLED, true);
   const hstsDefault = nodeEnv === 'production' && baseUrlIsHttps;
 
   const clientIpSource = resolveClientIpSource(env, tunnel);
