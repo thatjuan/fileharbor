@@ -188,7 +188,7 @@ Every value is env-driven. Authoritative list: [`apps/server/src/config.ts`](./a
 | `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_TUNNEL_DOMAIN` | Cloudflare Tunnel mode. Both or neither.                                                               |
 | `STORAGE_MULTIPART_THRESHOLD_BYTES`                 | Multipart cut-over. Default 100 MiB.                                                                   |
 | `RATE_LIMIT_*`                                      | In-memory abuse limits for auth/setup/public surfaces.                                                 |
-| `SECURITY_HEADERS_*`                                | Production security headers and HSTS controls.                                                         |
+| `SECURITY_HEADERS_*`                                | Security headers (on by default, `false` opts out) and HSTS controls.                                  |
 | `SECURITY_CLIENT_IP_SOURCE`                         | Trusted client-IP source: `socket` (default), `cf-connecting-ip` (tunnel default), `x-real-ip`, `xff`. |
 | `BIND_HOST`                                         | Listen address. Default `127.0.0.1` in tunnel mode, `0.0.0.0` otherwise.                               |
 
