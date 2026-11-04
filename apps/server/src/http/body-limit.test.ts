@@ -40,6 +40,7 @@ function appConfig(storage: LocalStorageConfig): AppConfig {
   const window = { max: 1_000, windowSeconds: 60 };
   return {
     port: 3000,
+    bindHost: '127.0.0.1',
     nodeEnv: 'test',
     dataDir: storage.objectsDir,
     databasePath: ':memory:',
@@ -52,6 +53,7 @@ function appConfig(storage: LocalStorageConfig): AppConfig {
     storage,
     ticketSweep: { intervalSeconds: 60, pendingGraceSeconds: 60, retentionSeconds: 60 },
     security: {
+      clientIpSource: { kind: 'socket' },
       trustProxyHeaders: false,
       rateLimit: {
         enabled: true,
