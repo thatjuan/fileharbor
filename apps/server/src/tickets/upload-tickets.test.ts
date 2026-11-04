@@ -14,7 +14,7 @@ import { createFilesModule } from '../files/files.js';
 import { createReceiveLinksModule } from '../links/receive-links.js';
 import { createSendLinksModule } from '../links/send-links.js';
 import type { StorageProvider } from '../storage/index.js';
-import { createUploadTicketsModule } from './upload-tickets.js';
+import { createUploadTicketsModule, partLength, validateUploadInput } from './upload-tickets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const migrationsFolder = resolve(here, '../../drizzle');
@@ -445,4 +445,105 @@ test('concurrent multipart completes cannot exceed receive-link max_uploads', as
   assert.deepEqual(statuses, ['completed', 'failed']);
 
   rmSync(dbPath, { force: true });
+});
+
+test('single-PUT finalize rejects and deletes an object whose size differs from sizeHint', async () => {
+  const dbPath = `/tmp/fileharbor-upload-ticket-${Date.now()}-${randomUUID()}.db`;
+  mkdirSync(dirname(dbPath), { recursive: true });
+  const db = openDatabase(dbPath, migrationsFolder);
+
+  let deleteObjectCalls = 0;
+  const storage: StorageProvider = {
+    bucket: 'fake-s3',
+    defaultTtlSeconds: 300,
+    async presignPut() {
+      return { url: 'https://storage.example/put', expiresAt: new Date() };
+    },
+    async presignGet() {
+      return { url: 'https://storage.example/get', expiresAt: new Date() };
+    },
+    async presignDelete() {
+      return { url: 'https://storage.example/delete', expiresAt: new Date() };
+    },
+    async headObject() {
+      return { size: 11, contentType: 'text/plain', etag: '"etag"', lastModified: new Date() };
+    },
+    async openRead() {
+      throw new Error('unused');
+    },
+    async deleteObject() {
+      deleteObjectCalls += 1;
+    },
+    async initMultipart() {
+      throw new Error('unused');
+    },
+    async presignUploadPart() {
+      throw new Error('unused');
+    },
+    async completeMultipart() {
+      throw new Error('unused');
+    },
+    async abortMultipart() {},
+  };
+
+  const receiveLinksModule = createReceiveLinksModule(db, storage);
+  const uploadTicketsModule = createUploadTicketsModule(
+    db,
+    storage,
+    receiveLinksModule,
+    createSendLinksModule(db, storage),
+    createFilesModule(db),
+    fakeNotificationsModule(),
+    multipartConfig,
+  );
+
+  const linkId = insertReceiveLink(db, 5);
+  const ticketId = randomUUID();
+  db.insert(uploadTickets)
+    .values({
+      id: ticketId,
+      intent: 'receive',
+      receiveLinkId: linkId,
+      sendLinkId: null,
+      s3Key: `receive/${linkId}/${ticketId}/x.txt`,
+      filename: 'x.txt',
+      contentType: 'text/plain',
+      sizeHint: 10,
+      status: 'pending',
+      protocol: 'single',
+      createdAt: Math.floor(Date.now() / 1000),
+      completedAt: null,
+    })
+    .run();
+
+  const outcome = await uploadTicketsModule.finalize(ticketId);
+
+  assert.deepEqual(outcome, { kind: 'failed', reason: 'object_size_mismatch' });
+  assert.equal(
+    db.select().from(uploadTickets).where(eq(uploadTickets.id, ticketId)).get()?.status,
+    'failed',
+  );
+  assert.equal(deleteObjectCalls, 1);
+  assert.equal(db.select().from(files).all().length, 0);
+
+  rmSync(dbPath, { force: true });
+});
+
+test('validateUploadInput rejects control characters and over-long content types', () => {
+  const input = (contentType: string) =>
+    validateUploadInput({ filename: 'a.txt', contentType, sizeHint: 1 }, 100);
+
+  for (const bad of ['text/plain\nX', 'a\u0000b', 'a'.repeat(256)]) {
+    assert.deepEqual(input(bad), { ok: false, reason: 'invalid_content_type' });
+  }
+  const docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  assert.deepEqual(input(docx), { ok: true, filename: 'a.txt', contentType: docx });
+});
+
+test('partLength gives every part partSize except the remainder-sized last part', () => {
+  assert.deepEqual(
+    [1, 2, 3].map((n) => partLength(n, 16, 33, 3)),
+    [16, 16, 1],
+  );
+  assert.equal(partLength(1, 16, 16, 1), 16);
 });

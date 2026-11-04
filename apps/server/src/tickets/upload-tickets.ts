@@ -111,7 +111,10 @@ export type CreateForSendLinkOutcome =
 
 export type FinalizeOutcome =
   | { kind: 'completed'; fileId: string }
-  | { kind: 'failed'; reason: 'object_not_found' }
+  | {
+      kind: 'failed';
+      reason: 'object_not_found' | 'object_size_mismatch' | 'object_size_too_large';
+    }
   | { kind: 'ticket_not_found' }
   | { kind: 'policy_rejected'; policy: ReceiveLinkPolicyResult };
 
@@ -239,6 +242,25 @@ export interface UploadTicketsModule {
   findByUploadId(uploadId: string): Promise<MultipartTicketLookup | null>;
 }
 
+const MAX_CONTENT_TYPE_LENGTH = 255;
+// C0 controls and DEL; matching them is the point, so the lint rule does not apply.
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
+/**
+ * Byte length of `partNumber` (1-based). Every part is `partSize` except the
+ * last, which holds the remainder: sizeHint=33, partSize=16, expectedParts=3
+ * gives 16, 16 and 1. Passed to `presignUploadPart` so the provider binds it.
+ */
+export function partLength(
+  partNumber: number,
+  partSize: number,
+  sizeHint: number,
+  expectedParts: number,
+): number {
+  return partNumber === expectedParts ? sizeHint - (expectedParts - 1) * partSize : partSize;
+}
+
 /**
  * Shared validation for both intents — same checks, same error strings.
  *
@@ -246,8 +268,13 @@ export interface UploadTicketsModule {
  * single-PUT and multipart paths. Rejecting at the input layer is cheaper
  * than discovering a too-large object after `presignPut`/`initMultipart` has
  * already opened a storage session.
+ *
+ * `contentType` is signed into presigned URLs and stored in sidecar metadata
+ * that later becomes a response header, so control characters (C0 and DEL)
+ * and values over 255 characters are rejected as `invalid_content_type`.
+ * Exported for unit tests.
  */
-function validateUploadInput(
+export function validateUploadInput(
   input: {
     filename: string;
     contentType: string;
@@ -262,6 +289,9 @@ function validateUploadInput(
   const contentType = input.contentType.trim();
   if (contentType.length === 0) {
     return { ok: false, reason: 'content_type_required' };
+  }
+  if (contentType.length > MAX_CONTENT_TYPE_LENGTH || CONTROL_CHARS.test(contentType)) {
+    return { ok: false, reason: 'invalid_content_type' };
   }
   if (!Number.isInteger(input.sizeHint) || input.sizeHint < 0) {
     return { ok: false, reason: 'invalid_size' };
@@ -379,13 +409,16 @@ export function createUploadTicketsModule(
   async function presignInitialPartUrls(
     s3Key: string,
     uploadId: string,
-    expectedParts: number,
+    session: { partSize: number; sizeHint: number; expectedParts: number },
   ): Promise<{ initialUrls: { partNumber: number; url: string }[]; expiresAt: Date }> {
+    const { partSize, sizeHint, expectedParts } = session;
     const limit = Math.min(100, expectedParts);
     const initialUrls: { partNumber: number; url: string }[] = [];
     let expiresAt: Date | null = null;
     for (let n = 1; n <= limit; n++) {
-      const presigned = await storage.presignUploadPart(s3Key, uploadId, n);
+      const presigned = await storage.presignUploadPart(s3Key, uploadId, n, {
+        contentLength: partLength(n, partSize, sizeHint, expectedParts),
+      });
       if (expiresAt === null) expiresAt = presigned.expiresAt;
       initialUrls.push({ partNumber: n, url: presigned.url });
     }
@@ -444,9 +477,9 @@ export function createUploadTicketsModule(
     };
     try {
       await storage.deleteObject(args.key);
-      console.warn('[upload-tickets] multipart-complete rejected; object deleted', logContext);
+      console.warn('[upload-tickets] upload rejected; object deleted', logContext);
     } catch (deleteErr) {
-      console.error('[upload-tickets] multipart-complete rejected; object delete failed', {
+      console.error('[upload-tickets] upload rejected; object delete failed', {
         ...logContext,
         deleteErr,
       });
@@ -583,6 +616,31 @@ export function createUploadTicketsModule(
           .where(eq(uploadTickets.id, ticketId))
           .run();
         return { kind: 'failed', reason: 'object_not_found' };
+      }
+
+      // Backstop for the presigned URL's size binding: the stored object must
+      // match the size the ticket promised and the deployment cap. Same rule
+      // as `completeMultipart`.
+      const sizeReason =
+        ticketRow.sizeHint !== null && info.size !== ticketRow.sizeHint
+          ? 'object_size_mismatch'
+          : info.size > maxObjectSizeBytes
+            ? 'object_size_too_large'
+            : null;
+      if (sizeReason !== null) {
+        db.update(uploadTickets)
+          .set({ status: 'failed', completedAt })
+          .where(eq(uploadTickets.id, ticketId))
+          .run();
+        await deleteCompletedObjectBestEffort({
+          ticketId,
+          key: ticketRow.s3Key,
+          uploadId: null,
+          reason: sizeReason,
+          expectedSize: ticketRow.sizeHint,
+          actualSize: info.size,
+        });
+        return { kind: 'failed', reason: sizeReason };
       }
 
       // Trust the bucket's reported size over the client's hint — this is
@@ -735,11 +793,11 @@ export function createUploadTicketsModule(
         })
         .run();
 
-      const { initialUrls, expiresAt } = await presignInitialPartUrls(
-        s3Key,
-        init.uploadId,
-        init.expectedParts,
-      );
+      const { initialUrls, expiresAt } = await presignInitialPartUrls(s3Key, init.uploadId, {
+        partSize: init.partSize,
+        sizeHint: input.size,
+        expectedParts: init.expectedParts,
+      });
 
       console.log('[upload-tickets] multipart-init', {
         ticketId,
@@ -806,11 +864,11 @@ export function createUploadTicketsModule(
         })
         .run();
 
-      const { initialUrls, expiresAt } = await presignInitialPartUrls(
-        s3Key,
-        init.uploadId,
-        init.expectedParts,
-      );
+      const { initialUrls, expiresAt } = await presignInitialPartUrls(s3Key, init.uploadId, {
+        partSize: init.partSize,
+        sizeHint: input.size,
+        expectedParts: init.expectedParts,
+      });
 
       console.log('[upload-tickets] multipart-init', {
         ticketId,
@@ -838,7 +896,8 @@ export function createUploadTicketsModule(
       if (!ticketRow) return { kind: 'ticket_not_found' };
       if (ticketRow.protocol !== 'multipart') return { kind: 'not_multipart' };
       if (ticketRow.status !== 'pending') return { kind: 'wrong_state' };
-      if (ticketRow.uploadId === null || ticketRow.expectedParts === null) {
+      const { uploadId, partSize, sizeHint, expectedParts } = ticketRow;
+      if (uploadId === null || partSize === null || sizeHint === null || expectedParts === null) {
         // Defensive: a multipart row with NULL multipart columns is
         // structurally broken. Treat as wrong_state rather than 500.
         return { kind: 'wrong_state' };
@@ -851,7 +910,7 @@ export function createUploadTicketsModule(
         !Number.isInteger(to) ||
         from < 1 ||
         to < from ||
-        to > ticketRow.expectedParts ||
+        to > expectedParts ||
         to - from + 1 > 100
       ) {
         return { kind: 'invalid_input', reason: 'invalid_range' };
@@ -876,7 +935,9 @@ export function createUploadTicketsModule(
       const urls: { partNumber: number; url: string }[] = [];
       let expiresAt: Date | null = null;
       for (let n = from; n <= to; n++) {
-        const presigned = await storage.presignUploadPart(ticketRow.s3Key, ticketRow.uploadId, n);
+        const presigned = await storage.presignUploadPart(ticketRow.s3Key, uploadId, n, {
+          contentLength: partLength(n, partSize, sizeHint, expectedParts),
+        });
         if (expiresAt === null) expiresAt = presigned.expiresAt;
         urls.push({ partNumber: n, url: presigned.url });
       }
