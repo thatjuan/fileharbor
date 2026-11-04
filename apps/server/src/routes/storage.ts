@@ -490,11 +490,27 @@ interface SignatureFail {
   status: 400 | 403;
 }
 
+type SignedQueryParam = 'ct' | 'cl' | 'cd';
+const SIGNED_QUERY_PARAMS: readonly SignedQueryParam[] = ['ct', 'cl', 'cd'];
+
+/**
+ * Signed query parameters each method's presigner may emit (besides `exp`
+ * and `sig`). Mirrors `mintUrl` and `presignUploadPart` in `storage/local.ts`.
+ * Any other signed parameter on the URL is rejected before verification.
+ */
+const ALLOWED_SIGNED_PARAMS: Record<CanonicalMethod, ReadonlySet<SignedQueryParam>> = {
+  PUT: new Set(['ct', 'cl']),
+  GET: new Set(['cd']),
+  DELETE: new Set(),
+  'PUT-PART': new Set(['cl']),
+};
+
 /**
  * Parse the signed envelope from the URL, validate `exp`, then verify the
- * HMAC. Shared by every storage route (PUT here; GET in slice 2, DELETE in
- * slice 3 reuse this). Returning the signed values lets the caller enforce
- * the matching-header property without re-parsing the query string.
+ * HMAC. Shared by every storage route (PUT, GET, DELETE, PUT-PART). A signed
+ * parameter the method never emits fails as `invalid_signature`. Returning
+ * the signed values lets the caller enforce the matching-header property
+ * without re-parsing the query string.
  */
 export function checkSignature(
   c: { req: { url: string } },
@@ -504,6 +520,10 @@ export function checkSignature(
   extras?: { uploadId?: string; partNumber?: number },
 ): SignatureOk | SignatureFail {
   const url = new URL(c.req.url);
+  const allowed = ALLOWED_SIGNED_PARAMS[method];
+  if (SIGNED_QUERY_PARAMS.some((p) => !allowed.has(p) && url.searchParams.has(p))) {
+    return { ok: false, error: 'invalid_signature', status: 403 };
+  }
   const expRaw = url.searchParams.get('exp');
   const ctRaw = url.searchParams.get('ct');
   const clRaw = url.searchParams.get('cl');
