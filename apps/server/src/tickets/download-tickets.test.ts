@@ -62,11 +62,8 @@ async function setup(maxDownloads: number | null) {
   const tickets = createDownloadTicketsModule(db, storage, sendLinksModule, createFilesModule(db));
   const mint = () => tickets.createForSendLink({ linkCode: link.code, fileId });
   const downloadCount = () =>
-    db
-      .select({ n: sendLinks.downloadCount })
-      .from(sendLinks)
-      .where(eq(sendLinks.id, link.id))
-      .get()?.n;
+    db.select({ n: sendLinks.downloadCount }).from(sendLinks).where(eq(sendLinks.id, link.id)).get()
+      ?.n;
   return { tickets, mint, downloadCount };
 }
 
