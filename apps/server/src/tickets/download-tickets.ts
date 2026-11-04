@@ -15,31 +15,28 @@ import type { StorageProvider } from '../storage/index.js';
  * passes. Persisted with the URL for an audit trail; the URL goes stale
  * within minutes, so it is never re-served by any GET endpoint.
  *
- * Lifecycle (encoded by the PRD via #11):
+ * Quota model: one minted URL is one download, recorded at mint. The bucket
+ * hands the bytes to whoever calls the presigned GET before its TTL, and the
+ * server has no proof a download did or didn't happen, so the only honest
+ * place to count is the moment the URL leaves the server.
  *
- *   - `createForSendLink` mints a `pending` ticket. NOT a quota burn — a user
- *     who fails to actually transfer the bytes should not exhaust the link.
- *   - `confirm(ticketId)` transitions `pending → completed` AND increments
- *     `send_links.download_count`. Wired to a best-effort public endpoint the
- *     browser hits right after starting the presigned GET. Idempotent: a
- *     second call on a `completed` row is a no-op.
- *   - `confirm(ticketId, { outcome: 'failed' })` transitions `pending → failed`
- *     WITHOUT incrementing the counter. The client uses this when it explicitly
- *     knows the transfer didn't start (e.g. the navigation was cancelled).
- *   - `expire(ticketId)` transitions `pending → expired` AND increments the
- *     counter. Called by the sweep (#10) for tickets the user never confirmed.
- *     The honest model: the server has no proof of completion, but a minted
- *     ticket IS a delivered URL — the bucket will hand the bytes to whoever
- *     calls it before the TTL. Burning the slot on expire is the correct
- *     conservative default.
+ *   - `createForSendLink` checks `download_count < max_downloads`, increments
+ *     `send_links.download_count` and inserts a `pending` ticket in one
+ *     SQLite transaction, so concurrent mints can never overshoot the cap.
+ *   - `confirm(ticketId)` transitions `pending → completed`. Best-effort
+ *     signal from the browser right after it starts the presigned GET.
+ *   - `confirm(ticketId, { outcome: 'failed' })` transitions `pending →
+ *     failed`. Recorded for status display only; it never refunds quota,
+ *     because a client-asserted failure can't be verified.
+ *   - `expire(ticketId)` transitions `pending → expired`. Called by the sweep
+ *     (#10) for tickets nobody confirmed.
  *
- * All transitions use a guarded `UPDATE ... WHERE status='pending'` so they
- * are inherently idempotent: the second call doesn't change rows and the
- * counter never double-bumps.
+ * confirm and expire record the outcome only. All transitions use a guarded
+ * `UPDATE ... WHERE status='pending'` so they are idempotent.
  *
  * Auth note: the public surface uses this module for the recipient flow. The
- * send link's code IS the authorization to enumerate files on it; the link's
- * policy (password / quota / status) gates the actual mint.
+ * send link's code IS the authorization to see the link; the link's policy
+ * (password / quota / status) gates the actual mint.
  */
 
 export interface CreateForSendLinkInput {
@@ -79,16 +76,15 @@ export interface DownloadTicketsModule {
   createForSendLink(input: CreateForSendLinkInput): Promise<CreateForSendLinkOutcome>;
   /**
    * Best-effort signal from the client that the presigned GET was handed off
-   * to the bucket. Transitions `pending → completed` and burns one quota slot
-   * (increments `send_links.download_count`). Idempotent: subsequent calls on
-   * the same ticket are no-ops. `outcome: 'failed'` marks the ticket failed
-   * WITHOUT burning quota — used when the client knows the transfer didn't
-   * start.
+   * to the bucket. Transitions `pending → completed`, or `pending → failed`
+   * with `outcome: 'failed'`. Quota was already burned at mint, so neither
+   * outcome touches `send_links.download_count`. Idempotent: subsequent calls
+   * on the same ticket are no-ops.
    */
   confirm(ticketId: string, opts?: { outcome?: 'completed' | 'failed' }): Promise<ConfirmOutcome>;
   /**
-   * Sweep-driven transition: `pending → expired`, burns one quota slot. Same
-   * guarded-UPDATE pattern as `confirm`. Exposed as a module function so the
+   * Sweep-driven transition: `pending → expired`. Same guarded-UPDATE pattern
+   * as `confirm`, and like it, leaves the download counter alone. Exposed as a module function so the
    * #10 cleanup sweep can call it without duplicating the transaction logic.
    */
   expire(ticketId: string): Promise<ExpireOutcome>;
@@ -101,25 +97,17 @@ export function createDownloadTicketsModule(
   filesModule: FilesModule,
 ): DownloadTicketsModule {
   /**
-   * Guarded transition + counter-burn, wrapped in a single SQLite transaction
-   * so the ticket flip and the link counter bump succeed or fail together.
-   *
-   * `targetStatus` is the terminal status to write (`completed` for confirm,
-   * `expired` for expire). The UPDATE is constrained to `pending` so a second
-   * caller after a winning concurrent caller sees `changes === 0` and bails
-   * before bumping the counter — that's how we get free idempotency.
-   *
-   * `burnQuota = true` is the confirm/expire path; `burnQuota = false` is the
-   * "client cancelled before transfer" path (writes `failed`, no counter bump).
+   * Guarded `pending → targetStatus` flip. The UPDATE is constrained to
+   * `pending`, so a second caller sees `changes === 0` and reports the
+   * current status instead: that's how confirm and expire stay idempotent.
    */
   function transitionPending(
     ticketId: string,
     targetStatus: 'completed' | 'failed' | 'expired',
-    burnQuota: boolean,
   ): { kind: 'ok' } | { kind: 'not_pending'; current: string } | { kind: 'not_found' } {
     return db.transaction((tx) => {
       const ticket = tx
-        .select({ status: downloadTickets.status, sendLinkId: downloadTickets.sendLinkId })
+        .select({ status: downloadTickets.status })
         .from(downloadTickets)
         .where(eq(downloadTickets.id, ticketId))
         .get();
@@ -134,22 +122,8 @@ export function createDownloadTicketsModule(
         .set({ status: targetStatus, completedAt })
         .where(and(eq(downloadTickets.id, ticketId), eq(downloadTickets.status, 'pending')))
         .run();
-
-      // Defensive: if the guarded UPDATE didn't flip the row (another tx beat
-      // us inside this transaction's lifetime, theoretically impossible with
-      // sqlite's serialized writes but cheap insurance), don't bump the counter.
       if (Number(result.changes) === 0) {
         return { kind: 'not_pending' as const, current: 'pending' };
-      }
-
-      if (burnQuota) {
-        // Increment, not decrement: the counter starts at 0 and the policy
-        // compare is `download_count >= max_downloads`. "Burning a quota slot"
-        // is the conceptual decrement of *remaining* downloads.
-        tx.update(sendLinks)
-          .set({ downloadCount: sql`${sendLinks.downloadCount} + 1` })
-          .where(eq(sendLinks.id, ticket.sendLinkId))
-          .run();
       }
       return { kind: 'ok' as const };
     });
@@ -192,20 +166,49 @@ export function createDownloadTicketsModule(
       const ticketId = randomUUID();
       const expiresAtEpoch = Math.floor(presigned.expiresAt.getTime() / 1000);
 
-      db.insert(downloadTickets)
-        .values({
-          id: ticketId,
-          sendLinkId: link.id,
-          fileId: file.id,
-          s3Key: file.s3Key,
-          filename: file.filename,
-          presignedGetUrl: presigned.url,
-          expiresAt: expiresAtEpoch,
-          status: 'pending',
-          createdAt: now,
-          completedAt: null,
-        })
-        .run();
+      // The policy check above is advisory (it gives disabled / expired /
+      // password their error shapes). The authoritative quota check runs here,
+      // in the same synchronous transaction as the counter bump and the ticket
+      // insert, so two concurrent mints can't both take the last slot.
+      const reserved = db.transaction((tx) => {
+        const row = tx
+          .select({ downloadCount: sendLinks.downloadCount, maxDownloads: sendLinks.maxDownloads })
+          .from(sendLinks)
+          .where(eq(sendLinks.id, link.id))
+          .get();
+        if (!row) return { kind: 'link_gone' as const };
+        if (row.maxDownloads !== null && row.downloadCount >= row.maxDownloads) {
+          return { kind: 'quota_exhausted' as const };
+        }
+        tx.update(sendLinks)
+          .set({ downloadCount: sql`${sendLinks.downloadCount} + 1` })
+          .where(eq(sendLinks.id, link.id))
+          .run();
+        tx.insert(downloadTickets)
+          .values({
+            id: ticketId,
+            sendLinkId: link.id,
+            fileId: file.id,
+            s3Key: file.s3Key,
+            filename: file.filename,
+            presignedGetUrl: presigned.url,
+            expiresAt: expiresAtEpoch,
+            status: 'pending',
+            createdAt: now,
+            completedAt: null,
+          })
+          .run();
+        return { kind: 'ok' as const };
+      });
+
+      switch (reserved.kind) {
+        case 'link_gone':
+          return { kind: 'link_not_found' };
+        case 'quota_exhausted':
+          return { kind: 'policy_rejected', policy: { kind: 'quota_exhausted' } };
+        case 'ok':
+          break;
+      }
 
       return {
         kind: 'ok',
@@ -219,10 +222,7 @@ export function createDownloadTicketsModule(
 
     async confirm(ticketId, opts) {
       const outcome = opts?.outcome ?? 'completed';
-      const targetStatus = outcome === 'failed' ? 'failed' : 'completed';
-      const burnQuota = outcome === 'completed';
-
-      const result = transitionPending(ticketId, targetStatus, burnQuota);
+      const result = transitionPending(ticketId, outcome);
       if (result.kind === 'not_found') return { kind: 'ticket_not_found' };
       if (result.kind === 'ok') {
         return outcome === 'failed' ? { kind: 'failed' } : { kind: 'completed' };
@@ -244,7 +244,7 @@ export function createDownloadTicketsModule(
     },
 
     async expire(ticketId) {
-      const result = transitionPending(ticketId, 'expired', true);
+      const result = transitionPending(ticketId, 'expired');
       if (result.kind === 'not_found') return { kind: 'ticket_not_found' };
       if (result.kind === 'ok') return { kind: 'expired' };
       switch (result.current) {

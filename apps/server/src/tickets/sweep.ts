@@ -14,7 +14,7 @@ import type { DownloadTicketsModule } from './download-tickets.js';
  *      sweep just brings the row's status into agreement with reality.
  *      - upload_tickets: bulk atomic `UPDATE ... WHERE status='pending'`.
  *      - download_tickets: per-row, via `downloadTicketsModule.expire(id)` so
- *        the quota-burn logic in #11 stays in one place.
+ *        the ticket lifecycle stays in one module.
  *
  *   2. **Terminal retention**: delete tickets in `expired` / `failed` /
  *      `completed` whose `completed_at` (or `created_at` if null) is older
@@ -358,11 +358,10 @@ export function createTicketSweeper(deps: TicketSweeperDeps): TicketSweeper {
     }
 
     // --- Phase 2: expire pending download tickets --------------------------
-    // Per-row because `download-tickets.expire()` also burns one quota slot
-    // on the parent `send_links` row. Doing this in a single UPDATE would
-    // require duplicating that counter logic, and #11 explicitly placed it
-    // inside `expire()` so all callers agree. The SELECT + per-id loop is
-    // bounded by what's actually pending and past TTL — typically tiny.
+    // Per-row through `download-tickets.expire()` so the transition logic
+    // lives in one module (quota is burned at mint, so expire is a pure
+    // status flip). The SELECT + per-id loop is bounded by what's actually
+    // pending and past TTL — typically tiny.
     try {
       const downloadCutoff = nowSeconds - pendingGraceSeconds;
       const expirable = db
@@ -380,8 +379,7 @@ export function createTicketSweeper(deps: TicketSweeperDeps): TicketSweeper {
         try {
           const outcome = await downloadTicketsModule.expire(row.id);
           // Only the 'expired' kind reflects a real transition this pass.
-          // `already_completed` means a concurrent confirm() beat us (correct
-          // and desirable — quota-burn happens exactly once).
+          // `already_completed` means a concurrent confirm() beat us.
           if (outcome.kind === 'expired') {
             counters.expiredDownloadTickets += 1;
           }

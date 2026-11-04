@@ -91,7 +91,8 @@ export interface PublicSendLinkFile {
 export interface PublicSendLink {
   label: string;
   passwordRequired: boolean;
-  status: 'ok';
+  /** `expired` links answer with an empty `files` list. */
+  status: 'ok' | 'expired';
   /** Admin-configured cap on recipient downloads, or null when unlimited. */
   maxDownloads: number | null;
   /**
@@ -102,7 +103,13 @@ export interface PublicSendLink {
   remainingDownloads: number | null;
   /** Unix epoch seconds, UTC. Null when no expiry was set. */
   expiresAt: number | null;
+  /**
+   * Empty for password links (fetch them with `unlockPublicSendLink`) and for
+   * expired links.
+   */
   files: PublicSendLinkFile[];
+  /** Present on password links, which withhold `files` until unlocked. */
+  fileCount?: number;
 }
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
@@ -868,6 +875,37 @@ export async function getPublicSendLink(code: string): Promise<PublicSendLink> {
   return jsonOrThrow<PublicSendLink>(res);
 }
 
+export type UnlockPublicSendLinkOutcome =
+  | { kind: 'ok'; files: PublicSendLinkFile[] }
+  | { kind: 'policy_rejected'; reason: PolicyRejection }
+  | { kind: 'not_found' }
+  | { kind: 'error'; message: string };
+
+/**
+ * Fetch a password link's file list. The server verifies `password` and
+ * answers `password_required` / `password_wrong` with a 403, which surfaces
+ * here as `policy_rejected`.
+ */
+export async function unlockPublicSendLink(
+  code: string,
+  password: string,
+): Promise<UnlockPublicSendLinkOutcome> {
+  const res = await fetch(`/api/public/send-links/${encodeURIComponent(code)}/files`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (res.ok) {
+    const { files } = (await res.json()) as { files: PublicSendLinkFile[] };
+    return { kind: 'ok', files };
+  }
+  const body = await readErrorBody(res);
+  if (res.status === 404) return { kind: 'not_found' };
+  const rejection = asPolicyRejection(body.error);
+  if (rejection) return { kind: 'policy_rejected', reason: rejection };
+  return { kind: 'error', message: body.message ?? body.error ?? `${res.status}` };
+}
+
 export interface DownloadTicketResponse {
   ticketId: string;
   presignedGetUrl: string;
@@ -908,14 +946,14 @@ export async function createDownloadTicket(
 
 /**
  * Fire-and-forget confirm. Tells the server "I just kicked off the presigned
- * GET; please burn one quota slot and mark this ticket completed". Idempotent;
- * the server is happy to receive duplicates. We don't await the result on the
- * caller's critical path — the public download page hits this immediately
- * after handing the URL to the browser and continues regardless of the
- * response (the eventual-expiry sweep is the safety net).
+ * GET; mark this ticket completed". Idempotent; the server is happy to
+ * receive duplicates. We don't await the result on the caller's critical
+ * path — the public download page hits this immediately after handing the URL
+ * to the browser and continues regardless of the response.
  *
  * `outcome: 'failed'` is the explicit "the user cancelled" signal; it marks
- * the ticket failed WITHOUT consuming a quota slot.
+ * the ticket failed. Neither outcome changes quota: the server burned the
+ * slot when it minted the URL.
  */
 export async function confirmDownloadTicket(
   ticketId: string,

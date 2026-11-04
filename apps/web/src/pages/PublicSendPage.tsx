@@ -9,8 +9,10 @@ import {
   confirmDownloadTicket,
   createDownloadTicket,
   getPublicSendLink,
+  unlockPublicSendLink,
   type PolicyRejection,
   type PublicSendLink,
+  type PublicSendLinkFile,
 } from '../lib/api.js';
 
 /**
@@ -21,20 +23,20 @@ import {
  *
  * #11 widens the surface:
  *
- *   - If `passwordRequired` is true, the recipient must type the password
- *     before any download mint is attempted. The password is sent with each
- *     mint request (the server re-validates on every call — we never trust
- *     the client's "I'm authed" state).
+ *   - If `passwordRequired` is true, the GET withholds the file list. The
+ *     recipient types the password, the page fetches the list from
+ *     `POST /:code/files`, and the same password is sent with each mint
+ *     request (the server re-validates on every call — we never trust the
+ *     client's "I'm authed" state).
+ *   - An expired link comes back with `status: 'expired'` and no files; the
+ *     page shows the expired message instead of a list.
  *   - Each file in the bundle gets its own Download button. Clicking mints
- *     a fresh download ticket and triggers a navigation to the presigned URL.
+ *     a fresh download ticket (which burns one quota slot server-side) and
+ *     triggers a navigation to the presigned URL.
  *   - After kicking off the navigation, we fire-and-forget a `confirm` call
- *     so the server can burn one quota slot. If the user navigates away
- *     before this completes, `fetch(..., { keepalive: true })` still gets the
- *     request out, and the eventual-expiry sweep (#10) is the safety net.
+ *     so the server can record the ticket as completed.
  *   - Quota / expiry / password verdicts are all surfaced with distinct
- *     copy. `quota_exhausted` returns a 403 with `error: 'quota_exhausted'`;
- *     the public listing GET keeps showing the link as "ok" until the cap
- *     is reached on a per-mint basis.
+ *     copy. `quota_exhausted` returns a 403 with `error: 'quota_exhausted'`.
  *
  * Visually this is a public surface: the console skin without any operator
  * affordance — no rail, no counts, no admin nav. One centred column under a
@@ -53,6 +55,10 @@ export function PublicSendPage(): JSX.Element {
   // remember it locally for subsequent file downloads in the same session.
   // Cleared on a `password_wrong` so the input goes back to empty.
   const [unlockedPassword, setUnlockedPassword] = useState<string | null>(null);
+  // A password link's file list, fetched once the password checks out. Links
+  // without a password list their files in `meta.files` directly.
+  const [unlockedFiles, setUnlockedFiles] = useState<PublicSendLinkFile[] | null>(null);
+  const [unlocking, setUnlocking] = useState(false);
   const [busyFileId, setBusyFileId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -102,6 +108,24 @@ export function PublicSendPage(): JSX.Element {
       setError(err instanceof Error ? err.message : t('errors.downloadStartFailed'));
     } finally {
       setBusyFileId(null);
+    }
+  };
+
+  const onUnlock = async (): Promise<void> => {
+    setError(null);
+    setUnlocking(true);
+    try {
+      const outcome = await unlockPublicSendLink(code, password);
+      if (outcome.kind === 'ok') {
+        setUnlockedFiles(outcome.files);
+        setUnlockedPassword(password);
+        return;
+      }
+      handleRejection(outcome);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('send.notAvailable'));
+    } finally {
+      setUnlocking(false);
     }
   };
 
@@ -164,7 +188,10 @@ export function PublicSendPage(): JSX.Element {
     );
   }
 
-  const passwordGate = meta.passwordRequired && unlockedPassword === null;
+  const expired = meta.status === 'expired';
+  const passwordGate = !expired && meta.passwordRequired && unlockedPassword === null;
+  const files = unlockedFiles ?? meta.files;
+  const fileCount = unlockedFiles?.length ?? meta.fileCount ?? meta.files.length;
 
   const remainingLine = ((): string | null => {
     if (meta.remainingDownloads === null) return null;
@@ -229,24 +256,29 @@ export function PublicSendPage(): JSX.Element {
           </div>
         )}
 
-        <div className="meta-item">
-          <span className="meta-label">
-            <FileIcon size={11} />
-            {t('meta.files')}
-          </span>
-          <span className="meta-value">{meta.files.length}</span>
-        </div>
+        {!expired && (
+          <div className="meta-item">
+            <span className="meta-label">
+              <FileIcon size={11} />
+              {t('meta.files')}
+            </span>
+            <span className="meta-value">{fileCount}</span>
+          </div>
+        )}
       </div>
 
-      {passwordGate ? (
+      {expired ? (
+        <p role="alert" className="notice notice-danger">
+          {t('errors.expired')}
+        </p>
+      ) : passwordGate ? (
         <form
           className="card stack"
           onSubmit={(e) => {
             e.preventDefault();
-            setError(null);
-            // Soft-unlock: hand the typed password to subsequent download
-            // mints. The real validation happens server-side on each call.
-            if (password.length > 0) setUnlockedPassword(password);
+            // Unlock fetches the file list; the server also re-validates the
+            // password on every download mint.
+            if (password.length > 0) void onUnlock();
           }}
         >
           <label className="field">
@@ -266,13 +298,17 @@ export function PublicSendPage(): JSX.Element {
             </p>
           )}
           <div className="row-end">
-            <button type="submit" className="btn btn-accent" disabled={password.length === 0}>
+            <button
+              type="submit"
+              className="btn btn-accent"
+              disabled={password.length === 0 || unlocking}
+            >
               <LockIcon size={13} />
               {t('send.unlock')}
             </button>
           </div>
         </form>
-      ) : meta.files.length === 0 ? (
+      ) : files.length === 0 ? (
         // The link exists but the admin's upload hasn't finalized yet.
         // Soft empty state with a hint to refresh.
         <div className="panel">
@@ -287,11 +323,11 @@ export function PublicSendPage(): JSX.Element {
           <div className="panel-head">
             <span className="panel-title">
               {t('send.download')}
-              <span className="panel-count">{meta.files.length}</span>
+              <span className="panel-count">{files.length}</span>
             </span>
           </div>
           <ul className="list-reset">
-            {meta.files.map((file) => (
+            {files.map((file) => (
               <li key={file.id} className="file-row">
                 <div className="row">
                   <FileIcon size={16} className="faint" />
@@ -319,7 +355,7 @@ export function PublicSendPage(): JSX.Element {
         </div>
       )}
 
-      {!passwordGate && error && (
+      {!expired && !passwordGate && error && (
         <p role="alert" className="notice notice-danger">
           {error}
         </p>
