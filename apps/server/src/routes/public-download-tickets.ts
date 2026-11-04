@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 
 import type { SecurityConfig } from '../config.js';
 import { clientIpFor } from '../security/client-ip.js';
+import { isUuid } from '../security/ids.js';
 import { enforceRateLimit, type FixedWindowRateLimiter } from '../security/rate-limit.js';
 import type { DownloadTicketsModule } from '../tickets/download-tickets.js';
 
@@ -26,6 +27,8 @@ interface ConfirmBody {
  * the slot at mint, because the server can't verify a client-asserted
  * failure. This endpoint only records the outcome for status display.
  *
+ * A ticket id that is not a UUID gets a 404 before any rate limiter sees it.
+ *
  * Unauthenticated: the ticket id IS the authorization. We accept the call
  * with any payload because the worst case is that an attacker who knows a
  * ticket id can relabel a pending ticket's outcome.
@@ -39,6 +42,7 @@ export function createPublicDownloadTicketsRoute(
 
   route.post('/:ticketId/confirm', async (c) => {
     const ticketId = c.req.param('ticketId');
+    if (!isUuid(ticketId)) return c.json({ error: 'not_found' }, 404);
     const ip = clientIpFor(c, security);
     const limited = enforceRateLimit(c, security, limiter, [
       { key: `public-confirm:${ip}`, limit: security.rateLimit.publicConfirm },

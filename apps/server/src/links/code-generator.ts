@@ -73,3 +73,14 @@ export async function mintUniqueCode(
 export function normalizeCode(raw: string): string {
   return raw.toUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1');
 }
+
+const PLAUSIBLE_CODE = /^[0-9A-HJKMNP-TV-Z]{6,16}$/;
+
+/**
+ * True when `raw` could be a link code: 6–16 chars from the Crockford alphabet,
+ * after normalization. Covers both legacy 8-character and current 12-character
+ * codes. Public handlers reject anything else with a 404 before rate limiting.
+ */
+export function isPlausibleCode(raw: string): boolean {
+  return PLAUSIBLE_CODE.test(normalizeCode(raw));
+}
