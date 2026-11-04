@@ -109,9 +109,12 @@ async function main(): Promise<void> {
     storage,
   });
 
-  const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
-    console.log(`[fileharbor] listening on http://0.0.0.0:${info.port}`);
-  });
+  const server = serve(
+    { fetch: app.fetch, port: config.port, hostname: config.bindHost },
+    (info) => {
+      console.log(`[fileharbor] listening on http://${info.address}:${info.port}`);
+    },
+  );
 
   // ----- Background ticket sweep (issue #10) --------------------------------
   // Runs inside this same Node process — no separate worker. The sweep:
