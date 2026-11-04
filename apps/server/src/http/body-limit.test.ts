@@ -26,6 +26,7 @@ function localStorageConfig(objectsDir: string): LocalStorageConfig {
     objectsDir,
     signingSecret: 'test-signing-secret',
     presignTtlSeconds: 300,
+    minFreeBytes: 0,
     multipart: {
       thresholdBytes: 100 * MiB,
       partSizeBytes: 16 * MiB,
