@@ -63,7 +63,8 @@ function parsePositiveRange(
  *
  *  - `POST  /:ticketId/finalize`                       — single-PUT finalize:
  *    server-side HEAD against the bucket; on success creates the `file` row,
- *    on missing object marks the ticket failed.
+ *    on missing object marks the ticket failed. A multipart ticket gets
+ *    409 `wrong_protocol`.
  *  - `POST  /:ticketId/upload/multipart/complete`      — multipart complete:
  *    server submits the parts manifest, runs HEAD, records the file row.
  *  - `POST  /:ticketId/upload/multipart/abort`         — multipart abort:
@@ -117,6 +118,8 @@ export function createPublicUploadTicketsRoute(
         return c.json({ status: 'failed' as const, reason: outcome.reason });
       case 'ticket_not_found':
         return c.json({ error: 'not_found' }, 404);
+      case 'wrong_protocol':
+        return c.json({ error: 'wrong_protocol' }, 409);
       case 'policy_rejected':
         return c.json({ error: outcome.policy.kind }, 403);
     }
